@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import calendar
 import tkinter as tk
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -18,6 +18,7 @@ from vision_tracker import (
     IssueInput,
     active_issues,
     create_issue,
+    dashboard_counts,
     delete_issue,
     export_issues_to_excel,
     get_issue,
@@ -25,8 +26,16 @@ from vision_tracker import (
     now_text,
     resolve_issue,
     search_issues,
+    set_issue_status,
     update_issue,
 )
+
+
+STATUS_TAGS = {
+    "Action Required": ("#fff2f0", "#9f1239"),
+    "Monitoring": ("#fff8db", "#854d0e"),
+    "Resolved": ("#ecfdf3", "#166534"),
+}
 
 
 class VisionIssueApp(tk.Tk):
@@ -62,6 +71,9 @@ class VisionIssueApp(tk.Tk):
         self.style.configure("Accent.TButton", font=("Segoe UI", 10, "bold"), padding=(12, 7))
         self.style.configure("Treeview", font=("Segoe UI", 9), rowheight=28)
         self.style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
+        self.style.configure("Card.TFrame", background="#ffffff", relief="solid", borderwidth=1)
+        self.style.configure("CardTitle.TLabel", background="#ffffff", font=("Segoe UI", 9))
+        self.style.configure("CardValue.TLabel", background="#ffffff", font=("Segoe UI", 20, "bold"))
 
     def build_layout(self) -> None:
         header = ttk.Frame(self, padding=(18, 14, 18, 8))
@@ -94,16 +106,60 @@ class VisionIssueApp(tk.Tk):
         self.build_search_tab()
 
     def build_open_tab(self) -> None:
+        self.dashboard_frame = ttk.Frame(self.open_tab)
+        self.dashboard_frame.pack(fill="x", pady=(0, 12))
+        self.dashboard_vars: dict[str, tk.StringVar] = {}
+        for title in ["Action Required", "Monitoring", "Resolved Today", "Active"]:
+            self.add_dashboard_card(self.dashboard_frame, title)
+
         toolbar = ttk.Frame(self.open_tab)
         toolbar.pack(fill="x", pady=(0, 10))
         ttk.Button(toolbar, text="Refresh", command=self.refresh_open_issues).pack(side="left")
-        ttk.Button(toolbar, text="Edit Selected", command=self.load_selected_open_issue).pack(side="left", padx=8)
-        ttk.Button(toolbar, text="Resolve Selected", command=self.resolve_selected_open_issue).pack(side="left")
+        ttk.Button(toolbar, text="Edit", command=self.load_selected_open_issue).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="Action Required", command=lambda: self.quick_status_selected(self.open_tree, "Action Required")).pack(side="left")
+        ttk.Button(toolbar, text="Monitoring", command=lambda: self.quick_status_selected(self.open_tree, "Monitoring")).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="Resolve", command=self.resolve_selected_open_issue).pack(side="left")
         ttk.Button(toolbar, text="Delete Selected", command=lambda: self.delete_selected_issue(self.open_tree)).pack(side="left", padx=8)
 
-        self.open_tree = self.make_issue_tree(self.open_tab)
-        self.open_tree.pack(fill="both", expand=True)
+        content = ttk.Frame(self.open_tab)
+        content.pack(fill="both", expand=True)
+        content.columnconfigure(0, weight=3)
+        content.columnconfigure(1, weight=1)
+        content.rowconfigure(0, weight=1)
+
+        self.open_tree = self.make_issue_tree(content)
+        self.open_tree.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         self.open_tree.bind("<Double-1>", lambda _event: self.load_selected_open_issue())
+        self.open_tree.bind("<<TreeviewSelect>>", lambda _event: self.update_detail_panel(self.open_tree))
+
+        self.detail_frame = ttk.Frame(content, style="Panel.TFrame", padding=14)
+        self.detail_frame.grid(row=0, column=1, sticky="nsew")
+        self.detail_frame.columnconfigure(0, weight=1)
+        ttk.Label(self.detail_frame, text="Selected Issue", style="Subheader.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 10))
+        self.detail_vars = {
+            "Title": tk.StringVar(value="-"),
+            "Status": tk.StringVar(value="-"),
+            "Line / Instrument": tk.StringVar(value="-"),
+            "Category": tk.StringVar(value="-"),
+            "Issue Time": tk.StringVar(value="-"),
+            "Logged By": tk.StringVar(value="-"),
+            "Downtime Duration": tk.StringVar(value="-"),
+        }
+        for row_index, (label, variable) in enumerate(self.detail_vars.items(), start=1):
+            ttk.Label(self.detail_frame, text=label, style="Panel.TLabel").grid(row=row_index * 2 - 1, column=0, sticky="w", pady=(7, 0))
+            ttk.Label(self.detail_frame, textvariable=variable, style="Panel.TLabel", wraplength=260).grid(row=row_index * 2, column=0, sticky="w")
+
+        ttk.Label(self.detail_frame, text="Description", style="Panel.TLabel").grid(row=16, column=0, sticky="w", pady=(14, 0))
+        self.detail_description = tk.Text(self.detail_frame, height=7, wrap="word", font=("Segoe UI", 9), state="disabled")
+        self.detail_description.grid(row=17, column=0, sticky="nsew", pady=(3, 0))
+
+    def add_dashboard_card(self, parent: ttk.Frame, title: str) -> None:
+        card = ttk.Frame(parent, style="Card.TFrame", padding=12)
+        card.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        value = tk.StringVar(value="0")
+        self.dashboard_vars[title] = value
+        ttk.Label(card, text=title, style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(card, textvariable=value, style="CardValue.TLabel").pack(anchor="w", pady=(4, 0))
 
     def build_entry_tab(self) -> None:
         panel = ttk.Frame(self.entry_tab, style="Panel.TFrame", padding=18)
@@ -126,29 +182,52 @@ class VisionIssueApp(tk.Tk):
         self.title_var = tk.StringVar()
         self.set_issue_datetime(now_text())
 
-        self.add_datetime_picker(panel, "Issue Time", 1, 0)
-        self.add_labeled_combo(panel, "Line", self.line_var, LINES, 1, 2)
-        self.add_labeled_combo(panel, "Instrument", self.instrument_var, INSTRUMENTS, 2, 0)
-        category_combo = self.add_labeled_combo(panel, "Category", self.category_var, CATEGORIES, 2, 2)
+        self.add_line_instrument_grid(panel, 1)
+        self.add_datetime_picker(panel, "Issue Time", 2, 0)
+        self.add_labeled_combo(panel, "Line", self.line_var, LINES, 2, 2)
+        self.add_labeled_combo(panel, "Instrument", self.instrument_var, INSTRUMENTS, 3, 0)
+        category_combo = self.add_labeled_combo(panel, "Category", self.category_var, CATEGORIES, 3, 2)
         category_combo.bind("<<ComboboxSelected>>", lambda _event: self.update_subcategories())
-        self.subcategory_combo = self.add_labeled_combo(panel, "Subcategory", self.subcategory_var, CATEGORY_MAP[self.category_var.get()], 3, 0)
-        self.add_labeled_combo(panel, "Status", self.status_var, STATUS_OPTIONS, 3, 2)
-        self.add_labeled_entry(panel, "Downtime Duration", self.resolved_time_var, 4, 0)
-        self.add_labeled_entry(panel, "Title", self.title_var, 5, 0, columnspan=3)
+        self.subcategory_combo = self.add_labeled_combo(panel, "Subcategory", self.subcategory_var, CATEGORY_MAP[self.category_var.get()], 4, 0)
+        self.add_labeled_combo(panel, "Status", self.status_var, STATUS_OPTIONS, 4, 2)
+        self.add_labeled_entry(panel, "Downtime Duration", self.resolved_time_var, 5, 0)
+        self.add_labeled_entry(panel, "Title", self.title_var, 6, 0, columnspan=3)
 
-        ttk.Label(panel, text="Description", style="Panel.TLabel").grid(row=6, column=0, sticky="nw", pady=7)
+        ttk.Label(panel, text="Description", style="Panel.TLabel").grid(row=7, column=0, sticky="nw", pady=7)
         self.description_text = tk.Text(panel, height=7, wrap="word", font=("Segoe UI", 10))
-        self.description_text.grid(row=6, column=1, columnspan=3, sticky="nsew", pady=7)
+        self.description_text.grid(row=7, column=1, columnspan=3, sticky="nsew", pady=7)
 
-        ttk.Label(panel, text="Resolution Notes", style="Panel.TLabel").grid(row=7, column=0, sticky="nw", pady=7)
+        ttk.Label(panel, text="Resolution Notes", style="Panel.TLabel").grid(row=8, column=0, sticky="nw", pady=7)
         self.resolution_text = tk.Text(panel, height=5, wrap="word", font=("Segoe UI", 10))
-        self.resolution_text.grid(row=7, column=1, columnspan=3, sticky="nsew", pady=7)
+        self.resolution_text.grid(row=8, column=1, columnspan=3, sticky="nsew", pady=7)
 
         actions = ttk.Frame(panel, style="Panel.TFrame")
-        actions.grid(row=9, column=0, columnspan=4, sticky="ew", pady=(14, 0))
+        actions.grid(row=10, column=0, columnspan=4, sticky="ew", pady=(14, 0))
         ttk.Button(actions, text="New Blank Form", command=self.clear_form).pack(side="left")
         ttk.Button(actions, text="Delete Issue", command=self.delete_loaded_issue).pack(side="left", padx=8)
         ttk.Button(actions, text="Save Issue", style="Accent.TButton", command=self.save_issue).pack(side="right")
+
+    def add_line_instrument_grid(self, parent: ttk.Frame, row: int) -> None:
+        grid = ttk.Frame(parent, style="Panel.TFrame")
+        grid.grid(row=row, column=0, columnspan=4, sticky="ew", pady=(0, 12))
+        ttk.Label(grid, text="Line / Instrument", style="Panel.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=3)
+        for column_index, instrument in enumerate(INSTRUMENTS, start=1):
+            ttk.Label(grid, text=instrument, style="Panel.TLabel", anchor="center").grid(row=0, column=column_index, padx=2, pady=3)
+        for row_index, line in enumerate(LINES, start=1):
+            ttk.Label(grid, text=line, style="Panel.TLabel").grid(row=row_index, column=0, sticky="w", padx=(0, 8), pady=2)
+            for column_index, instrument in enumerate(INSTRUMENTS, start=1):
+                ttk.Button(
+                    grid,
+                    text="Select",
+                    width=8,
+                    command=lambda selected_line=line, selected_instrument=instrument: self.select_line_instrument(
+                        selected_line, selected_instrument
+                    ),
+                ).grid(row=row_index, column=column_index, padx=2, pady=2)
+
+    def select_line_instrument(self, line: str, instrument: str) -> None:
+        self.line_var.set(line)
+        self.instrument_var.set(instrument)
 
     def build_search_tab(self) -> None:
         filters = ttk.Frame(self.search_tab, style="Panel.TFrame", padding=14)
@@ -172,6 +251,16 @@ class VisionIssueApp(tk.Tk):
         self.add_filter_entry(filters, "Keyword", self.filter_keyword, 1, 4)
         self.add_filter_entry(filters, "From", self.filter_from, 2, 0)
         self.add_filter_entry(filters, "To", self.filter_to, 2, 2)
+
+        quick_filters = ttk.Frame(filters, style="Panel.TFrame")
+        quick_filters.grid(row=3, column=0, columnspan=6, sticky="w", pady=(8, 0))
+        ttk.Button(quick_filters, text="Today", command=lambda: self.apply_quick_filter("today")).pack(side="left", padx=(0, 6))
+        ttk.Button(quick_filters, text="This Week", command=lambda: self.apply_quick_filter("week")).pack(side="left", padx=(0, 6))
+        ttk.Button(quick_filters, text="Action Required", command=lambda: self.apply_quick_filter("action")).pack(side="left", padx=(0, 6))
+        ttk.Button(quick_filters, text="Monitoring", command=lambda: self.apply_quick_filter("monitoring")).pack(side="left", padx=(0, 6))
+        ttk.Button(quick_filters, text="Camera Grab Fail", command=lambda: self.apply_quick_filter("camera_grab")).pack(side="left", padx=(0, 6))
+        ttk.Button(quick_filters, text="Recipe Issues", command=lambda: self.apply_quick_filter("recipe")).pack(side="left", padx=(0, 6))
+        ttk.Button(quick_filters, text="Clear", command=self.clear_search_filters).pack(side="left")
 
         buttons = ttk.Frame(filters, style="Panel.TFrame")
         buttons.grid(row=2, column=4, columnspan=2, sticky="e", padx=6, pady=6)
@@ -211,6 +300,8 @@ class VisionIssueApp(tk.Tk):
         for column in columns:
             tree.heading(column, text=headings[column])
             tree.column(column, width=widths[column], anchor="w")
+        for status, (background, foreground) in STATUS_TAGS.items():
+            tree.tag_configure(status, background=background, foreground=foreground)
         return tree
 
     def add_labeled_entry(self, parent: ttk.Frame, label: str, variable: tk.StringVar, row: int, column: int, columnspan: int = 1) -> ttk.Entry:
@@ -380,6 +471,13 @@ class VisionIssueApp(tk.Tk):
     def refresh_open_issues(self) -> None:
         rows = active_issues()
         self.populate_tree(self.open_tree, rows)
+        self.refresh_dashboard()
+        self.update_detail_panel(self.open_tree)
+
+    def refresh_dashboard(self) -> None:
+        counts = dashboard_counts()
+        for title, variable in self.dashboard_vars.items():
+            variable.set(str(counts.get(title, 0)))
 
     def search_records(self) -> None:
         filters = {
@@ -394,6 +492,43 @@ class VisionIssueApp(tk.Tk):
         }
         self.search_rows = search_issues(filters)
         self.populate_tree(self.search_tree, self.search_rows)
+
+    def apply_quick_filter(self, filter_name: str) -> None:
+        if filter_name == "today":
+            today = datetime.now().strftime("%Y-%m-%d")
+            self.filter_from.set(f"{today} 00:00")
+            self.filter_to.set(f"{today} 23:59")
+        elif filter_name == "week":
+            today_dt = datetime.now()
+            start = today_dt - timedelta(days=today_dt.weekday())
+            self.filter_from.set(start.strftime("%Y-%m-%d 00:00"))
+            self.filter_to.set(today_dt.strftime("%Y-%m-%d 23:59"))
+        elif filter_name == "action":
+            self.filter_status.set("Action Required")
+        elif filter_name == "monitoring":
+            self.filter_status.set("Monitoring")
+        elif filter_name == "camera_grab":
+            self.filter_category.set("Camera Grab Fail")
+            self.update_filter_subcategories()
+        elif filter_name == "recipe":
+            self.filter_category.set("Recipe")
+            self.update_filter_subcategories()
+        self.search_records()
+
+    def clear_search_filters(self) -> None:
+        for variable in [
+            self.filter_status,
+            self.filter_line,
+            self.filter_instrument,
+            self.filter_category,
+            self.filter_subcategory,
+            self.filter_keyword,
+            self.filter_from,
+            self.filter_to,
+        ]:
+            variable.set("")
+        self.update_filter_subcategories()
+        self.search_records()
 
     def populate_tree(self, tree: ttk.Treeview, rows: list) -> None:
         for item in tree.get_children():
@@ -413,6 +548,7 @@ class VisionIssueApp(tk.Tk):
                     row["status"],
                     row["worker"],
                 ),
+                tags=(row["status"],),
             )
 
     def selected_tree_id(self, tree: ttk.Treeview) -> int | None:
@@ -428,6 +564,34 @@ class VisionIssueApp(tk.Tk):
             messagebox.showwarning(APP_TITLE, "Select an open issue first.")
             return
         self.load_issue_into_form(issue_id)
+
+    def update_detail_panel(self, tree: ttk.Treeview) -> None:
+        if not hasattr(self, "detail_vars"):
+            return
+        issue_id = self.selected_tree_id(tree)
+        row = get_issue(issue_id) if issue_id is not None else None
+        if row is None:
+            for variable in self.detail_vars.values():
+                variable.set("-")
+            self.set_detail_description("")
+            return
+        category_text = row["category"]
+        if row["subcategory"]:
+            category_text = f"{category_text} / {row['subcategory']}"
+        self.detail_vars["Title"].set(row["title"] or "-")
+        self.detail_vars["Status"].set(row["status"] or "-")
+        self.detail_vars["Line / Instrument"].set(f"{row['line']} / {row['instrument']}")
+        self.detail_vars["Category"].set(category_text)
+        self.detail_vars["Issue Time"].set(row["issue_time"] or "-")
+        self.detail_vars["Logged By"].set(row["worker"] or "-")
+        self.detail_vars["Downtime Duration"].set(row["resolved_time"] or "-")
+        self.set_detail_description(row["description"] or "")
+
+    def set_detail_description(self, value: str) -> None:
+        self.detail_description.configure(state="normal")
+        self.detail_description.delete("1.0", "end")
+        self.detail_description.insert("1.0", value)
+        self.detail_description.configure(state="disabled")
 
     def load_issue_into_form(self, issue_id: int) -> None:
         row = get_issue(issue_id)
@@ -503,6 +667,21 @@ class VisionIssueApp(tk.Tk):
         resolve_issue(issue_id)
         self.refresh_open_issues()
         self.search_records()
+
+    def quick_status_selected(self, tree: ttk.Treeview, status: str) -> None:
+        issue_id = self.selected_tree_id(tree)
+        if issue_id is None:
+            messagebox.showwarning(APP_TITLE, "Select an issue first.")
+            return
+        try:
+            set_issue_status(issue_id, status)
+        except ValueError as exc:
+            messagebox.showerror(APP_TITLE, str(exc))
+            return
+        self.refresh_open_issues()
+        self.search_records()
+        self.select_issue_in_tree(self.open_tree, issue_id)
+        self.update_detail_panel(self.open_tree)
 
     def delete_loaded_issue(self) -> None:
         if self.selected_issue_id is None:

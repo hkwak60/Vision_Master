@@ -224,6 +224,27 @@ def resolve_issue(issue_id: int, notes: str = "", db_path: Path = DB_PATH) -> No
         conn.commit()
 
 
+def set_issue_status(issue_id: int, status: str, db_path: Path = DB_PATH) -> None:
+    if status not in STATUS_OPTIONS:
+        raise ValueError("Status is not valid.")
+    with closing(connect(db_path)) as conn:
+        if status == "Resolved":
+            row = conn.execute("SELECT issue_time FROM issues WHERE id = ?", (issue_id,)).fetchone()
+            duration = downtime_duration(row["issue_time"]) if row else ""
+            conn.execute(
+                """
+                UPDATE issues
+                SET status = ?,
+                    resolved_time = COALESCE(NULLIF(resolved_time, ''), ?)
+                WHERE id = ?
+                """,
+                (status, duration, issue_id),
+            )
+        else:
+            conn.execute("UPDATE issues SET status = ? WHERE id = ?", (status, issue_id))
+        conn.commit()
+
+
 def delete_issue(issue_id: int, db_path: Path = DB_PATH) -> None:
     with closing(connect(db_path)) as conn:
         conn.execute("DELETE FROM issues WHERE id = ?", (issue_id,))
@@ -281,6 +302,30 @@ def active_issues(db_path: Path = DB_PATH) -> list[sqlite3.Row]:
                 tuple(ACTIVE_STATUS_OPTIONS),
             )
         )
+
+
+def dashboard_counts(db_path: Path = DB_PATH) -> dict[str, int]:
+    today = datetime.now().strftime("%Y-%m-%d")
+    with closing(connect(db_path)) as conn:
+        rows = conn.execute(
+            """
+            SELECT status, COUNT(*) AS count
+            FROM issues
+            GROUP BY status
+            """
+        ).fetchall()
+        counts = {row["status"]: int(row["count"]) for row in rows}
+        resolved_today = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM issues
+            WHERE status = 'Resolved' AND issue_time >= ? AND issue_time < ?
+            """,
+            (f"{today} 00:00", f"{today} 23:59"),
+        ).fetchone()
+        counts["Resolved Today"] = int(resolved_today["count"]) if resolved_today else 0
+        counts["Active"] = sum(counts.get(status, 0) for status in ACTIVE_STATUS_OPTIONS)
+        return counts
 
 
 def search_issues(filters: dict[str, str] | None = None, db_path: Path = DB_PATH) -> list[sqlite3.Row]:

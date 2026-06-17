@@ -5,12 +5,15 @@ from openpyxl import load_workbook
 
 from vision_tracker import (
     IssueInput,
+    active_issues,
     create_issue,
+    dashboard_counts,
     delete_issue,
     export_issues_to_excel,
     initialize_database,
     resolve_issue,
     search_issues,
+    set_issue_status,
     update_issue,
 )
 
@@ -38,6 +41,11 @@ def run_tests() -> None:
         rows = search_issues({"status": "Action Required", "category": "Hardware"}, db_path)
         assert len(rows) == 1
         assert rows[0]["title"] == "Camera disconnect during inspection"
+        active = active_issues(db_path)
+        assert len(active) == 1
+        counts = dashboard_counts(db_path)
+        assert counts["Action Required"] == 1
+        assert counts["Active"] == 1
 
         update_issue(
             issue_id,
@@ -87,6 +95,10 @@ def run_tests() -> None:
         grab_fail = search_issues({"category": "Camera Grab Fail"}, db_path)
         assert len(grab_fail) == 1
         assert grab_fail[0]["status"] == "Resolved"
+
+        set_issue_status(issue_id, "Monitoring", db_path)
+        monitoring = search_issues({"status": "Monitoring"}, db_path)
+        assert len(monitoring) == 1
 
         issue_id_3 = create_issue(
             IssueInput(
