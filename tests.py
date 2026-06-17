@@ -8,6 +8,7 @@ from vision_tracker import (
     create_issue,
     export_issues_to_excel,
     initialize_database,
+    resolve_issue,
     search_issues,
     update_issue,
 )
@@ -23,7 +24,7 @@ def run_tests() -> None:
                 issue_time="2026-06-17 08:10",
                 line="1-1",
                 instrument="Pinhole",
-                worker="Worker 1",
+                worker="Hojun Kwak",
                 category="Hardware",
                 subcategory="Camera",
                 title="Camera disconnect during inspection",
@@ -44,7 +45,7 @@ def run_tests() -> None:
                 resolved_time="2026-06-17 08:42",
                 line="1-1",
                 instrument="Pinhole",
-                worker="Worker 1",
+                worker="Hojun Kwak",
                 category="Hardware",
                 subcategory="Camera",
                 title="Camera disconnect during inspection",
@@ -64,6 +65,26 @@ def run_tests() -> None:
         sheet = workbook.active
         assert sheet["B2"].value == "2026-06-17 08:10"
         assert sheet["I2"].value == "Camera disconnect during inspection"
+        assert sheet["C1"].value == "Downtime Duration"
+        assert sheet["F1"].value == "Logged By"
+
+        issue_id_2 = create_issue(
+            IssueInput(
+                issue_time="2026-06-17 09:00",
+                line="1-2",
+                instrument="Lead",
+                worker="Kijung Kim",
+                category="Camera Grab Fail",
+                subcategory="",
+                title="Grab timeout",
+                description="Camera failed to grab during cycle.",
+            ),
+            db_path,
+        )
+        resolve_issue(issue_id_2, db_path=db_path)
+        grab_fail = search_issues({"category": "Camera Grab Fail"}, db_path)
+        assert len(grab_fail) == 1
+        assert grab_fail[0]["status"] == "Resolved"
 
 
 if __name__ == "__main__":

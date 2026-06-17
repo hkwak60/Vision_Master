@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,12 +25,13 @@ INSTRUMENTS = [
     "Welding(+)",
     "Welding(-)",
 ]
-WORKERS = ["Worker 1", "Worker 2", "Worker 3"]
+WORKERS = ["Hojun Kwak", "Kijung Kim", "Jihoon Yun", "Jisub Yun"]
 STATUS_OPTIONS = ["Open", "In Progress", "Resolved"]
 CATEGORY_MAP = {
     "Hardware": ["Camera", "Lighting"],
     "Software": ["Program Crash"],
     "Recipe": ["Overkill(False Reject)", "Underkill(False Accept)"],
+    "Camera Grab Fail": [""],
     "Production": [""],
     "Other": [""],
 }
@@ -55,6 +57,17 @@ def now_text() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
+def downtime_duration(issue_time: str, end_time: datetime | None = None) -> str:
+    end_time = end_time or datetime.now()
+    try:
+        start_time = datetime.strptime(issue_time, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return ""
+    minutes = max(0, int((end_time - start_time).total_seconds() // 60))
+    hours, remaining_minutes = divmod(minutes, 60)
+    return f"{hours:02d}:{remaining_minutes:02d}"
+
+
 def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
@@ -63,7 +76,7 @@ def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
 
 
 def initialize_database(db_path: Path = DB_PATH) -> None:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS issues (
@@ -89,6 +102,7 @@ def initialize_database(db_path: Path = DB_PATH) -> None:
             ON issues(status, category, subcategory, line, instrument, issue_time)
             """
         )
+        conn.commit()
 
 
 def validate_issue(issue: IssueInput) -> list[str]:
@@ -105,6 +119,10 @@ def validate_issue(issue: IssueInput) -> list[str]:
     for label, value in required.items():
         if not value.strip():
             errors.append(f"{label} is required.")
+    try:
+        datetime.strptime(issue.issue_time, "%Y-%m-%d %H:%M")
+    except ValueError:
+        errors.append("Issue time must use YYYY-MM-DD HH:MM format.")
     if issue.line not in LINES:
         errors.append("Line is not valid.")
     if issue.instrument not in INSTRUMENTS:
@@ -124,7 +142,7 @@ def create_issue(issue: IssueInput, db_path: Path = DB_PATH) -> int:
     if errors:
         raise ValueError("\n".join(errors))
 
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn:
         cursor = conn.execute(
             """
             INSERT INTO issues (
@@ -148,6 +166,7 @@ def create_issue(issue: IssueInput, db_path: Path = DB_PATH) -> int:
                 issue.resolution_notes,
             ),
         )
+        conn.commit()
         return int(cursor.lastrowid)
 
 
@@ -156,7 +175,7 @@ def update_issue(issue_id: int, issue: IssueInput, db_path: Path = DB_PATH) -> N
     if errors:
         raise ValueError("\n".join(errors))
 
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn:
         conn.execute(
             """
             UPDATE issues
@@ -180,10 +199,13 @@ def update_issue(issue_id: int, issue: IssueInput, db_path: Path = DB_PATH) -> N
                 issue_id,
             ),
         )
+        conn.commit()
 
 
 def resolve_issue(issue_id: int, notes: str = "", db_path: Path = DB_PATH) -> None:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn:
+        row = conn.execute("SELECT issue_time FROM issues WHERE id = ?", (issue_id,)).fetchone()
+        duration = downtime_duration(row["issue_time"]) if row else ""
         conn.execute(
             """
             UPDATE issues
@@ -192,8 +214,9 @@ def resolve_issue(issue_id: int, notes: str = "", db_path: Path = DB_PATH) -> No
                 resolution_notes = ?
             WHERE id = ?
             """,
-            (now_text(), notes, issue_id),
+            (duration, notes, issue_id),
         )
+        conn.commit()
 
 
 def build_search_query(filters: dict[str, str]) -> tuple[str, list[Any]]:
@@ -236,12 +259,12 @@ def build_search_query(filters: dict[str, str]) -> tuple[str, list[Any]]:
 def search_issues(filters: dict[str, str] | None = None, db_path: Path = DB_PATH) -> list[sqlite3.Row]:
     filters = filters or {}
     query, params = build_search_query(filters)
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn:
         return list(conn.execute(query, params))
 
 
 def get_issue(issue_id: int, db_path: Path = DB_PATH) -> sqlite3.Row | None:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn:
         return conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
 
 
@@ -254,10 +277,10 @@ def export_issues_to_excel(rows: list[sqlite3.Row], output_path: Path) -> None:
     headers = [
         "ID",
         "Issue Time",
-        "Resolved Time",
+        "Downtime Duration",
         "Line",
         "Instrument",
-        "Worker",
+        "Logged By",
         "Category",
         "Subcategory",
         "Title",
@@ -288,10 +311,10 @@ def header_key(header: str) -> str:
     return {
         "ID": "id",
         "Issue Time": "issue_time",
-        "Resolved Time": "resolved_time",
+        "Downtime Duration": "resolved_time",
         "Line": "line",
         "Instrument": "instrument",
-        "Worker": "worker",
+        "Logged By": "worker",
         "Category": "category",
         "Subcategory": "subcategory",
         "Title": "title",

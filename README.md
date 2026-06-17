@@ -12,8 +12,14 @@ Local Windows desktop issue tracker for mass-production vision inspection instru
   - Hardware: Camera, Lighting
   - Software: Program Crash
   - Recipe: Overkill(False Reject), Underkill(False Accept)
+  - Camera Grab Fail
   - Production
   - Other
+- Current worker profile selector:
+  - Hojun Kwak
+  - Kijung Kim
+  - Jihoon Yun
+  - Jisub Yun
 - New issue entry
 - Open issue lookup
 - Search and Excel export
