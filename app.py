@@ -114,12 +114,12 @@ class VisionIssueApp(tk.Tk):
 
         toolbar = ttk.Frame(self.open_tab)
         toolbar.pack(fill="x", pady=(0, 10))
-        ttk.Button(toolbar, text="Refresh", command=self.refresh_open_issues).pack(side="left")
-        ttk.Button(toolbar, text="Edit", command=self.load_selected_open_issue).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="↻ Refresh", command=self.refresh_open_issues).pack(side="left")
+        ttk.Button(toolbar, text="✎ Edit", command=self.load_selected_open_issue).pack(side="left", padx=8)
         ttk.Button(toolbar, text="Action Required", command=lambda: self.quick_status_selected(self.open_tree, "Action Required")).pack(side="left")
         ttk.Button(toolbar, text="Monitoring", command=lambda: self.quick_status_selected(self.open_tree, "Monitoring")).pack(side="left", padx=8)
-        ttk.Button(toolbar, text="Resolve", command=self.resolve_selected_open_issue).pack(side="left")
-        ttk.Button(toolbar, text="Delete Selected", command=lambda: self.delete_selected_issue(self.open_tree)).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="✓ Resolved", command=self.resolve_selected_open_issue).pack(side="left")
+        ttk.Button(toolbar, text="✕ Delete", command=lambda: self.delete_selected_issue(self.open_tree)).pack(side="left", padx=8)
 
         content = ttk.Frame(self.open_tab)
         content.pack(fill="both", expand=True)
@@ -127,13 +127,33 @@ class VisionIssueApp(tk.Tk):
         content.columnconfigure(1, weight=1)
         content.rowconfigure(0, weight=1)
 
-        self.open_tree = self.make_issue_tree(content)
-        self.open_tree.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        open_table = ttk.Frame(content)
+        open_table.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        open_table.columnconfigure(0, weight=1)
+        open_table.rowconfigure(0, weight=1)
+        self.open_tree = self.make_issue_tree(open_table)
+        self.open_tree.grid(row=0, column=0, sticky="nsew")
+        open_scroll = ttk.Scrollbar(open_table, orient="vertical", command=self.open_tree.yview)
+        open_scroll.grid(row=0, column=1, sticky="ns")
+        self.open_tree.configure(yscrollcommand=open_scroll.set)
         self.open_tree.bind("<Double-1>", lambda _event: self.load_selected_open_issue())
         self.open_tree.bind("<<TreeviewSelect>>", lambda _event: self.update_detail_panel(self.open_tree))
 
-        self.detail_frame = ttk.Frame(content, style="Panel.TFrame", padding=14)
-        self.detail_frame.grid(row=0, column=1, sticky="nsew")
+        detail_panel = ttk.Frame(content, style="Panel.TFrame")
+        detail_panel.grid(row=0, column=1, sticky="nsew")
+        detail_panel.columnconfigure(0, weight=1)
+        detail_panel.rowconfigure(0, weight=1)
+        detail_canvas = tk.Canvas(detail_panel, background="#ffffff", highlightthickness=0)
+        detail_canvas.grid(row=0, column=0, sticky="nsew")
+        detail_scroll = ttk.Scrollbar(detail_panel, orient="vertical", command=detail_canvas.yview)
+        detail_scroll.grid(row=0, column=1, sticky="ns")
+        detail_canvas.configure(yscrollcommand=detail_scroll.set)
+        self.detail_frame = ttk.Frame(detail_canvas, style="Panel.TFrame", padding=14)
+        detail_window = detail_canvas.create_window((0, 0), window=self.detail_frame, anchor="nw")
+        self.detail_frame.bind("<Configure>", lambda _event: detail_canvas.configure(scrollregion=detail_canvas.bbox("all")))
+        detail_canvas.bind("<Configure>", lambda event: detail_canvas.itemconfigure(detail_window, width=event.width))
+        detail_canvas.bind("<MouseWheel>", lambda event: detail_canvas.yview_scroll(int(-event.delta / 60), "units"))
+
         self.detail_frame.columnconfigure(0, weight=1)
         ttk.Label(self.detail_frame, text="Selected Issue", style="Subheader.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 10))
         self.detail_vars = {
@@ -150,8 +170,9 @@ class VisionIssueApp(tk.Tk):
             ttk.Label(self.detail_frame, textvariable=variable, style="Panel.TLabel", wraplength=260).grid(row=row_index * 2, column=0, sticky="w")
 
         ttk.Label(self.detail_frame, text="Description", style="Panel.TLabel").grid(row=16, column=0, sticky="w", pady=(14, 0))
-        self.detail_description = tk.Text(self.detail_frame, height=7, wrap="word", font=("Segoe UI", 9), state="disabled")
+        self.detail_description = tk.Text(self.detail_frame, height=12, wrap="word", font=("Segoe UI", 9), state="disabled")
         self.detail_description.grid(row=17, column=0, sticky="nsew", pady=(3, 0))
+        self.detail_description.bind("<MouseWheel>", lambda event: detail_canvas.yview_scroll(int(-event.delta / 60), "units"))
 
     def add_dashboard_card(self, parent: ttk.Frame, title: str) -> None:
         card = ttk.Frame(parent, style="Card.TFrame", padding=12)
@@ -203,27 +224,26 @@ class VisionIssueApp(tk.Tk):
 
         actions = ttk.Frame(panel, style="Panel.TFrame")
         actions.grid(row=10, column=0, columnspan=4, sticky="ew", pady=(14, 0))
-        ttk.Button(actions, text="New Blank Form", command=self.clear_form).pack(side="left")
-        ttk.Button(actions, text="Delete Issue", command=self.delete_loaded_issue).pack(side="left", padx=8)
-        ttk.Button(actions, text="Save Issue", style="Accent.TButton", command=self.save_issue).pack(side="right")
+        ttk.Button(actions, text="+ New", command=self.clear_form).pack(side="left")
+        ttk.Button(actions, text="✕ Delete", command=self.delete_loaded_issue).pack(side="left", padx=8)
+        ttk.Button(actions, text="✓ Save", style="Accent.TButton", command=self.save_issue).pack(side="right")
 
     def add_line_instrument_grid(self, parent: ttk.Frame, row: int) -> None:
         grid = ttk.Frame(parent, style="Panel.TFrame")
         grid.grid(row=row, column=0, columnspan=4, sticky="ew", pady=(0, 12))
-        ttk.Label(grid, text="Line / Instrument", style="Panel.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=3)
+        ttk.Label(grid, text="Line", style="Panel.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=3)
+        for column_index, line in enumerate(LINES, start=1):
+            ttk.Button(grid, text=line, width=10, command=lambda selected_line=line: self.line_var.set(selected_line)).grid(
+                row=0, column=column_index, padx=2, pady=3
+            )
+        ttk.Label(grid, text="Vision", style="Panel.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=3)
         for column_index, instrument in enumerate(INSTRUMENTS, start=1):
-            ttk.Label(grid, text=instrument, style="Panel.TLabel", anchor="center").grid(row=0, column=column_index, padx=2, pady=3)
-        for row_index, line in enumerate(LINES, start=1):
-            ttk.Label(grid, text=line, style="Panel.TLabel").grid(row=row_index, column=0, sticky="w", padx=(0, 8), pady=2)
-            for column_index, instrument in enumerate(INSTRUMENTS, start=1):
-                ttk.Button(
-                    grid,
-                    text="Select",
-                    width=8,
-                    command=lambda selected_line=line, selected_instrument=instrument: self.select_line_instrument(
-                        selected_line, selected_instrument
-                    ),
-                ).grid(row=row_index, column=column_index, padx=2, pady=2)
+            ttk.Button(
+                grid,
+                text=instrument,
+                width=14,
+                command=lambda selected_instrument=instrument: self.instrument_var.set(selected_instrument),
+            ).grid(row=1, column=column_index, padx=2, pady=3)
 
     def select_line_instrument(self, line: str, instrument: str) -> None:
         self.line_var.set(line)
@@ -264,12 +284,19 @@ class VisionIssueApp(tk.Tk):
 
         buttons = ttk.Frame(filters, style="Panel.TFrame")
         buttons.grid(row=2, column=4, columnspan=2, sticky="e", padx=6, pady=6)
-        ttk.Button(buttons, text="Search", style="Accent.TButton", command=self.search_records).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="Export Excel", command=self.export_search_results).pack(side="left")
-        ttk.Button(buttons, text="Delete Selected", command=lambda: self.delete_selected_issue(self.search_tree)).pack(side="left", padx=(8, 0))
+        ttk.Button(buttons, text="⌕ Search", style="Accent.TButton", command=self.search_records).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="⇩ Excel", command=self.export_search_results).pack(side="left")
+        ttk.Button(buttons, text="✕ Delete", command=lambda: self.delete_selected_issue(self.search_tree)).pack(side="left", padx=(8, 0))
 
-        self.search_tree = self.make_issue_tree(self.search_tab)
-        self.search_tree.pack(fill="both", expand=True)
+        search_table = ttk.Frame(self.search_tab)
+        search_table.pack(fill="both", expand=True)
+        search_table.columnconfigure(0, weight=1)
+        search_table.rowconfigure(0, weight=1)
+        self.search_tree = self.make_issue_tree(search_table)
+        self.search_tree.grid(row=0, column=0, sticky="nsew")
+        search_scroll = ttk.Scrollbar(search_table, orient="vertical", command=self.search_tree.yview)
+        search_scroll.grid(row=0, column=1, sticky="ns")
+        self.search_tree.configure(yscrollcommand=search_scroll.set)
         self.search_tree.bind("<Double-1>", lambda _event: self.load_selected_search_issue())
 
     def make_issue_tree(self, parent: ttk.Frame) -> ttk.Treeview:
@@ -302,6 +329,7 @@ class VisionIssueApp(tk.Tk):
             tree.column(column, width=widths[column], anchor="w")
         for status, (background, foreground) in STATUS_TAGS.items():
             tree.tag_configure(status, background=background, foreground=foreground)
+        tree.bind("<MouseWheel>", lambda event: tree.yview_scroll(int(-event.delta / 60), "units"))
         return tree
 
     def add_labeled_entry(self, parent: ttk.Frame, label: str, variable: tk.StringVar, row: int, column: int, columnspan: int = 1) -> ttk.Entry:
