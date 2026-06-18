@@ -56,6 +56,7 @@ STATUS_TAGS = {
 }
 
 LANGUAGES = ["English", "한국어"]
+VERSION_TAB_SPACER = " " * 80
 TRANSLATIONS = {
     "한국어": {
         "Current Worker": "작업자",
@@ -194,7 +195,7 @@ class VisionIssueApp(tk.Tk):
         self.notebook.add(self.open_tab, text="Open Issues")
         self.notebook.add(self.entry_tab, text="New / Edit Issue")
         self.notebook.add(self.search_tab, text="Search & Excel Report")
-        self.notebook.add(self.version_spacer_tab, text=" " * 34, state="disabled")
+        self.notebook.add(self.version_spacer_tab, text=VERSION_TAB_SPACER, state="disabled")
         self.notebook.add(self.version_tab, text="Version History")
 
         self.build_open_tab()
@@ -230,11 +231,13 @@ class VisionIssueApp(tk.Tk):
             self.notebook.tab(self.open_tab, text=self.text("Open Issues"))
             self.notebook.tab(self.entry_tab, text=self.text("New / Edit Issue"))
             self.notebook.tab(self.search_tab, text=self.text("Search & Excel Report"))
-            self.notebook.tab(self.version_spacer_tab, text=" " * 34)
+            self.notebook.tab(self.version_spacer_tab, text=VERSION_TAB_SPACER)
             self.notebook.tab(self.version_tab, text=self.text("Version History"))
         for tree_name in ["open_tree", "search_tree"]:
             if hasattr(self, tree_name):
                 self.update_tree_headings(getattr(self, tree_name))
+        if hasattr(self, "version_create_issue_button"):
+            self.refresh_create_issue_button()
 
     def update_tree_headings(self, tree: ttk.Treeview) -> None:
         headings = {
@@ -603,11 +606,14 @@ class VisionIssueApp(tk.Tk):
         self.add_labeled_entry(editor, "Update Time", self.version_update_time_var, 2, 0)
         self.add_labeled_entry(editor, "SW Version", self.version_sw_var, 2, 2)
         self.add_labeled_entry(editor, "Algo Version", self.version_algo_var, 3, 0)
-        ttk.Checkbutton(
+        self.version_create_issue_button = tk.Button(
             editor,
-            text=self.text("Create Monitoring Issue"),
-            variable=self.version_create_issue_var,
-        ).grid(row=3, column=2, columnspan=2, sticky="w", pady=7)
+            anchor="w",
+            relief="raised",
+            command=self.toggle_create_issue_option,
+        )
+        self.version_create_issue_button.grid(row=3, column=2, columnspan=2, sticky="w", pady=7)
+        self.refresh_create_issue_button()
 
         target_frame = ttk.Frame(editor, style="Panel.TFrame")
         target_frame.grid(row=4, column=0, columnspan=4, sticky="ew", pady=(6, 8))
@@ -660,11 +666,26 @@ class VisionIssueApp(tk.Tk):
         self.version_description_list.grid(row=2, column=0, sticky="nsew")
         self.version_description_list.bind("<<ListboxSelect>>", lambda _event: self.show_selected_version_description())
         self.tr_label(description_panel, "Description", style="Panel.TLabel").grid(row=3, column=0, sticky="w", pady=(8, 2))
-        self.version_description_view = tk.Text(description_panel, height=9, wrap="word", font=("Segoe UI", 9), state="disabled")
-        self.version_description_view.grid(row=4, column=0, sticky="nsew")
+        description_text_frame = ttk.Frame(description_panel, style="Panel.TFrame")
+        description_text_frame.grid(row=4, column=0, sticky="nsew")
+        description_text_frame.columnconfigure(0, weight=1)
+        description_text_frame.rowconfigure(0, weight=1)
+        self.version_description_view = tk.Text(description_text_frame, height=9, wrap="word", font=("Segoe UI", 9), state="disabled")
+        self.version_description_view.grid(row=0, column=0, sticky="nsew")
+        version_description_scroll = ttk.Scrollbar(description_text_frame, orient="vertical", command=self.version_description_view.yview)
+        version_description_scroll.grid(row=0, column=1, sticky="ns")
+        self.version_description_view.configure(yscrollcommand=version_description_scroll.set)
 
         self.on_version_group_changed()
         self.refresh_version_history()
+
+    def toggle_create_issue_option(self) -> None:
+        self.version_create_issue_var.set(not self.version_create_issue_var.get())
+        self.refresh_create_issue_button()
+
+    def refresh_create_issue_button(self) -> None:
+        marker = "☑" if self.version_create_issue_var.get() else "☐"
+        self.version_create_issue_button.configure(text=f"{marker} {self.text('Create Monitoring Issue')}")
 
     def on_version_group_changed(self) -> None:
         group_name = self.version_group_var.get()
