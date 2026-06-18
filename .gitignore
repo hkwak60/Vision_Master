@@ -9,6 +9,7 @@ build/
 release/
 build_release/
 *.spec
+!VisionIssueTracker.spec
 
 .venv/
 venv/
