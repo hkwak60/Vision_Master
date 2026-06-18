@@ -2,6 +2,10 @@
 
 Local Windows desktop issue tracker for mass-production vision inspection instruments.
 
+## User Manual
+
+See [USER_MANUAL.md](USER_MANUAL.md) for the full Korean user manual with feature descriptions, examples, deployment notes, and DB backup guidance.
+
 ## Current Prototype
 
 - Local SQLite database stored in `data/vision_issues.db`
