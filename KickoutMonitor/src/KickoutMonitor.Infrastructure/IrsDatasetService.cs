@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.IO.Compression;
 using System.Security;
 using System.Text;
@@ -39,32 +39,37 @@ public sealed class IrsDatasetService : IIrsDatasetService
                 cancellationToken.ThrowIfCancellationRequested();
                 if (File.Exists(savedPath)) continue;
                 if (!Directory.Exists(savedPath)) continue;
-                var folderName = Path.GetFileName(savedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-                var parentName = Path.GetFileName(Path.GetDirectoryName(savedPath) ?? string.Empty);
+                var normalizedPath = savedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var folderName = Path.GetFileName(normalizedPath);
+                var parent = Directory.GetParent(normalizedPath);
+                var parentName = parent?.Name ?? string.Empty;
+                var grandParentName = parent?.Parent?.Name ?? string.Empty;
                 if (ExcludedFolders.Contains(parentName)) continue;
 
-                if (parentName.Equals("NEED_TO_SIMULATE", StringComparison.OrdinalIgnoreCase))
+                if (grandParentName.Equals("NEED_TO_SIMULATE", StringComparison.OrdinalIgnoreCase))
                 {
+                    var missingCropFolder = parentName;
                     var images = Directory.EnumerateFiles(savedPath, "*.*", SearchOption.AllDirectories)
                         .Where(IsImage)
                         .Where(path => Path.GetFileName(path).Contains(candidate.CameraLocation.StartsWith("BTM", StringComparison.OrdinalIgnoreCase) ? "LOWER" : "UPPER", StringComparison.OrdinalIgnoreCase)
                             || !Path.GetFileName(path).Contains("UPPER", StringComparison.OrdinalIgnoreCase)
                             && !Path.GetFileName(path).Contains("LOWER", StringComparison.OrdinalIgnoreCase))
-                        .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(path => SourceFirstOrder(path))
+                        .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
                         .Take(3)
                         .ToArray();
                     items.Add(new(
-                        $"{record.Key}|SIM|{folderName}",
+                        $"{record.Key}|SIM|{missingCropFolder}|{folderName}",
                         record.Key,
                         record.LinePolarity,
                         record.ProducedAt,
                         record.CellId,
                         record.CameraLocation,
                         candidate.SecondReason,
-                        folderName,
+                        missingCropFolder,
                         "NEED_TO_SIMULATE",
                         images,
-                        ClassesFor(folderName, record.LinePolarity),
+                        ClassesFor(missingCropFolder, record.LinePolarity),
                         true));
                     continue;
                 }
@@ -277,7 +282,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
 
     private static IReadOnlyList<IReadOnlyList<string>> BuildImagePairs(IReadOnlyList<string> files)
     {
-        var ordered = files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+        var ordered = files.OrderBy(path => SourceFirstOrder(path)).ThenBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
         var sourceMaps = ordered.Where(path => Path.GetFileName(path).Contains("SourceMap", StringComparison.OrdinalIgnoreCase)).ToArray();
         var activeMaps = ordered.Where(path => Path.GetFileName(path).Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)).ToArray();
         if (sourceMaps.Length > 0 || activeMaps.Length > 0)
@@ -291,7 +296,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
 
         var sourceImgs = ordered.Where(path => Path.GetFileName(path).Contains("SourceImg", StringComparison.OrdinalIgnoreCase)
             && !Path.GetFileName(path).Contains("mask", StringComparison.OrdinalIgnoreCase)).ToArray();
-        var masks = ordered.Where(path => Path.GetFileName(path).Contains("mask", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var masks = ordered.Where(path => Path.GetFileName(path).Contains("mask", StringComparison.OrdinalIgnoreCase)).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
         if (sourceImgs.Length > 0 && masks.Length > 0)
         {
             var pairs = new List<IReadOnlyList<string>>();
@@ -317,13 +322,13 @@ public sealed class IrsDatasetService : IIrsDatasetService
         if (name.Contains("_R_", StringComparison.OrdinalIgnoreCase)) return "R";
         return string.Empty;
     }
-    private static int PairOrder(string path)
+    private static int SourceFirstOrder(string path)
     {
         var name = Path.GetFileName(path);
-        if (name.Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)) return 0;
-        if (name.Contains("mask", StringComparison.OrdinalIgnoreCase)) return 0;
-        if (name.Contains("SourceMap", StringComparison.OrdinalIgnoreCase)) return 1;
-        if (name.Contains("SourceImg", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (name.Contains("SourceMap", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (name.Contains("SourceImg", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (name.Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (name.Contains("mask", StringComparison.OrdinalIgnoreCase)) return 1;
         return 2;
     }
 
@@ -421,6 +426,3 @@ public sealed class IrsDatasetService : IIrsDatasetService
         return builder.ToString();
     }
 }
-
-
-

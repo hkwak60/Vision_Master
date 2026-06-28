@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="KickoutMonitor.App.IrsReviewView"
+<UserControl x:Class="KickoutMonitor.App.IrsReviewView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="#F3F5F7"
@@ -235,7 +235,8 @@
                             </Style>
                         </StackPanel.Resources>
                         <TextBlock Text="{Binding SelectionPanelTitle}" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                        <ItemsControl ItemsSource="{Binding FinalClassOptions}">
+                        <StackPanel Visibility="{Binding FinalClassVisibility}">
+                            <ItemsControl ItemsSource="{Binding FinalClassOptions}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <UniformGrid Columns="1"/>
@@ -250,6 +251,8 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                         <Separator Margin="0,6"/>
+                        </StackPanel>
+                        <StackPanel Visibility="{Binding FirstStageSelectionVisibility}">
                         <TextBlock Text="IRS Selection" FontWeight="SemiBold" Margin="0,0,0,4"/>
                         <ItemsControl ItemsSource="{Binding TopClassifications}">
                             <ItemsControl.ItemsPanel>
@@ -364,6 +367,7 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        </StackPanel>
                         <Button Content="Enter: Commit Selection"
                                 Command="{Binding CommitCommand}"
                                 Margin="2,6,2,8"
@@ -400,4 +404,3 @@
         </Grid>
     </DockPanel>
 </UserControl>
-

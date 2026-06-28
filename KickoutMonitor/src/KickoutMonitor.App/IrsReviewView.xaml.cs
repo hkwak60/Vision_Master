@@ -31,6 +31,7 @@ public partial class IrsReviewView : UserControl
     {
         InitializeComponent();
         DataContextChanged += IrsReviewView_DataContextChanged;
+        Loaded += (_, _) => Focus();
     }
 
     public event EventHandler? BackRequested;
@@ -97,7 +98,9 @@ public partial class IrsReviewView : UserControl
     {
         if (Keyboard.FocusedElement is TextBoxBase or ComboBox) return;
         if (DataContext is not IrsReviewViewModel viewModel) return;
-        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.R or Key.U or Key.Enter)
+        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.R or Key.U or Key.N or Key.Enter
+            or Key.D1 or Key.D2 or Key.D3 or Key.D4 or Key.D5 or Key.D6
+            or Key.NumPad1 or Key.NumPad2 or Key.NumPad3 or Key.NumPad4 or Key.NumPad5 or Key.NumPad6)
         {
             viewModel.HandleHotkey(e.Key);
             e.Handled = true;

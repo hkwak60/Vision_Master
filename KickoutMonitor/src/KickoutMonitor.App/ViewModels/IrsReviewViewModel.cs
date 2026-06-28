@@ -1,7 +1,8 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using KickoutMonitor.App.Services;
@@ -222,6 +223,8 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public IReadOnlyList<IrsSelectionOption> SepaSelections => SelectionOptions.Where(x => x.Id == "SEPA").ToArray();
     public IReadOnlyList<IrsSelectionOption> SepaShoulderSelections => SelectionOptions.Where(x => x.Id.StartsWith("SEPA_SHOULDER_", StringComparison.Ordinal)).ToArray();
     public string SelectionPanelTitle => _datasetMode ? "Final Class" : "IRS Selection";
+    public Visibility FirstStageSelectionVisibility => _datasetMode ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility FinalClassVisibility => _datasetMode ? Visibility.Visible : Visibility.Collapsed;
 
     public string WorkbookPath
     {
@@ -242,7 +245,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             _ = LoadPreviewsAsync(value);
             RestoreSelections(value);
             ConfigureFinalClassOptions(value);
-            OnPropertyChanged(nameof(SelectionPanelTitle));
+            NotifyModeVisualsChanged();
             OnPropertyChanged(nameof(SelectedIndex));
             OnPropertyChanged(nameof(PositionText));
             OnPropertyChanged(nameof(ReasonOverlay));
@@ -296,20 +299,61 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public void HandleHotkey(Key key)
     {
         if (IsBusy) return;
+
         switch (key)
         {
             case Key.Left when PreviousImageCommand.CanExecute(null):
                 PreviousImageCommand.Execute(null);
-                break;
+                return;
             case Key.Right when NextImageCommand.CanExecute(null):
                 NextImageCommand.Execute(null);
-                break;
+                return;
             case Key.Up when PreviousCommand.CanExecute(null):
                 PreviousCommand.Execute(null);
-                break;
+                return;
             case Key.Down when NextCommand.CanExecute(null):
                 NextCommand.Execute(null);
-                break;
+                return;
+        }
+
+        if (_datasetMode)
+        {
+            switch (key)
+            {
+                case Key.R:
+                    SelectFinalByDisplay("Real");
+                    break;
+                case Key.N:
+                    SelectFinalByDisplay("No Need to Retrain");
+                    break;
+                case Key.Enter when CommitCommand.CanExecute(null):
+                    CommitCommand.Execute(null);
+                    break;
+                case Key.D1 or Key.NumPad1:
+                    SelectFinalByPrefix("01");
+                    break;
+                case Key.D2 or Key.NumPad2:
+                    SelectFinalByPrefix("02");
+                    break;
+                case Key.D3 or Key.NumPad3:
+                    SelectFinalByPrefix("03");
+                    break;
+                case Key.D4 or Key.NumPad4:
+                    SelectFinalByPrefix("04");
+                    break;
+                case Key.D5 or Key.NumPad5:
+                    SelectFinalByPrefix("05");
+                    break;
+                case Key.D6 or Key.NumPad6:
+                    SelectFinalByPrefix("06");
+                    break;
+            }
+
+            return;
+        }
+
+        switch (key)
+        {
             case Key.R:
                 SelectExclusive("RULEBASE");
                 break;
@@ -319,30 +363,8 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             case Key.Enter when CommitCommand.CanExecute(null):
                 CommitCommand.Execute(null);
                 break;
-            case Key.N when _datasetMode:
-                SelectFinalByDisplay("No Need to Retrain");
-                break;
-            case Key.D1 or Key.NumPad1 when _datasetMode:
-                SelectFinalByPrefix("01");
-                break;
-            case Key.D2 or Key.NumPad2 when _datasetMode:
-                SelectFinalByPrefix("02");
-                break;
-            case Key.D3 or Key.NumPad3 when _datasetMode:
-                SelectFinalByPrefix("03");
-                break;
-            case Key.D4 or Key.NumPad4 when _datasetMode:
-                SelectFinalByPrefix("04");
-                break;
-            case Key.D5 or Key.NumPad5 when _datasetMode:
-                SelectFinalByPrefix("05");
-                break;
-            case Key.D6 or Key.NumPad6 when _datasetMode:
-                SelectFinalByPrefix("06");
-                break;
         }
     }
-
     private void Browse()
     {
         var dialog = new OpenFileDialog
@@ -370,6 +392,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             AddLog($"Loading IRS workbook: {WorkbookPath}");
             var progress = new Progress<string>(AddLog);
             _datasetMode = false;
+            NotifyModeVisualsChanged();
             var records = await _queue.LoadAsync(WorkbookPath, progress, CancellationToken.None);
             _loadedCandidates = records;
             var committed = await _commits.LoadRecordsAsync(CancellationToken.None);
@@ -669,7 +692,12 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
 
         dispatcher.BeginInvoke(action);
     }
-
+    private void NotifyModeVisualsChanged()
+    {
+        OnPropertyChanged(nameof(SelectionPanelTitle));
+        OnPropertyChanged(nameof(FirstStageSelectionVisibility));
+        OnPropertyChanged(nameof(FinalClassVisibility));
+    }
 
     private async Task GenerateDatasetAsync()
     {
@@ -694,6 +722,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             Candidates.Clear();
             ClearPreviews();
             _datasetMode = true;
+            NotifyModeVisualsChanged();
             foreach (var datasetItem in items)
             {
                 var item = new IrsCandidateItem(datasetItem)
@@ -705,7 +734,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             SelectedCandidate = Candidates.FirstOrDefault();
             Status = $"Dataset review queue ready: {Candidates.Count:N0} item(s).";
             AddLog(Status);
-            OnPropertyChanged(nameof(SelectionPanelTitle));
+            NotifyModeVisualsChanged();
         }
         catch (Exception exception)
         {
@@ -825,4 +854,3 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public event EventHandler? PreviewImageChanging;
     public event EventHandler? PreviewImageLoaded;
 }
-

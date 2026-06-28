@@ -1,4 +1,4 @@
-﻿using KickoutMonitor.Application;
+using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
 using KickoutMonitor.Infrastructure;
 using System.IO.Compression;
@@ -935,6 +935,36 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public async Task IrsDatasetService_LoadsNeedToSimulateCropFolderItems()
+    {
+        var storageRoot = Path.Combine(Path.GetTempPath(), "IrsNeedToSimulateStorage", Guid.NewGuid().ToString("N"));
+        var rawFolder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "NEED_TO_SIMULATE", "Crop_A", "CELL-SIM-FOLDER");
+        Directory.CreateDirectory(rawFolder);
+        var upper1 = Path.Combine(rawFolder, "CELL-SIM_UPPER_0_Raw.jpg");
+        var upper2 = Path.Combine(rawFolder, "CELL-SIM_UPPER_1_Raw.jpg");
+        var upper3 = Path.Combine(rawFolder, "CELL-SIM_UPPER_2_Raw.jpg");
+        foreach (var file in new[] { upper1, upper2, upper3 }) await File.WriteAllTextAsync(file, "image");
+
+        var candidate = new IrsReviewCandidate("sim-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-SIM", "TOP", "raw.jpg", "NG", "reason", 4);
+        var record = new IrsReviewRecord("sim-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-SIM", "TOP", "NG", "reason", ["A_L"], 3, 0, 0, storageRoot, DateTimeOffset.Now, [rawFolder]);
+
+        try
+        {
+            var items = await new IrsDatasetService(new AppStorage(storageRoot)).BuildQueueAsync([candidate], [record], CancellationToken.None);
+            var item = Assert.Single(items);
+            Assert.True(item.IsNeedToSimulate);
+            Assert.Equal("Crop_A", item.SourceFolder);
+            Assert.Equal("NEED_TO_SIMULATE", item.OriginalClass);
+            Assert.Equal(3, item.ImagePaths.Count);
+            Assert.Contains("01_OK_TOP_CATHODE", item.AllowedClasses);
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task IrsDatasetService_GroupsSourceMapsTogetherAndActiveMapsTogether()
     {
         var storageRoot = Path.Combine(Path.GetTempPath(), "IrsDatasetStorage", Guid.NewGuid().ToString("N"));
@@ -1231,4 +1261,3 @@ public sealed class CoreTests
             Task.FromResult(new IrsImageLookupResult([path], "found"));
     }
 }
-
