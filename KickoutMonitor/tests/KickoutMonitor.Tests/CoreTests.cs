@@ -940,11 +940,11 @@ public sealed class CoreTests
         var storageRoot = Path.Combine(Path.GetTempPath(), "IrsNeedToSimulateStorage", Guid.NewGuid().ToString("N"));
         var rawFolder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "NEED_TO_SIMULATE", "Crop_A", "CELL-SIM-FOLDER");
         Directory.CreateDirectory(rawFolder);
-        var upper1 = Path.Combine(rawFolder, "CELL-SIM_UPPER_0_Raw.jpg");
-        var upper2 = Path.Combine(rawFolder, "CELL-SIM_UPPER_1_Raw.jpg");
-        var upper3 = Path.Combine(rawFolder, "CELL-SIM_UPPER_2_Raw.jpg");
-        var upperOverlay = Path.Combine(rawFolder, "CELL-SIM_UPPER_0_Overlay.jpg");
-        var lowerRaw = Path.Combine(rawFolder, "CELL-SIM_LOWER_0_Raw.jpg");
+        var upper1 = Path.Combine(rawFolder, "CELL-SIM_0_0.jpg");
+        var upper2 = Path.Combine(rawFolder, "CELL-SIM_0_1.jpg");
+        var upper3 = Path.Combine(rawFolder, "CELL-SIM_0_2.jpg");
+        var upperOverlay = Path.Combine(rawFolder, "CELL-SIM_0_0_overlay.jpg");
+        var lowerRaw = Path.Combine(rawFolder, "CELL-SIM_1_0.jpg");
         foreach (var file in new[] { upper1, upper2, upper3, upperOverlay, lowerRaw }) await File.WriteAllTextAsync(file, "image");
 
         var candidate = new IrsReviewCandidate("sim-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-SIM", "TOP", "raw.jpg", "NG", "reason", 4);

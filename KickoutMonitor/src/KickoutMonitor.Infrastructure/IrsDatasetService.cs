@@ -310,19 +310,36 @@ public sealed class IrsDatasetService : IIrsDatasetService
     private static bool IsProductionRawImage(string path, string cameraLocation)
     {
         var name = Path.GetFileName(path);
-        var targetSide = cameraLocation.StartsWith("BTM", StringComparison.OrdinalIgnoreCase) ? "LOWER" : "UPPER";
-        if (!name.Contains(targetSide, StringComparison.OrdinalIgnoreCase)) return false;
-        if (!name.Contains("Raw", StringComparison.OrdinalIgnoreCase)) return false;
-        return !name.Contains("Overlay", StringComparison.OrdinalIgnoreCase)
-            && !name.Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)
-            && !name.Contains("SourceMap", StringComparison.OrdinalIgnoreCase)
-            && !name.Contains("SourceImg", StringComparison.OrdinalIgnoreCase)
-            && !name.Contains("mask", StringComparison.OrdinalIgnoreCase);
+        if (name.Contains("overlay", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("SourceMap", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("SourceImg", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("mask", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var top = !cameraLocation.StartsWith("BTM", StringComparison.OrdinalIgnoreCase);
+        return top
+            ? name.Contains("UPPER", StringComparison.OrdinalIgnoreCase) || HasIndexedSideToken(name, "0")
+            : name.Contains("LOWER", StringComparison.OrdinalIgnoreCase) || HasIndexedSideToken(name, "1");
     }
+
+    private static bool HasIndexedSideToken(string fileName, string sideToken) =>
+        System.Text.RegularExpressions.Regex.IsMatch(
+            fileName,
+            $@"(^|_){sideToken}_[0-9]+(\.|_)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     private static int ProductionImageOrder(string path)
     {
         var name = Path.GetFileNameWithoutExtension(path);
+        var indexed = System.Text.RegularExpressions.Regex.Match(name, @"(?:^|_)(?:0|1)_([0-9]+)(?:$|_)");
+        if (indexed.Success && int.TryParse(indexed.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var indexedValue))
+        {
+            return indexedValue;
+        }
+
         var matches = System.Text.RegularExpressions.Regex.Matches(name, @"(?<!\d)\d+(?!\d)");
         if (matches.Count == 0) return int.MaxValue;
         return int.TryParse(matches[matches.Count - 1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
