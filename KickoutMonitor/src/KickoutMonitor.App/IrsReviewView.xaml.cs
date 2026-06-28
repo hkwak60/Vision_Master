@@ -32,6 +32,7 @@ public partial class IrsReviewView : UserControl
         InitializeComponent();
         DataContextChanged += IrsReviewView_DataContextChanged;
         Loaded += (_, _) => Focus();
+        AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(IrsReviewView_PreviewKeyDown), true);
     }
 
     public event EventHandler? BackRequested;
@@ -52,6 +53,7 @@ public partial class IrsReviewView : UserControl
             oldViewModel.PropertyChanged -= ViewModel_PropertyChanged;
             oldViewModel.PreviewImageChanging -= ViewModel_PreviewImageChanging;
             oldViewModel.PreviewImageLoaded -= ViewModel_PreviewImageLoaded;
+            oldViewModel.RequestKeyboardFocus -= ViewModel_RequestKeyboardFocus;
         }
 
         var viewModel = e.NewValue as IrsReviewViewModel;
@@ -66,9 +68,13 @@ public partial class IrsReviewView : UserControl
             viewModel.PropertyChanged += ViewModel_PropertyChanged;
             viewModel.PreviewImageChanging += ViewModel_PreviewImageChanging;
             viewModel.PreviewImageLoaded += ViewModel_PreviewImageLoaded;
+            viewModel.RequestKeyboardFocus += ViewModel_RequestKeyboardFocus;
         }
     }
 
+
+    private void ViewModel_RequestKeyboardFocus(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, Focus);
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(IrsReviewViewModel.SelectedCandidate))
@@ -96,6 +102,7 @@ public partial class IrsReviewView : UserControl
 
     private void IrsReviewView_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (Keyboard.Modifiers is not ModifierKeys.None) return;
         if (Keyboard.FocusedElement is TextBoxBase or ComboBox) return;
         if (DataContext is not IrsReviewViewModel viewModel) return;
         if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.R or Key.U or Key.N or Key.Enter

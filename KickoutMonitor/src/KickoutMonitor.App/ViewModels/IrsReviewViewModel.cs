@@ -827,6 +827,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         });
         ClearFinalSelections();
         Next();
+        RequestKeyboardFocus?.Invoke(this, EventArgs.Empty);
     }
 
     private void ClearFinalSelections()
@@ -853,4 +854,5 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler? PreviewImageChanging;
     public event EventHandler? PreviewImageLoaded;
+    public event EventHandler? RequestKeyboardFocus;
 }

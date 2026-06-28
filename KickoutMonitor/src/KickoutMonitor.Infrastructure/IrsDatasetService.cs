@@ -51,10 +51,8 @@ public sealed class IrsDatasetService : IIrsDatasetService
                     var missingCropFolder = parentName;
                     var images = Directory.EnumerateFiles(savedPath, "*.*", SearchOption.AllDirectories)
                         .Where(IsImage)
-                        .Where(path => Path.GetFileName(path).Contains(candidate.CameraLocation.StartsWith("BTM", StringComparison.OrdinalIgnoreCase) ? "LOWER" : "UPPER", StringComparison.OrdinalIgnoreCase)
-                            || !Path.GetFileName(path).Contains("UPPER", StringComparison.OrdinalIgnoreCase)
-                            && !Path.GetFileName(path).Contains("LOWER", StringComparison.OrdinalIgnoreCase))
-                        .OrderBy(path => SourceFirstOrder(path))
+                        .Where(path => IsProductionRawImage(path, candidate.CameraLocation))
+                        .OrderBy(path => ProductionImageOrder(path))
                         .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
                         .Take(3)
                         .ToArray();
@@ -309,6 +307,28 @@ public sealed class IrsDatasetService : IIrsDatasetService
         return ordered.Chunk(2).Select(chunk => (IReadOnlyList<string>)chunk).ToArray();
     }
 
+    private static bool IsProductionRawImage(string path, string cameraLocation)
+    {
+        var name = Path.GetFileName(path);
+        var targetSide = cameraLocation.StartsWith("BTM", StringComparison.OrdinalIgnoreCase) ? "LOWER" : "UPPER";
+        if (!name.Contains(targetSide, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!name.Contains("Raw", StringComparison.OrdinalIgnoreCase)) return false;
+        return !name.Contains("Overlay", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("SourceMap", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("SourceImg", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("mask", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int ProductionImageOrder(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        var matches = System.Text.RegularExpressions.Regex.Matches(name, @"(?<!\d)\d+(?!\d)");
+        if (matches.Count == 0) return int.MaxValue;
+        return int.TryParse(matches[matches.Count - 1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : int.MaxValue;
+    }
     private static IReadOnlyList<IReadOnlyList<string>> BuildMapPairs(
         IReadOnlyList<string> sourceMaps,
         IReadOnlyList<string> activeMaps)

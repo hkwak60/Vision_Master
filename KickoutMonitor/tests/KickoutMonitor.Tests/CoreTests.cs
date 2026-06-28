@@ -943,7 +943,9 @@ public sealed class CoreTests
         var upper1 = Path.Combine(rawFolder, "CELL-SIM_UPPER_0_Raw.jpg");
         var upper2 = Path.Combine(rawFolder, "CELL-SIM_UPPER_1_Raw.jpg");
         var upper3 = Path.Combine(rawFolder, "CELL-SIM_UPPER_2_Raw.jpg");
-        foreach (var file in new[] { upper1, upper2, upper3 }) await File.WriteAllTextAsync(file, "image");
+        var upperOverlay = Path.Combine(rawFolder, "CELL-SIM_UPPER_0_Overlay.jpg");
+        var lowerRaw = Path.Combine(rawFolder, "CELL-SIM_LOWER_0_Raw.jpg");
+        foreach (var file in new[] { upper1, upper2, upper3, upperOverlay, lowerRaw }) await File.WriteAllTextAsync(file, "image");
 
         var candidate = new IrsReviewCandidate("sim-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-SIM", "TOP", "raw.jpg", "NG", "reason", 4);
         var record = new IrsReviewRecord("sim-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-SIM", "TOP", "NG", "reason", ["A_L"], 3, 0, 0, storageRoot, DateTimeOffset.Now, [rawFolder]);
@@ -955,7 +957,7 @@ public sealed class CoreTests
             Assert.True(item.IsNeedToSimulate);
             Assert.Equal("Crop_A", item.SourceFolder);
             Assert.Equal("NEED_TO_SIMULATE", item.OriginalClass);
-            Assert.Equal(3, item.ImagePaths.Count);
+            Assert.Equal([upper1, upper2, upper3], item.ImagePaths);
             Assert.Contains("01_OK_TOP_CATHODE", item.AllowedClasses);
         }
         finally
@@ -1111,7 +1113,7 @@ public sealed class CoreTests
         int rowNumber,
         IReadOnlyList<string> values)
     {
-        builder.Append($"<row r=\"{rowNumber}\">");
+        builder.Append("<row r=\"").Append(rowNumber).Append("\">");
         for (var index = 0; index < values.Count; index++)
         {
             if (string.IsNullOrEmpty(values[index])) continue;
@@ -1125,7 +1127,6 @@ public sealed class CoreTests
         }
         builder.AppendLine("</row>");
     }
-
     private static string ColumnName(int index)
     {
         var name = string.Empty;
