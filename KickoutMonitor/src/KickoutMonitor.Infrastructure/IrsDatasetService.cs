@@ -77,8 +77,8 @@ public sealed class IrsDatasetService : IIrsDatasetService
             {
                 var folder = group.Key;
                 if (ExcludedFolders.Contains(folder)) continue;
-                var files = group.OrderBy(path => PairOrder(path)).ThenBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
-                foreach (var pair in files.Chunk(2))
+                var pairs = BuildImagePairs(group.ToArray());
+                foreach (var pair in pairs)
                 {
                     var originalClass = OriginalClassFromFiles(pair, folder, record.LinePolarity);
                     items.Add(new(
@@ -274,6 +274,49 @@ public sealed class IrsDatasetService : IIrsDatasetService
         return folder;
     }
 
+
+    private static IReadOnlyList<IReadOnlyList<string>> BuildImagePairs(IReadOnlyList<string> files)
+    {
+        var ordered = files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+        var sourceMaps = ordered.Where(path => Path.GetFileName(path).Contains("SourceMap", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var activeMaps = ordered.Where(path => Path.GetFileName(path).Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (sourceMaps.Length > 0 || activeMaps.Length > 0)
+        {
+            return sourceMaps.Chunk(2)
+                .Concat(activeMaps.Chunk(2))
+                .Where(chunk => chunk.Length > 0)
+                .Select(chunk => (IReadOnlyList<string>)chunk.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray())
+                .ToArray();
+        }
+
+        var sourceImgs = ordered.Where(path => Path.GetFileName(path).Contains("SourceImg", StringComparison.OrdinalIgnoreCase)
+            && !Path.GetFileName(path).Contains("mask", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var masks = ordered.Where(path => Path.GetFileName(path).Contains("mask", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (sourceImgs.Length > 0 && masks.Length > 0)
+        {
+            var pairs = new List<IReadOnlyList<string>>();
+            foreach (var source in sourceImgs)
+            {
+                var side = SideToken(source);
+                var mask = masks.FirstOrDefault(path => SideToken(path).Equals(side, StringComparison.OrdinalIgnoreCase))
+                    ?? masks.FirstOrDefault();
+                if (mask is not null) pairs.Add([source, mask]);
+            }
+            return pairs;
+        }
+
+        return ordered.Chunk(2).Select(chunk => (IReadOnlyList<string>)chunk).ToArray();
+    }
+
+    private static string SideToken(string path)
+    {
+        var name = Path.GetFileName(path);
+        if (name.Contains("UPPER", StringComparison.OrdinalIgnoreCase)) return "UPPER";
+        if (name.Contains("LOWER", StringComparison.OrdinalIgnoreCase)) return "LOWER";
+        if (name.Contains("_L_", StringComparison.OrdinalIgnoreCase)) return "L";
+        if (name.Contains("_R_", StringComparison.OrdinalIgnoreCase)) return "R";
+        return string.Empty;
+    }
     private static int PairOrder(string path)
     {
         var name = Path.GetFileName(path);
@@ -378,4 +421,6 @@ public sealed class IrsDatasetService : IIrsDatasetService
         return builder.ToString();
     }
 }
+
+
 

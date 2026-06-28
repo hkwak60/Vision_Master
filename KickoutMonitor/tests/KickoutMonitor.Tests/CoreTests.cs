@@ -1,4 +1,4 @@
-using KickoutMonitor.Application;
+﻿using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
 using KickoutMonitor.Infrastructure;
 using System.IO.Compression;
@@ -895,6 +895,74 @@ public sealed class CoreTests
         }
     }
 
+    [Fact]
+    public async Task IrsReviewCommitService_TabsideRightDoesNotCopyLeftFiles()
+    {
+        var shareRoot = Path.Combine(Path.GetTempPath(), "IrsTabsideShare", Guid.NewGuid().ToString("N"));
+        var storageRoot = Path.Combine(Path.GetTempPath(), "IrsTabsideStorage", Guid.NewGuid().ToString("N"));
+        var originalFolder = Path.Combine(shareRoot, "Files", "Image", "E81C", "2026", "06", "01", "08", "OK", "CELL-TAB-FOLDER");
+        Directory.CreateDirectory(originalFolder);
+        var original = Path.Combine(originalFolder, "CELL-TAB_UPPER_1_Raw.jpg");
+        await File.WriteAllTextAsync(original, "image");
+        File.SetLastWriteTimeUtc(original, DateTime.UtcNow.AddMinutes(-10));
+        var cropFolder = Path.Combine(shareRoot, "Files", "Image", "E81C", "2026", "06", "01", "Mavin", "Crop_micro_tabside", "01_OK_TAB_SIDE");
+        Directory.CreateDirectory(cropFolder);
+        var left = Path.Combine(cropFolder, "CELL-TAB_01-1_CA_080925_UPPER_1_Tabside_L_SourceMap.jpg");
+        var right = Path.Combine(cropFolder, "CELL-TAB_01-1_CA_080925_UPPER_1_Tabside_R_SourceMap.jpg");
+        foreach (var file in new[] { left, right })
+        {
+            await File.WriteAllTextAsync(file, "crop");
+            File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddMinutes(-10));
+        }
+        var csv = Path.Combine(shareRoot, "#1-1 WELDING VISION(+)_JF2_20260601.csv");
+        await File.WriteAllTextAsync(csv, $"DATE,TIME,CELL-ID,UPPER_IMAGE-PATH-1{Environment.NewLine}20260601,08:09:25,CELL-TAB,{original.Replace(shareRoot, "E:")}");
+        var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "127.0.0.1", ['E']);
+        var candidate = new IrsReviewCandidate("tab-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-TAB", "TOP", "raw.jpg", "NG", "reason", 4);
+        var service = new IrsReviewCommitService(new AppStorage(storageRoot), new StaticDailyCsvLocator([csv]), new TestSharePathResolver(shareRoot));
+
+        try
+        {
+            await service.CommitAsync(new(machine, candidate, [new("TABSIDE_R", "Tabside R", "Crop_micro_tabside", IrsSelectionKind.Crop, "Crop_micro_tabside", "_R")]), CancellationToken.None);
+            var destination = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "Crop_micro_tabside");
+            Assert.False(File.Exists(Path.Combine(destination, Path.GetFileName(left))));
+            Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(right))));
+        }
+        finally
+        {
+            if (Directory.Exists(shareRoot)) Directory.Delete(shareRoot, true);
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
+
+    [Fact]
+    public async Task IrsDatasetService_GroupsSourceMapsTogetherAndActiveMapsTogether()
+    {
+        var storageRoot = Path.Combine(Path.GetTempPath(), "IrsDatasetStorage", Guid.NewGuid().ToString("N"));
+        var folder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "Crop_A");
+        Directory.CreateDirectory(folder);
+        var files = new[]
+        {
+            Path.Combine(folder, "CELL-PAIR_UPPER_1_A_L_CL01_OK_SourceMap.jpg"),
+            Path.Combine(folder, "CELL-PAIR_UPPER_1_A_R_CL01_OK_SourceMap.jpg"),
+            Path.Combine(folder, "CELL-PAIR_UPPER_1_A_L_CL01_OK_ActiveMap.jpg"),
+            Path.Combine(folder, "CELL-PAIR_UPPER_1_A_R_CL01_OK_ActiveMap.jpg")
+        };
+        foreach (var file in files) await File.WriteAllTextAsync(file, "image");
+        var candidate = new IrsReviewCandidate("pair-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-PAIR", "TOP", "raw.jpg", "NG", "reason", 4);
+        var record = new IrsReviewRecord("pair-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-PAIR", "TOP", "NG", "reason", ["A_L", "A_R"], 0, 4, 0, storageRoot, DateTimeOffset.Now, files);
+
+        try
+        {
+            var items = await new IrsDatasetService(new AppStorage(storageRoot)).BuildQueueAsync([candidate], [record], CancellationToken.None);
+            Assert.Equal(2, items.Count);
+            Assert.Contains(items, item => item.ImagePaths.All(path => Path.GetFileName(path).Contains("SourceMap", StringComparison.OrdinalIgnoreCase)));
+            Assert.Contains(items, item => item.ImagePaths.All(path => Path.GetFileName(path).Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)));
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
     private sealed class TestSharePathResolver(string root) : ISharePathResolver
     {
         public string GetRoot(WeldingMachine machine, char drive) => root;
@@ -1163,3 +1231,4 @@ public sealed class CoreTests
             Task.FromResult(new IrsImageLookupResult([path], "found"));
     }
 }
+

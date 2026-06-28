@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
 
@@ -300,12 +300,17 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
     private static bool MatchesCropToken(string fileName, IrsReviewSelection selection)
     {
         if (selection.Token is null) return true;
-        if (selection.Id is "GAP" or "SEPA")
-        {
-            return true;
-        }
-
+        if (selection.Id is "GAP" or "SEPA") return true;
+        if (selection.Id is "TABSIDE_L") return MatchesLooseSideToken(fileName, "L");
+        if (selection.Id is "TABSIDE_R") return MatchesLooseSideToken(fileName, "R");
         return fileName.Contains(selection.Token, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesLooseSideToken(string fileName, string side)
+    {
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        var tokens = name.Split(['_', ' ', '-'], StringSplitOptions.RemoveEmptyEntries);
+        return tokens.Any(token => token.Equals(side, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsUsefulCropFile(string fileName) =>
@@ -540,3 +545,4 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
             _values.TryGetValue(name, out var value) ? value : null;
     }
 }
+
