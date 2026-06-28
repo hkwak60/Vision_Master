@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using KickoutMonitor.App.Services;
 using KickoutMonitor.App.ViewModels;
 using KickoutMonitor.Application;
@@ -44,8 +44,10 @@ public partial class App : System.Windows.Application
                 new IrsRawImageLocator(shares, locator)),
             imageLoader,
             machines,
-            new IrsReviewCommitService(storage, locator, shares));
+            new IrsReviewCommitService(storage, locator, shares),
+            new IrsDatasetService(storage));
         var window = new MainWindow(kickoutViewModel, irsViewModel);
         window.Show();
     }
 }
+

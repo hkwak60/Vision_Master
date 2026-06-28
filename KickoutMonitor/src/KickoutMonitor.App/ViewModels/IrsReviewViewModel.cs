@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -21,6 +21,27 @@ public sealed class IrsCandidateItem : INotifyPropertyChanged
     }
 
     public IrsReviewCandidate Candidate { get; }
+    public IrsDatasetItem? DatasetItem { get; }
+
+    public IrsCandidateItem(IrsDatasetItem datasetItem)
+    {
+        DatasetItem = datasetItem;
+        Candidate = new(
+            datasetItem.Key,
+            string.Empty,
+            datasetItem.SourceFolder,
+            datasetItem.LinePolarity,
+            datasetItem.ProducedAt,
+            string.Empty,
+            datasetItem.CellId,
+            datasetItem.CameraLocation,
+            string.Empty,
+            string.Empty,
+            datasetItem.SecondReason,
+            0,
+            datasetItem.ImagePaths);
+    }
+
     public string Time => Candidate.ProducedAt.ToString("HH:mm:ss");
     public string LinePolarity => Candidate.LinePolarity;
     public string CellId => Candidate.CellId;
@@ -115,6 +136,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     private readonly IPreviewImageLoader<BitmapSource> _images;
     private readonly IMachineRegistry _machines;
     private readonly IIrsReviewCommitService _commits;
+    private readonly IIrsDatasetService _dataset;
     private readonly Dictionary<string, IReadOnlyList<string>> _committedSelections = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _previewCancellation;
     private IrsCandidateItem? _selectedCandidate;
@@ -122,18 +144,24 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     private string _status = "Ready";
     private bool _isBusy;
     private bool _restoringSelections;
+    private bool _datasetMode;
+    private IReadOnlyList<IrsReviewCandidate> _loadedCandidates = [];
+    private IReadOnlyList<IrsReviewRecord> _loadedReviewRecords = [];
+    private IReadOnlyList<IrsDatasetItem> _datasetItems = [];
     private int _currentImageIndex = -1;
 
     public IrsReviewViewModel(
         IrsReviewQueueService queue,
         IPreviewImageLoader<BitmapSource> images,
         IMachineRegistry machines,
-        IIrsReviewCommitService commits)
+        IIrsReviewCommitService commits,
+        IIrsDatasetService dataset)
     {
         _queue = queue;
         _images = images;
         _machines = machines;
         _commits = commits;
+        _dataset = dataset;
         BrowseCommand = new(Browse);
         LoadCommand = new(LoadAsync, () => !IsBusy && File.Exists(WorkbookPath));
         PreviousCommand = new(Previous, () => SelectedIndex > 0);
@@ -143,6 +171,8 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             NextImageAsync,
             () => CurrentImageIndex >= 0 && CurrentImageIndex < PreviewImages.Count - 1);
         CommitCommand = new(CommitSelection, CanCommitSelection);
+        GenerateDatasetCommand = new(GenerateDatasetAsync, () => !IsBusy && Candidates.Count > 0);
+        SummaryReportCommand = new(SummaryReportAsync, () => !IsBusy && _datasetMode && Candidates.Count > 0);
         SelectionOptions =
         [
             Option("RULEBASE", "Rulebase (R)", "RULEBASE", IrsSelectionKind.Rulebase, null, null),
@@ -179,6 +209,9 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public AsyncRelayCommand PreviousImageCommand { get; }
     public AsyncRelayCommand NextImageCommand { get; }
     public RelayCommand CommitCommand { get; }
+    public AsyncRelayCommand GenerateDatasetCommand { get; }
+    public AsyncRelayCommand SummaryReportCommand { get; }
+    public ObservableCollection<IrsSelectionOption> FinalClassOptions { get; } = [];
     public IReadOnlyList<IrsSelectionOption> SelectionOptions { get; }
     public IReadOnlyList<IrsSelectionOption> TopClassifications => SelectionOptions.Take(2).ToArray();
     public IReadOnlyList<IrsSelectionOption> ASelections => SelectionOptions.Where(x => x.Id is "A_L" or "A_R").ToArray();
@@ -188,6 +221,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public IReadOnlyList<IrsSelectionOption> GapSelections => SelectionOptions.Where(x => x.Id == "GAP").ToArray();
     public IReadOnlyList<IrsSelectionOption> SepaSelections => SelectionOptions.Where(x => x.Id == "SEPA").ToArray();
     public IReadOnlyList<IrsSelectionOption> SepaShoulderSelections => SelectionOptions.Where(x => x.Id.StartsWith("SEPA_SHOULDER_", StringComparison.Ordinal)).ToArray();
+    public string SelectionPanelTitle => _datasetMode ? "Final Class" : "IRS Selection";
 
     public string WorkbookPath
     {
@@ -207,6 +241,8 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             if (!Set(ref _selectedCandidate, value)) return;
             _ = LoadPreviewsAsync(value);
             RestoreSelections(value);
+            ConfigureFinalClassOptions(value);
+            OnPropertyChanged(nameof(SelectionPanelTitle));
             OnPropertyChanged(nameof(SelectedIndex));
             OnPropertyChanged(nameof(PositionText));
             OnPropertyChanged(nameof(ReasonOverlay));
@@ -283,6 +319,27 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             case Key.Enter when CommitCommand.CanExecute(null):
                 CommitCommand.Execute(null);
                 break;
+            case Key.N when _datasetMode:
+                SelectFinalByDisplay("No Need to Retrain");
+                break;
+            case Key.D1 or Key.NumPad1 when _datasetMode:
+                SelectFinalByPrefix("01");
+                break;
+            case Key.D2 or Key.NumPad2 when _datasetMode:
+                SelectFinalByPrefix("02");
+                break;
+            case Key.D3 or Key.NumPad3 when _datasetMode:
+                SelectFinalByPrefix("03");
+                break;
+            case Key.D4 or Key.NumPad4 when _datasetMode:
+                SelectFinalByPrefix("04");
+                break;
+            case Key.D5 or Key.NumPad5 when _datasetMode:
+                SelectFinalByPrefix("05");
+                break;
+            case Key.D6 or Key.NumPad6 when _datasetMode:
+                SelectFinalByPrefix("06");
+                break;
         }
     }
 
@@ -312,8 +369,11 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         {
             AddLog($"Loading IRS workbook: {WorkbookPath}");
             var progress = new Progress<string>(AddLog);
+            _datasetMode = false;
             var records = await _queue.LoadAsync(WorkbookPath, progress, CancellationToken.None);
+            _loadedCandidates = records;
             var committed = await _commits.LoadRecordsAsync(CancellationToken.None);
+            _loadedReviewRecords = committed;
             _committedSelections.Clear();
             foreach (var record in committed)
             {
@@ -354,7 +414,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         var token = _previewCancellation.Token;
         ClearPreviews();
         if (item is null) return;
-        var paths = item.Candidate.RawImagePaths ?? [];
+        var paths = item.DatasetItem?.ImagePaths ?? item.Candidate.RawImagePaths ?? [];
         if (paths.Count == 0)
         {
             PreviewImages.Add(new("Raw", null));
@@ -392,6 +452,12 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         if (!TryGetMachine(item.Candidate, out var machine))
         {
             AddLog($"Commit skipped: machine not found for {item.LinePolarity}.");
+            return;
+        }
+
+        if (_datasetMode)
+        {
+            CommitDatasetSelection();
             return;
         }
 
@@ -479,10 +545,24 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     }
 
     private bool CanCommitSelection() =>
-        SelectedCandidate is not null && SelectionOptions.Any(x => x.IsSelected);
+        SelectedCandidate is not null && (_datasetMode ? FinalClassOptions.Any(x => x.IsSelected) : SelectionOptions.Any(x => x.IsSelected));
 
     private void SelectionOption_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (_datasetMode)
+        {
+            if (_restoringSelections || e.PropertyName != nameof(IrsSelectionOption.IsSelected)) return;
+            if (sender is IrsSelectionOption datasetOption && datasetOption.IsSelected)
+            {
+                if (SelectedCandidate?.DatasetItem?.IsNeedToSimulate != true)
+                {
+                    foreach (var other in FinalClassOptions.Where(x => !ReferenceEquals(x, datasetOption))) other.IsSelected = false;
+                    CommitDatasetSelection();
+                }
+            }
+            CommandManager.InvalidateRequerySuggested();
+            return;
+        }
         if (_restoringSelections) return;
         if (e.PropertyName != nameof(IrsSelectionOption.IsSelected)) return;
         if (sender is not IrsSelectionOption option || !option.IsSelected)
@@ -510,6 +590,18 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         CommandManager.InvalidateRequerySuggested();
     }
 
+
+    private void SelectFinalByDisplay(string display)
+    {
+        var option = FinalClassOptions.FirstOrDefault(x => x.DisplayName.Equals(display, StringComparison.OrdinalIgnoreCase));
+        if (option is not null) option.IsSelected = true;
+    }
+
+    private void SelectFinalByPrefix(string prefix)
+    {
+        var option = FinalClassOptions.FirstOrDefault(x => x.DisplayName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        if (option is not null) option.IsSelected = true;
+    }
     private void SelectExclusive(string id)
     {
         var option = SelectionOptions.FirstOrDefault(x => x.Id == id);
@@ -578,6 +670,143 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         dispatcher.BeginInvoke(action);
     }
 
+
+    private async Task GenerateDatasetAsync()
+    {
+        if (_loadedCandidates.Count == 0) return;
+        IsBusy = true;
+        try
+        {
+            var records = await _commits.LoadRecordsAsync(CancellationToken.None);
+            _loadedReviewRecords = records;
+            var reviewed = records.Select(x => x.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var missing = _loadedCandidates.Where(x => !reviewed.Contains(x.Key)).ToArray();
+            if (missing.Length > 0)
+            {
+                Status = $"Cannot generate dataset: {missing.Length:N0} IRS row(s) are not reviewed.";
+                AddLog(Status);
+                return;
+            }
+
+            var items = await _dataset.BuildQueueAsync(_loadedCandidates, records, CancellationToken.None);
+            var decisions = await _dataset.LoadDecisionsAsync(CancellationToken.None);
+            _datasetItems = items;
+            Candidates.Clear();
+            ClearPreviews();
+            _datasetMode = true;
+            foreach (var datasetItem in items)
+            {
+                var item = new IrsCandidateItem(datasetItem)
+                {
+                    ReviewStatus = decisions.ContainsKey(datasetItem.Key) ? "Saved" : "Pending"
+                };
+                Candidates.Add(item);
+            }
+            SelectedCandidate = Candidates.FirstOrDefault();
+            Status = $"Dataset review queue ready: {Candidates.Count:N0} item(s).";
+            AddLog(Status);
+            OnPropertyChanged(nameof(SelectionPanelTitle));
+        }
+        catch (Exception exception)
+        {
+            Status = exception.Message;
+            AddLog($"Generate Dataset failed: {exception.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task SummaryReportAsync()
+    {
+        if (!_datasetMode || _datasetItems.Count == 0) return;
+        IsBusy = true;
+        try
+        {
+            var decisions = await _dataset.LoadDecisionsAsync(CancellationToken.None);
+            var missing = _datasetItems.Count(x => !decisions.ContainsKey(x.Key));
+            if (missing > 0)
+            {
+                Status = $"Cannot generate summary: {missing:N0} dataset item(s) are not classified.";
+                AddLog(Status);
+                return;
+            }
+
+            var result = await _dataset.WriteSummaryAsync(_loadedCandidates, _loadedReviewRecords, _datasetItems, CancellationToken.None);
+            Status = $"IRS summary generated: {result.OutputFolder}";
+            AddLog(Status);
+        }
+        catch (Exception exception)
+        {
+            Status = exception.Message;
+            AddLog($"Summary Report failed: {exception.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private void ConfigureFinalClassOptions(IrsCandidateItem? item)
+    {
+        _restoringSelections = true;
+        try
+        {
+            FinalClassOptions.Clear();
+            if (!_datasetMode || item?.DatasetItem is null) return;
+            foreach (var klass in item.DatasetItem.AllowedClasses)
+            {
+                var id = klass.Equals("No Need to Retrain", StringComparison.OrdinalIgnoreCase)
+                    ? "NO_NEED"
+                    : klass;
+                var option = new IrsSelectionOption(new(id, klass, klass, IrsSelectionKind.Crop, null, null));
+                option.PropertyChanged += SelectionOption_PropertyChanged;
+                FinalClassOptions.Add(option);
+            }
+        }
+        finally
+        {
+            _restoringSelections = false;
+        }
+    }
+
+    private void CommitDatasetSelection()
+    {
+        var item = SelectedCandidate;
+        if (item?.DatasetItem is null) return;
+        var selected = FinalClassOptions.Where(x => x.IsSelected).Select(x => x.DisplayName).ToArray();
+        if (selected.Length == 0) return;
+        var noNeed = selected.Any(x => x.Equals("No Need to Retrain", StringComparison.OrdinalIgnoreCase));
+        var finalClasses = noNeed ? Array.Empty<string>() : selected;
+        item.ReviewStatus = "Saved";
+        AddLog($"{item.LinePolarity} {item.CellId}: dataset classified as {string.Join(", ", selected)}.");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _dataset.SaveDecisionAsync(item.DatasetItem, finalClasses, noNeed, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                RunOnUi(() =>
+                {
+                    item.ReviewStatus = "Copy failed";
+                    AddLog($"{item.LinePolarity} {item.CellId}: dataset decision failed - {exception.Message}");
+                });
+            }
+        });
+        ClearFinalSelections();
+        Next();
+    }
+
+    private void ClearFinalSelections()
+    {
+        _restoringSelections = true;
+        foreach (var option in FinalClassOptions) option.IsSelected = false;
+        _restoringSelections = false;
+        CommandManager.InvalidateRequerySuggested();
+    }
     private void AddLog(string message) =>
         ActivityLog.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
 
@@ -596,3 +825,4 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public event EventHandler? PreviewImageChanging;
     public event EventHandler? PreviewImageLoaded;
 }
+

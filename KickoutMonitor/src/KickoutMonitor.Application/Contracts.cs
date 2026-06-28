@@ -1,4 +1,4 @@
-using KickoutMonitor.Domain;
+﻿using KickoutMonitor.Domain;
 
 namespace KickoutMonitor.Application;
 
@@ -119,5 +119,27 @@ public interface IIrsReviewCommitService
 
     Task<IrsReviewCommitResult> CommitAsync(
         IrsReviewCommitRequest request,
+        CancellationToken cancellationToken);
+}
+
+public interface IIrsDatasetService
+{
+    Task<IReadOnlyList<IrsDatasetItem>> BuildQueueAsync(
+        IReadOnlyList<IrsReviewCandidate> candidates,
+        IReadOnlyList<IrsReviewRecord> reviewRecords,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyDictionary<string, IrsDatasetDecision>> LoadDecisionsAsync(CancellationToken cancellationToken);
+
+    Task SaveDecisionAsync(
+        IrsDatasetItem item,
+        IReadOnlyList<string> finalClasses,
+        bool noNeedToRetrain,
+        CancellationToken cancellationToken);
+
+    Task<IrsSummaryResult> WriteSummaryAsync(
+        IReadOnlyList<IrsReviewCandidate> candidates,
+        IReadOnlyList<IrsReviewRecord> reviewRecords,
+        IReadOnlyList<IrsDatasetItem> datasetItems,
         CancellationToken cancellationToken);
 }

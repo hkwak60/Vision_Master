@@ -1,4 +1,4 @@
-<UserControl x:Class="KickoutMonitor.App.IrsReviewView"
+﻿<UserControl x:Class="KickoutMonitor.App.IrsReviewView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="#F3F5F7"
@@ -40,6 +40,8 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="IRS workbook" FontWeight="SemiBold"/>
@@ -50,6 +52,10 @@
                             Command="{Binding BrowseCommand}" VerticalAlignment="Bottom"/>
                     <Button Grid.Column="2" Content="Load IRS Queue"
                             Command="{Binding LoadCommand}" VerticalAlignment="Bottom"/>
+                    <Button Grid.Column="3" Content="Generate Dataset"
+                            Command="{Binding GenerateDatasetCommand}" VerticalAlignment="Bottom"/>
+                    <Button Grid.Column="4" Content="Summary Report"
+                            Command="{Binding SummaryReportCommand}" VerticalAlignment="Bottom"/>
                 </Grid>
             </Border>
 
@@ -228,7 +234,23 @@
                                 </Setter>
                             </Style>
                         </StackPanel.Resources>
-                        <TextBlock Text="IRS Selection" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                        <TextBlock Text="{Binding SelectionPanelTitle}" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                        <ItemsControl ItemsSource="{Binding FinalClassOptions}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="1"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <ToggleButton Content="{Binding DisplayName}"
+                                                  ToolTip="{Binding ToolTip}"
+                                                  IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Separator Margin="0,6"/>
+                        <TextBlock Text="IRS Selection" FontWeight="SemiBold" Margin="0,0,0,4"/>
                         <ItemsControl ItemsSource="{Binding TopClassifications}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -378,3 +400,4 @@
         </Grid>
     </DockPanel>
 </UserControl>
+

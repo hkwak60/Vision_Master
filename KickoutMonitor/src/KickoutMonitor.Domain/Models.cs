@@ -1,4 +1,4 @@
-namespace KickoutMonitor.Domain;
+﻿namespace KickoutMonitor.Domain;
 
 public enum Polarity
 {
@@ -212,3 +212,34 @@ public sealed record IrsReviewRecord(
     string DestinationRoot,
     DateTimeOffset UpdatedAt,
     IReadOnlyList<string>? SavedPaths = null);
+
+public sealed record IrsDatasetItem(
+    string Key,
+    string SourceReviewKey,
+    string LinePolarity,
+    DateTime ProducedAt,
+    string CellId,
+    string CameraLocation,
+    string SecondReason,
+    string SourceFolder,
+    string OriginalClass,
+    IReadOnlyList<string> ImagePaths,
+    IReadOnlyList<string> AllowedClasses,
+    bool IsNeedToSimulate);
+
+public sealed record IrsDatasetDecision(
+    string ItemKey,
+    string SourceReviewKey,
+    string LinePolarity,
+    DateTime ProducedAt,
+    string CellId,
+    string SourceFolder,
+    string OriginalClass,
+    IReadOnlyList<string> FinalClasses,
+    bool NoNeedToRetrain,
+    DateTimeOffset UpdatedAt);
+
+public sealed record IrsSummaryResult(
+    string OutputFolder,
+    string SummaryWorkbook,
+    IReadOnlyList<string> DetailWorkbooks);
