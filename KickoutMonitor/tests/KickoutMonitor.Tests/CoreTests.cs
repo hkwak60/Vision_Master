@@ -965,7 +965,7 @@ public sealed class CoreTests
     }
 
     [Fact]
-    public async Task IrsDatasetService_GroupsSourceMapsTogetherAndActiveMapsTogether()
+    public async Task IrsDatasetService_PairsSourceMapAndActiveMapByCropSelection()
     {
         var storageRoot = Path.Combine(Path.GetTempPath(), "IrsDatasetStorage", Guid.NewGuid().ToString("N"));
         var folder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "Crop_A");
@@ -985,8 +985,14 @@ public sealed class CoreTests
         {
             var items = await new IrsDatasetService(new AppStorage(storageRoot)).BuildQueueAsync([candidate], [record], CancellationToken.None);
             Assert.Equal(2, items.Count);
-            Assert.Contains(items, item => item.ImagePaths.All(path => Path.GetFileName(path).Contains("SourceMap", StringComparison.OrdinalIgnoreCase)));
-            Assert.Contains(items, item => item.ImagePaths.All(path => Path.GetFileName(path).Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)));
+            Assert.Contains(items, item => item.ImagePaths.Count == 2
+                && item.ImagePaths.All(path => Path.GetFileName(path).Contains("A_L", StringComparison.OrdinalIgnoreCase))
+                && item.ImagePaths.Any(path => Path.GetFileName(path).Contains("SourceMap", StringComparison.OrdinalIgnoreCase))
+                && item.ImagePaths.Any(path => Path.GetFileName(path).Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)));
+            Assert.Contains(items, item => item.ImagePaths.Count == 2
+                && item.ImagePaths.All(path => Path.GetFileName(path).Contains("A_R", StringComparison.OrdinalIgnoreCase))
+                && item.ImagePaths.Any(path => Path.GetFileName(path).Contains("SourceMap", StringComparison.OrdinalIgnoreCase))
+                && item.ImagePaths.Any(path => Path.GetFileName(path).Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)));
         }
         finally
         {

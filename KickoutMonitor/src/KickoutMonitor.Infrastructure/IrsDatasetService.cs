@@ -287,11 +287,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
         var activeMaps = ordered.Where(path => Path.GetFileName(path).Contains("ActiveMap", StringComparison.OrdinalIgnoreCase)).ToArray();
         if (sourceMaps.Length > 0 || activeMaps.Length > 0)
         {
-            return sourceMaps.Chunk(2)
-                .Concat(activeMaps.Chunk(2))
-                .Where(chunk => chunk.Length > 0)
-                .Select(chunk => (IReadOnlyList<string>)chunk.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray())
-                .ToArray();
+            return BuildMapPairs(sourceMaps, activeMaps);
         }
 
         var sourceImgs = ordered.Where(path => Path.GetFileName(path).Contains("SourceImg", StringComparison.OrdinalIgnoreCase)
@@ -313,6 +309,53 @@ public sealed class IrsDatasetService : IIrsDatasetService
         return ordered.Chunk(2).Select(chunk => (IReadOnlyList<string>)chunk).ToArray();
     }
 
+    private static IReadOnlyList<IReadOnlyList<string>> BuildMapPairs(
+        IReadOnlyList<string> sourceMaps,
+        IReadOnlyList<string> activeMaps)
+    {
+        var keys = sourceMaps.Concat(activeMaps)
+            .Select(CropPairKey)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(key => key, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var pairs = new List<IReadOnlyList<string>>();
+        foreach (var key in keys)
+        {
+            var sources = sourceMaps
+                .Where(path => CropPairKey(path).Equals(key, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var actives = activeMaps
+                .Where(path => CropPairKey(path).Equals(key, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var count = Math.Max(sources.Length, actives.Length);
+            for (var index = 0; index < count; index++)
+            {
+                var pair = new List<string>(2);
+                if (index < sources.Length) pair.Add(sources[index]);
+                if (index < actives.Length) pair.Add(actives[index]);
+                if (pair.Count > 0) pairs.Add(pair);
+            }
+        }
+
+        return pairs;
+    }
+
+    private static string CropPairKey(string path)
+    {
+        var name = Path.GetFileName(path);
+        foreach (var token in new[]
+                 {
+                     "A_L", "A_R", "B_L", "B_R", "Micro_LL", "Micro_LM", "Micro_MM", "Micro_MR", "Micro_RR",
+                     "Tabside_L", "Tabside_R", "SHOULDER_L", "SHOULDER_R"
+                 })
+        {
+            if (name.Contains(token, StringComparison.OrdinalIgnoreCase)) return token;
+        }
+
+        return SideToken(path);
+    }
     private static string SideToken(string path)
     {
         var name = Path.GetFileName(path);
