@@ -139,6 +139,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     private readonly IIrsReviewCommitService _commits;
     private readonly IIrsDatasetService _dataset;
     private readonly Dictionary<string, IReadOnlyList<string>> _committedSelections = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IrsDatasetDecision> _datasetDecisions = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _previewCancellation;
     private IrsCandidateItem? _selectedCandidate;
     private string _workbookPath = string.Empty;
@@ -784,12 +785,31 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         {
             FinalClassOptions.Clear();
             if (!_datasetMode || item?.DatasetItem is null) return;
+            var selectedClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_datasetDecisions.TryGetValue(item.DatasetItem.Key, out var decision))
+            {
+                if (decision.NoNeedToRetrain)
+                {
+                    selectedClasses.Add("No Need to Retrain");
+                }
+                else
+                {
+                    foreach (var finalClass in decision.FinalClasses)
+                    {
+                        selectedClasses.Add(finalClass);
+                    }
+                }
+            }
+
             foreach (var klass in item.DatasetItem.AllowedClasses)
             {
                 var id = klass.Equals("No Need to Retrain", StringComparison.OrdinalIgnoreCase)
                     ? "NO_NEED"
                     : klass;
-                var option = new IrsSelectionOption(new(id, klass, klass, IrsSelectionKind.Crop, null, null));
+                var option = new IrsSelectionOption(new(id, klass, klass, IrsSelectionKind.Crop, null, null))
+                {
+                    IsSelected = selectedClasses.Contains(klass)
+                };
                 option.PropertyChanged += SelectionOption_PropertyChanged;
                 FinalClassOptions.Add(option);
             }
@@ -809,6 +829,17 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         var noNeed = selected.Any(x => x.Equals("No Need to Retrain", StringComparison.OrdinalIgnoreCase));
         var finalClasses = noNeed ? Array.Empty<string>() : selected;
         item.ReviewStatus = "Saved";
+        _datasetDecisions[item.DatasetItem.Key] = new(
+            item.DatasetItem.Key,
+            item.DatasetItem.SourceReviewKey,
+            item.DatasetItem.LinePolarity,
+            item.DatasetItem.ProducedAt,
+            item.DatasetItem.CellId,
+            item.DatasetItem.SourceFolder,
+            item.DatasetItem.OriginalClass,
+            finalClasses,
+            noNeed,
+            DateTimeOffset.Now);
         AddLog($"{item.LinePolarity} {item.CellId}: dataset classified as {string.Join(", ", selected)}.");
         _ = Task.Run(async () =>
         {
