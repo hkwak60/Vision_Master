@@ -1,0 +1,8 @@
+bin/
+obj/
+.dotnet/
+.packages/
+publish/
+runtime-*/
+*.user
+*.suo

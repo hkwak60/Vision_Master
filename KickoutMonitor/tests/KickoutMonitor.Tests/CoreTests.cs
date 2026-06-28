@@ -1,0 +1,1165 @@
+using KickoutMonitor.Application;
+using KickoutMonitor.Domain;
+using KickoutMonitor.Infrastructure;
+using System.IO.Compression;
+using System.Security;
+using System.Text;
+
+namespace KickoutMonitor.Tests;
+
+public sealed class CoreTests
+{
+    [Theory]
+    [InlineData("NG", "B663X0B7NS", true)]
+    [InlineData("ng", "B663X0B7NS", true)]
+    [InlineData("NG", "OCR12345", false)]
+    [InlineData("NG", "AGING20260609", false)]
+    [InlineData("OK", "B663X0B7NS", false)]
+    public void Eligibility_FollowsJudgeAndCellIdRules(string judge, string cellId, bool expected)
+    {
+        Assert.Equal(expected, KickoutRules.IsEligible(judge, cellId));
+    }
+
+    [Theory]
+    [InlineData("NG", "OK", NgSide.Upper)]
+    [InlineData("OK", "NG", NgSide.Lower)]
+    [InlineData("NG", "NG", NgSide.Both)]
+    [InlineData("OK", "OK", NgSide.None)]
+    public void NgSide_IsDerivedFromUpperAndLowerJudges(
+        string upper,
+        string lower,
+        NgSide expected)
+    {
+        Assert.Equal(expected, KickoutRules.GetNgSide(upper, lower));
+    }
+
+    [Fact]
+    public void Defect_IsSafeForWindowsFolder()
+    {
+        Assert.Equal("GAP_NG", KickoutRules.NormalizeDefect("GAP/NG"));
+        Assert.Equal("UNSPECIFIED", KickoutRules.NormalizeDefect(""));
+    }
+
+    [Fact]
+    public async Task CsvReader_LoadsAllTwelveImagesWhenBothSidesAreNg()
+    {
+        var temporary = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".csv");
+        var headers = new List<string>
+        {
+            "NO", "DATE", "TIME", "MODEL-ID", "LOT-ID", "CELL-ID", "JUDGE",
+            "JUDGE-DEFECT", "UPPER_JUDGE", "LOWER_JUDGE"
+        };
+        for (var index = 1; index <= 3; index++)
+        {
+            headers.Add($"UPPER_IMAGE-PATH-{index}");
+            headers.Add($"UPPER_OVERLAY-IMAGE-PATH-{index}");
+            headers.Add($"LOWER_IMAGE-PATH-{index}");
+            headers.Add($"LOWER_OVERLAY-IMAGE-PATH-{index}");
+        }
+
+        var values = new List<string>
+        {
+            "1", "20260609", "22:45:53", "E81C", "3A4FF031I2", "B663X0B7NS",
+            "NG", "GAP", "NG", "NG"
+        };
+        for (var index = 0; index < 3; index++)
+        {
+            values.Add($@"E:\Images\cell\cell_EXT_0_{index}.jpg");
+            values.Add($@"E:\Images\cell\cell_EXT_0_{index}_overlay.jpg");
+            values.Add($@"E:\Images\cell\cell_EXT_1_{index}.jpg");
+            values.Add($@"E:\Images\cell\cell_EXT_1_{index}_overlay.jpg");
+        }
+
+        await File.WriteAllLinesAsync(temporary, [string.Join(",", headers), string.Join(",", values)]);
+        try
+        {
+            var machine = new WeldingMachine(
+                "1-2-ca", "1-2", Polarity.Cathode, "10.112.99.67", ['E', 'F', 'G']);
+            var snapshot = new SnapshotResult(temporary, temporary, false, null);
+            var candidates = new List<KickoutCandidate>();
+            await foreach (var candidate in new WeldingKickoutCsvReader(new SharePathResolver())
+                               .ReadAsync(machine, snapshot, CancellationToken.None))
+            {
+                candidates.Add(candidate);
+            }
+
+            var result = Assert.Single(candidates);
+            Assert.Equal(NgSide.Both, result.NgSide);
+            Assert.Equal(12, result.PreviewImages.Count);
+            Assert.Equal(6, result.PreviewImages.Count(x => x.Side == "UPPER"));
+            Assert.Equal(6, result.PreviewImages.Count(x => x.Side == "LOWER"));
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
+    }
+
+    [Fact]
+    public async Task RealNg_CopyPreservesOriginalFolderAndContents()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KickoutMonitorTests", Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(root, "source", "20260609_224553_LOT_CELL");
+        Directory.CreateDirectory(source);
+        await File.WriteAllBytesAsync(Path.Combine(source, "raw.jpg"), [0xFF, 0xD8, 0x00, 0xFF, 0xD9]);
+        await File.WriteAllBytesAsync(Path.Combine(source, "overlay.jpg"), [0xFF, 0xD8, 0x01, 0xFF, 0xD9]);
+        File.SetLastWriteTimeUtc(Path.Combine(source, "raw.jpg"), DateTime.UtcNow.AddSeconds(-5));
+        File.SetLastWriteTimeUtc(Path.Combine(source, "overlay.jpg"), DateTime.UtcNow.AddSeconds(-5));
+
+        var output = Path.Combine(root, "output");
+        var storage = new AppStorage(output);
+        var machine = new WeldingMachine("1-2-ca", "1-2", Polarity.Cathode, "127.0.0.1", ['E']);
+        storage.EnsureCreated([machine]);
+        var candidate = new KickoutCandidate(
+            "key", machine.Id, DateTime.Now, "E81C", "LOT", "CELL", "GAP",
+            NgSide.Upper, [], source, "result.csv", 2);
+
+        try
+        {
+            var result = await new ClassifiedFolderService(storage).ClassifyAsync(
+                machine,
+                candidate,
+                ReviewDecision.RealNg,
+                CancellationToken.None);
+
+            Assert.Equal(CopyState.Copied, result.State);
+            Assert.NotNull(result.Destination);
+            Assert.True(File.Exists(Path.Combine(result.Destination!, "raw.jpg")));
+            Assert.True(File.Exists(Path.Combine(result.Destination!, "overlay.jpg")));
+            Assert.True(File.Exists(Path.Combine(source, "raw.jpg")));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task Overkill_CopyUsesDefectSubfolder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KickoutMonitorTests", Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(root, "source", "20260609_224553_LOT_CELL");
+        Directory.CreateDirectory(source);
+        var image = Path.Combine(source, "raw.jpg");
+        await File.WriteAllBytesAsync(image, [0xFF, 0xD8, 0x00, 0xFF, 0xD9]);
+        File.SetLastWriteTimeUtc(image, DateTime.UtcNow.AddSeconds(-5));
+
+        var storage = new AppStorage(Path.Combine(root, "output"));
+        var machine = new WeldingMachine("1-2-ca", "1-2", Polarity.Cathode, "127.0.0.1", ['E']);
+        storage.EnsureCreated([machine]);
+        var candidate = new KickoutCandidate(
+            "key", machine.Id, DateTime.Now, "E81C", "LOT", "CELL", "B/DIM",
+            NgSide.Upper, [], source, "result.csv", 2);
+
+        try
+        {
+            var result = await new ClassifiedFolderService(storage).ClassifyAsync(
+                machine,
+                candidate,
+                ReviewDecision.Overkill,
+                CancellationToken.None);
+
+            Assert.Equal(CopyState.Copied, result.State);
+            Assert.Contains(
+                Path.Combine("OVERKILL", "B_DIM", Path.GetFileName(source)),
+                result.Destination!,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task MultiDefectNg_CopyUsesDedicatedRealNgFolder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KickoutMonitorTests", Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(root, "source", "20260609_224553_LOT_CELL");
+        Directory.CreateDirectory(source);
+        var image = Path.Combine(source, "raw.jpg");
+        await File.WriteAllBytesAsync(image, [0xFF, 0xD8, 0x00, 0xFF, 0xD9]);
+        File.SetLastWriteTimeUtc(image, DateTime.UtcNow.AddSeconds(-5));
+
+        var storage = new AppStorage(Path.Combine(root, "output"));
+        var machine = new WeldingMachine("1-2-ca", "1-2", Polarity.Cathode, "127.0.0.1", ['E']);
+        storage.EnsureCreated([machine]);
+        var candidate = new KickoutCandidate(
+            "key", machine.Id, DateTime.Now, "E81C", "LOT", "CELL", "GAP",
+            NgSide.Both, [], source, "result.csv", 2);
+
+        try
+        {
+            var result = await new ClassifiedFolderService(storage).ClassifyAsync(
+                machine,
+                candidate,
+                ReviewDecision.MultiDefectNg,
+                CancellationToken.None);
+
+            Assert.Equal(CopyState.Copied, result.State);
+            Assert.Contains(
+                Path.Combine("NG", "MULTI-NG", Path.GetFileName(source)),
+                result.Destination!,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void Registry_ContainsEightWeldingMachines()
+    {
+        var registry = new MachineRegistry();
+        Assert.Equal(8, registry.All.Count);
+        Assert.Contains(registry.All, x => x.OutputFolderName == "2-2(+)");
+    }
+
+    [Theory]
+    [InlineData(@"E:\Files\Image\cell\a.jpg", @"\\10.112.99.181\E\Files\Image\cell\a.jpg")]
+    [InlineData(@"F:\Files\Image\cell\b.jpg", @"\\10.112.99.181\F\Files\Image\cell\b.jpg")]
+    [InlineData(@"G:\Files\Image\cell\c.jpg", @"\\10.112.99.181\G\Files\Image\cell\c.jpg")]
+    public void CsvImagePath_DirectlySelectsTheCorrectDrive(string source, string expected)
+    {
+        var machine = new WeldingMachine(
+            "1-1-an", "1-1", Polarity.Anode, "10.112.99.181", ['E', 'F', 'G']);
+        Assert.Equal(expected, ProductionPathMapper.ToUnc(machine, source));
+    }
+
+    [Fact]
+    public async Task PreviewCache_StoresUnclassifiedImagesUnderTempAndRemovesThem()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KickoutCacheTests", Guid.NewGuid().ToString("N"));
+        var sourceFolder = Path.Combine(root, "source", "20260609_224553_LOT_CELL");
+        Directory.CreateDirectory(sourceFolder);
+        var sourceImage = Path.Combine(sourceFolder, "cell_EXT_0_0.jpg");
+        await File.WriteAllBytesAsync(sourceImage, [0xFF, 0xD8, 0x00, 0xFF, 0xD9]);
+        File.SetLastWriteTimeUtc(sourceImage, DateTime.UtcNow.AddSeconds(-5));
+
+        var storage = new AppStorage(Path.Combine(root, "output"));
+        var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "127.0.0.1", ['E']);
+        storage.EnsureCreated([machine]);
+        var candidate = new KickoutCandidate(
+            "cache-key",
+            machine.Id,
+            new DateTime(2026, 6, 9, 22, 45, 53),
+            "E81C",
+            "LOT",
+            "CELL",
+            "GAP",
+            NgSide.Upper,
+            [new CandidateImage("UPPER", 0, false, sourceImage, sourceImage)],
+            sourceFolder,
+            "result.csv",
+            2);
+
+        try
+        {
+            var cache = new DiskPreviewCache(storage);
+            var cached = await cache.EnsureCachedAsync(machine, candidate, CancellationToken.None);
+            var cachedPath = Assert.Single(cached.PreviewImages).CachedPath;
+            Assert.NotNull(cachedPath);
+            Assert.True(File.Exists(cachedPath));
+            Assert.StartsWith(storage.Temp, cachedPath, StringComparison.OrdinalIgnoreCase);
+
+            await cache.RemoveAsync(machine, cached, CancellationToken.None);
+            Assert.False(Directory.Exists(storage.CandidateTempFolder(machine, cached)));
+            Assert.True(File.Exists(sourceImage));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void ShareResolver_ReusesTheConnectionProbesSuccessfulShareForm()
+    {
+        var machine = new WeldingMachine(
+            "1-1-an", "1-1", Polarity.Anode, "10.112.99.181", ['E', 'F', 'G']);
+        var resolver = new SharePathResolver();
+        resolver.RecordAccessibleRoot(machine, 'E', @"\\10.112.99.181\E$");
+
+        var mapped = ProductionPathMapper.ToUnc(
+            machine,
+            @"E:\Files\Image\cell\a.jpg",
+            resolver);
+
+        Assert.Equal(@"\\10.112.99.181\E$\Files\Image\cell\a.jpg", mapped);
+    }
+
+    [Fact]
+    public async Task DailyCsvLocator_AcceptsBaseAndNumberedFilesOnly()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "KickoutCsvLocatorTests",
+            Guid.NewGuid().ToString("N"));
+        var dayFolder = Path.Combine(root, "Files", "Data", "Result", "Day");
+        Directory.CreateDirectory(dayFolder);
+        var expectedNames = new[]
+        {
+            "#3-2 WELDING VISION(+)_JF2_20251019.csv",
+            "#3-2 WELDING VISION(+)_JF2_20251019_1.csv",
+            "#3-2 WELDING VISION(+)_JF2_20251019_23.csv"
+        };
+        var rejectedNames = new[]
+        {
+            "#3-2 WELDING VISION(+)_JF2_20251019 - Copy.csv",
+            "#3-2 WELDING VISION(+)_JF2_20251019_Copy.csv",
+            "#3-2 WELDING VISION(+)_JF2_20251019_defect.csv",
+            "#3-2 WELDING VISION(+)_JF2_20251019_1 - Copy.csv",
+            "#3-2 WELDING VISION(+)_JF2_202510190.csv"
+        };
+
+        foreach (var name in expectedNames.Concat(rejectedNames))
+        {
+            await File.WriteAllTextAsync(Path.Combine(dayFolder, name), "header");
+        }
+
+        var machine = new WeldingMachine(
+            "test", "1-1", Polarity.Anode, "127.0.0.1", ['E', 'F', 'G']);
+        var resolver = new TestSharePathResolver(root);
+
+        try
+        {
+            var found = await new DailyCsvLocator(resolver).FindAsync(
+                machine,
+                new DateOnly(2025, 10, 19),
+                CancellationToken.None);
+
+            Assert.Equal(
+                expectedNames.OrderBy(name => name, StringComparer.OrdinalIgnoreCase),
+                found.Select(Path.GetFileName));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task SummaryReport_BlocksWhenNgRecordIsNotReviewed()
+    {
+        var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "127.0.0.1", ['E']);
+        var record = SummaryRecord(
+            machine,
+            new DateTime(2026, 6, 25, 7, 0, 0),
+            "CELL-1",
+            "NG",
+            "B_DIM");
+        var service = new SummaryReportService(
+            new FakeLocator(),
+            new FakeSnapshotService(),
+            new FakeSummaryReader([record]),
+            new FakeReviewStore([]),
+            new FakeSummaryWriter());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GenerateAsync([machine], new DateOnly(2026, 6, 25), null, CancellationToken.None));
+
+        Assert.Contains("Report blocked", exception.Message);
+    }
+
+    [Fact]
+    public async Task SummaryReport_UsesSixAmProductionWindowAndReviewedNgRates()
+    {
+        var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "127.0.0.1", ['E']);
+        var beforeWindow = SummaryRecord(
+            machine,
+            new DateTime(2026, 6, 25, 5, 59, 59),
+            "CELL-BEFORE",
+            "OK",
+            "");
+        var ok = SummaryRecord(
+            machine,
+            new DateTime(2026, 6, 25, 6, 0, 0),
+            "CELL-OK",
+            "OK",
+            "");
+        var real = SummaryRecord(
+            machine,
+            new DateTime(2026, 6, 25, 8, 0, 0),
+            "CELL-REAL",
+            "NG",
+            "B_DIM");
+        var overkill = SummaryRecord(
+            machine,
+            new DateTime(2026, 6, 26, 5, 59, 59),
+            "CELL-OVER",
+            "NG",
+            "C_DIM");
+        var afterWindow = SummaryRecord(
+            machine,
+            new DateTime(2026, 6, 26, 6, 0, 0),
+            "CELL-AFTER",
+            "NG",
+            "B_DIM");
+        var writer = new FakeSummaryWriter();
+        var service = new SummaryReportService(
+            new FakeLocator(),
+            new FakeSnapshotService(),
+            new FakeSummaryReader([beforeWindow, ok, real, overkill, afterWindow]),
+            new FakeReviewStore([
+                new ReviewEntry(real.CandidateKey, ReviewDecision.RealNg, CopyState.Copied, "", null, DateTimeOffset.Now),
+                new ReviewEntry(overkill.CandidateKey, ReviewDecision.Overkill, CopyState.Copied, "", null, DateTimeOffset.Now),
+                new ReviewEntry(afterWindow.CandidateKey, ReviewDecision.RealNg, CopyState.Copied, "", null, DateTimeOffset.Now)
+            ]),
+            writer);
+
+        var result = await service.GenerateAsync(
+            [machine],
+            new DateOnly(2026, 6, 25),
+            null,
+            CancellationToken.None);
+
+        var all = Assert.Single(result.Rows, row => row.Defect == "ALL");
+        Assert.Equal(3, all.TotalInspected);
+        Assert.Equal(2, all.InitialNg);
+        Assert.Equal(1, all.RealNg);
+        Assert.Equal(1, all.Overkill);
+        Assert.Equal(2.0 / 3.0, all.InitialNgRate, 6);
+        Assert.Equal(1.0 / 3.0, all.ConfirmedNgRate, 6);
+        Assert.Equal(1.0 / 3.0, all.OverkillRate, 6);
+        Assert.Equal(writer.Rows, result.Rows);
+    }
+
+    [Fact]
+    public async Task SummaryReport_GroupsMultiDefectReviewsAsMultiNgRealNg()
+    {
+        var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "127.0.0.1", ['E']);
+        var multi = SummaryRecord(
+            machine,
+            new DateTime(2026, 6, 25, 8, 0, 0),
+            "CELL-MULTI",
+            "NG",
+            "H_DIM_L");
+        var writer = new FakeSummaryWriter();
+        var service = new SummaryReportService(
+            new FakeLocator(),
+            new FakeSnapshotService(),
+            new FakeSummaryReader([multi]),
+            new FakeReviewStore([
+                new ReviewEntry(multi.CandidateKey, ReviewDecision.MultiDefectNg, CopyState.Copied, "", null, DateTimeOffset.Now)
+            ]),
+            writer);
+
+        var result = await service.GenerateAsync(
+            [machine],
+            new DateOnly(2026, 6, 25),
+            null,
+            CancellationToken.None);
+
+        var multiRow = Assert.Single(result.Rows, row => row.Defect == "MULTI-NG");
+        Assert.Equal(1, multiRow.InitialNg);
+        Assert.Equal(1, multiRow.RealNg);
+        Assert.Equal(0, multiRow.Overkill);
+        Assert.DoesNotContain(result.Rows, row => row.Defect == "H_DIM_L");
+    }
+
+    [Fact]
+    public async Task SummaryWriter_CreatesDatedFolderDetailsAndReviewedImageCopies()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KickoutSummaryWriterTests", Guid.NewGuid().ToString("N"));
+        var storage = new AppStorage(root);
+        var overkillSource = Path.Combine(root, "classified", "overkill-cell");
+        var multiSource = Path.Combine(root, "classified", "multi-cell");
+        Directory.CreateDirectory(overkillSource);
+        Directory.CreateDirectory(multiSource);
+        await File.WriteAllTextAsync(Path.Combine(overkillSource, "raw.jpg"), "overkill");
+        await File.WriteAllTextAsync(Path.Combine(multiSource, "raw.jpg"), "multi");
+
+        var writer = new SummaryReportWriter(storage);
+        try
+        {
+            var output = await writer.WriteAsync(
+                new DateOnly(2026, 6, 25),
+                new DateTime(2026, 6, 25, 6, 0, 0),
+                new DateTime(2026, 6, 26, 6, 0, 0),
+                [
+                    new SummaryReportRow("1-1(-)", "ALL", 10, 2, 1, 1, 0.2, 0.1, 0.5)
+                ],
+                [
+                    new SummaryDetailRow(
+                        "1-1(-)",
+                        "B_DIM",
+                        ReviewDecision.Overkill,
+                        overkillSource,
+                        ["CELL-ID", "JUDGE", "JUDGE-DEFECT"],
+                        ["CELL-OVER", "NG", "B_DIM"]),
+                    new SummaryDetailRow(
+                        "1-1(-)",
+                        "MULTI-NG",
+                        ReviewDecision.MultiDefectNg,
+                        multiSource,
+                        ["CELL-ID", "JUDGE", "JUDGE-DEFECT"],
+                        ["CELL-MULTI", "NG", "GAP"])
+                ],
+                CancellationToken.None);
+
+            var reportFolder = Path.Combine(storage.Summary, "NG_Summary_20260625");
+            Assert.Equal(Path.Combine(reportFolder, "NG_Summary_20260625.xlsx"), output);
+            Assert.False(File.Exists(Path.Combine(reportFolder, "NG_Summary_20260625.csv")));
+            Assert.True(File.Exists(Path.Combine(reportFolder, "NG_Details_1-1(-).csv")));
+            Assert.True(File.Exists(Path.Combine(reportFolder, "NG_Details_1-1(-).xlsx")));
+            Assert.True(File.Exists(Path.Combine(
+                reportFolder,
+                "OVERKILL",
+                "1-1(-)",
+                "B_DIM",
+                "overkill-cell",
+                "raw.jpg")));
+            Assert.True(File.Exists(Path.Combine(
+                reportFolder,
+                "NG",
+                "1-1(-)",
+                "MULTI-NG",
+                "multi-cell",
+                "raw.jpg")));
+            Assert.False(File.Exists(Path.Combine(reportFolder, "NG", "1-1(-)", "B_DIM", "overkill-cell", "raw.jpg")));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task IrsWorkbookReader_UsesRequestRowsAndSecondJudgmentReason()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "IrsWorkbookTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var workbook = Path.Combine(root, "irs.xlsx");
+        CreateIrsWorkbook(
+            workbook,
+            [
+                ["", "PACKAGE #1-1", "Welding Plus", "Algorithm NG", "Manual", "2026-06-05 03:12:41", "1", "7", "LOT", "CELL-1", "BTM", "1", "", "", "", "", "", "IMG1.JPG", "NG", "FIRST_REASON", "", "", "OK", "SECOND_REASON", "", "", "PKG", "Request", "Packing Hold"],
+                ["", "PACKAGE #1-1", "Welding Plus", "Algorithm NG", "Manual", "2026-06-05 03:13:41", "1", "8", "LOT", "CELL-2", "TOP", "1", "", "", "", "", "", "IMG2.JPG", "NG", "FIRST_ONLY", "", "", "OK", "SECOND_2", "", "", "PKG", "Not request", ""]
+            ]);
+
+        try
+        {
+            var rows = await new IrsWorkbookReader().ReadRequestedAsync(workbook, CancellationToken.None);
+
+            var row = Assert.Single(rows);
+            Assert.Equal("CELL-1", row.CellId);
+            Assert.Equal("SECOND_REASON", row.SecondReason);
+            Assert.Equal("OK", row.SecondResult);
+            Assert.DoesNotContain("FIRST", row.SecondReason, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task IrsRawImageLocator_FindsTopRawImagesInModelDateHourFolder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "IrsImageLocatorTests", Guid.NewGuid().ToString("N"));
+        var hourRoot = Path.Combine(root, "Files", "Image", "E81C", "2026", "06", "01", "08", "OK");
+        Directory.CreateDirectory(hourRoot);
+        var top0 = Path.Combine(hourRoot, "20260601_CELL-1_EXT_0_0.jpg");
+        var top1 = Path.Combine(hourRoot, "20260601_CELL-1_EXT_0_1.jpg");
+        var top2 = Path.Combine(hourRoot, "20260601_CELL-1_EXT_0_2.jpg");
+        var bottom = Path.Combine(hourRoot, "20260601_CELL-1_EXT_1_0.jpg");
+        var overlay = Path.Combine(hourRoot, "20260601_CELL-1_EXT_0_0_overlay.jpg");
+        foreach (var image in new[] { top2, bottom, top0, overlay, top1 })
+        {
+            await File.WriteAllTextAsync(image, "raw");
+        }
+        var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "127.0.0.1", ['E']);
+        var candidate = new IrsReviewCandidate(
+            "key",
+            "PACKAGE #1-1",
+            "Welding Plus",
+            "1-1(+)",
+            new DateTime(2026, 6, 1, 8, 9, 25),
+            "LOT",
+            "CELL-1",
+            "TOP",
+            "irs-file.jpg",
+            "OK",
+            "SECOND_REASON",
+            3);
+
+        try
+        {
+            var result = await new IrsRawImageLocator(new TestSharePathResolver(root), new EmptyDailyCsvLocator())
+                .FindAsync(machine, candidate, CancellationToken.None);
+
+            Assert.Equal([top0, top1, top2], result.NetworkPaths);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task IrsReviewQueue_MapsPackageAndWeldingPlusToLinePolarity()
+    {
+        var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "127.0.0.1", ['E']);
+        var candidate = new IrsReviewCandidate(
+            "key",
+            "PACKAGE #1-1",
+            "Welding Plus",
+            string.Empty,
+            new DateTime(2026, 6, 5, 3, 12, 41),
+            "LOT",
+            "CELL-1",
+            "BTM",
+            "image.jpg",
+            "OK",
+            "reason",
+            3);
+        var service = new IrsReviewQueueService(
+            new FakeMachineRegistry([machine]),
+            new FakeIrsWorkbookReader([candidate]),
+            new FakeIrsImageLocator(@"\\127.0.0.1\E\image.jpg"));
+
+        var rows = await service.LoadAsync("irs.xlsx", null, CancellationToken.None);
+
+        var row = Assert.Single(rows);
+        Assert.Equal("1-1(+)", row.LinePolarity);
+        Assert.Equal(@"\\127.0.0.1\E\image.jpg", row.RawImagePath);
+    }
+
+    [Fact]
+    public async Task IrsRawImageLocator_UsesE69BForLineTwoTwo()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "IrsImageLocatorTests", Guid.NewGuid().ToString("N"));
+        var hourRoot = Path.Combine(root, "Files", "Image", "E69B", "2026", "06", "01", "08");
+        Directory.CreateDirectory(hourRoot);
+        var image = Path.Combine(hourRoot, "20260601_CELL-22_EXT_1_0.jpg");
+        await File.WriteAllTextAsync(image, "raw");
+        var machine = new WeldingMachine("2-2-ca", "2-2", Polarity.Cathode, "127.0.0.1", ['E']);
+        var candidate = new IrsReviewCandidate(
+            "key",
+            "PACKAGE #2-2",
+            "Welding Plus",
+            "2-2(+)",
+            new DateTime(2026, 6, 1, 8, 9, 25),
+            "LOT",
+            "CELL-22",
+            "BTM",
+            "irs-file.jpg",
+            "OK",
+            "SECOND_REASON",
+            3);
+
+        try
+        {
+            var result = await new IrsRawImageLocator(new TestSharePathResolver(root), new EmptyDailyCsvLocator())
+                .FindAsync(machine, candidate, CancellationToken.None);
+
+            Assert.Equal([image], result.NetworkPaths);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task IrsRawImageLocator_UsesProductionCsvImagePathsBeforeFolderSearch()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "IrsImageLocatorTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var csv = Path.Combine(root, "#1-1 WELDING VISION(+)_JF2_20260601.csv");
+        await File.WriteAllTextAsync(
+            csv,
+            string.Join(
+                Environment.NewLine,
+                "DATE,TIME,CELL-ID,UPPER_IMAGE-PATH-1,UPPER_IMAGE-PATH-2,UPPER_IMAGE-PATH-3,LOWER_IMAGE-PATH-1,LOWER_IMAGE-PATH-2,LOWER_IMAGE-PATH-3",
+                @"20260601,08:09:25,CELL-CSV,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_0.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_1.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_2.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_1_0.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_1_1.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_1_2.jpg"));
+        var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "127.0.0.1", ['E']);
+        var candidate = new IrsReviewCandidate(
+            "key",
+            "PACKAGE #1-1",
+            "Welding Plus",
+            "1-1(+)",
+            new DateTime(2026, 6, 1, 8, 9, 25),
+            "LOT",
+            "CELL-CSV",
+            "TOP",
+            "irs-file.jpg",
+            "OK",
+            "SECOND_REASON",
+            3);
+
+        try
+        {
+            var result = await new IrsRawImageLocator(
+                    new TestSharePathResolver(root),
+                    new StaticDailyCsvLocator([csv]))
+                .FindAsync(machine, candidate, CancellationToken.None);
+
+            Assert.Equal(
+                [
+                    Path.Combine(root, @"Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_0.jpg"),
+                    Path.Combine(root, @"Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_1.jpg"),
+                    Path.Combine(root, @"Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_2.jpg")
+                ],
+                result.NetworkPaths);
+            Assert.Contains("production CSV", result.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task IrsReviewCommitService_CopiesOriginalFolderAndSelectedCropFiles()
+    {
+        var shareRoot = Path.Combine(Path.GetTempPath(), "IrsCommitShare", Guid.NewGuid().ToString("N"));
+        var storageRoot = Path.Combine(Path.GetTempPath(), "IrsCommitStorage", Guid.NewGuid().ToString("N"));
+        var originalFolder = Path.Combine(
+            shareRoot,
+            "Files",
+            "Image",
+            "E81C",
+            "2026",
+            "06",
+            "01",
+            "08",
+            "OK",
+            "CELL-IRS-FOLDER");
+        Directory.CreateDirectory(originalFolder);
+        var originalPaths = new List<string>();
+        foreach (var side in new[] { "UPPER", "LOWER" })
+        {
+            foreach (var index in Enumerable.Range(1, 3))
+            {
+                foreach (var kind in new[] { "Raw", "Overlay" })
+                {
+                    var file = Path.Combine(originalFolder, $"{side}_{index}_{kind}.jpg");
+                    await File.WriteAllTextAsync(file, "image");
+                    File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddMinutes(-10));
+                    originalPaths.Add(file);
+                }
+            }
+        }
+
+        var cropFolder = Path.Combine(
+            shareRoot,
+            "Files",
+            "Image",
+            "E81C",
+            "2026",
+            "06",
+            "01",
+            "Mavin",
+            "Crop_micro",
+            "01_OK_TOP");
+        Directory.CreateDirectory(cropFolder);
+        var crop = Path.Combine(
+            cropFolder,
+            "CELL-IRS_01-1_CA_080925_UPPER_1_Micro_LL_CL01_OK_P1.000_SourceMap.jpg");
+        await File.WriteAllTextAsync(crop, "crop");
+        File.SetLastWriteTimeUtc(crop, DateTime.UtcNow.AddMinutes(-10));
+
+        var csv = Path.Combine(shareRoot, "#1-1 WELDING VISION(+)_JF2_20260601.csv");
+        await File.WriteAllTextAsync(
+            csv,
+            string.Join(
+                Environment.NewLine,
+                "DATE,TIME,CELL-ID,UPPER_IMAGE-PATH-1,UPPER_OVERLAY-IMAGE-PATH-1,UPPER_IMAGE-PATH-2,UPPER_OVERLAY-IMAGE-PATH-2,UPPER_IMAGE-PATH-3,UPPER_OVERLAY-IMAGE-PATH-3,LOWER_IMAGE-PATH-1,LOWER_OVERLAY-IMAGE-PATH-1,LOWER_IMAGE-PATH-2,LOWER_OVERLAY-IMAGE-PATH-2,LOWER_IMAGE-PATH-3,LOWER_OVERLAY-IMAGE-PATH-3",
+                string.Join(
+                    ",",
+                    [
+                        "20260601",
+                        "08:09:25",
+                        "CELL-IRS",
+                        .. originalPaths.Select(path => path.Replace(shareRoot, "E:"))
+                    ])));
+        var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "127.0.0.1", ['E']);
+        var candidate = new IrsReviewCandidate(
+            "irs-key",
+            "PACKAGE #1-1",
+            "Welding Plus",
+            "1-1(+)",
+            new DateTime(2026, 6, 1, 8, 9, 25),
+            "LOT",
+            "CELL-IRS",
+            "TOP",
+            "raw.jpg",
+            "NG",
+            "Tab Folded",
+            4);
+        var service = new IrsReviewCommitService(
+            new AppStorage(storageRoot),
+            new StaticDailyCsvLocator([csv]),
+            new TestSharePathResolver(shareRoot));
+
+        try
+        {
+            var result = await service.CommitAsync(
+                new(
+                    machine,
+                    candidate,
+                    [
+                        new(
+                            "MICRO_LL",
+                            "LL",
+                            "Crop_micro",
+                            IrsSelectionKind.Crop,
+                            "Crop_micro",
+                            "Micro_LL")
+                    ]),
+                CancellationToken.None);
+
+            Assert.Equal(12, result.OriginalFilesCopied);
+            Assert.Equal(1, result.CropFilesCopied);
+            Assert.True(Directory.Exists(Path.Combine(
+                storageRoot,
+                "1-1(+)",
+                "IRS_LEAK",
+                "ORIGINAL",
+                "CELL-IRS-FOLDER")));
+            Assert.True(File.Exists(Path.Combine(
+                storageRoot,
+                "1-1(+)",
+                "IRS_LEAK",
+                "Crop_micro",
+                Path.GetFileName(crop))));
+            Assert.True(File.Exists(Path.Combine(storageRoot, "irs-reviews.json")));
+
+            var rulebase = await service.CommitAsync(
+                new(
+                    machine,
+                    candidate,
+                    [
+                        new(
+                            "RULEBASE",
+                            "Rulebase",
+                            "RULEBASE",
+                            IrsSelectionKind.Rulebase,
+                            null,
+                            null)
+                    ]),
+                CancellationToken.None);
+
+            Assert.Equal(12, rulebase.OriginalFilesCopied);
+            Assert.Equal(0, rulebase.CropFilesCopied);
+            Assert.False(File.Exists(Path.Combine(
+                storageRoot,
+                "1-1(+)",
+                "IRS_LEAK",
+                "Crop_micro",
+                Path.GetFileName(crop))));
+            Assert.True(Directory.Exists(Path.Combine(
+                storageRoot,
+                "1-1(+)",
+                "IRS_LEAK",
+                "RULEBASE",
+                "CELL-IRS-FOLDER")));
+
+            var missingCrop = await service.CommitAsync(
+                new(
+                    machine,
+                    candidate,
+                    [
+                        new(
+                            "A_L",
+                            "A L",
+                            "Crop_A",
+                            IrsSelectionKind.Crop,
+                            "Crop_A",
+                            "A_L")
+                    ]),
+                CancellationToken.None);
+
+            Assert.Equal(24, missingCrop.OriginalFilesCopied);
+            Assert.Equal(0, missingCrop.CropFilesCopied);
+            Assert.True(Directory.Exists(Path.Combine(
+                storageRoot,
+                "1-1(+)",
+                "IRS_LEAK",
+                "ORIGINAL",
+                "CELL-IRS-FOLDER")));
+            Assert.True(Directory.Exists(Path.Combine(
+                storageRoot,
+                "1-1(+)",
+                "IRS_LEAK",
+                "NEED_TO_SIMULATE",
+                "Crop_A",
+                "CELL-IRS-FOLDER")));
+        }
+        finally
+        {
+            if (Directory.Exists(shareRoot)) Directory.Delete(shareRoot, true);
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
+
+    private sealed class TestSharePathResolver(string root) : ISharePathResolver
+    {
+        public string GetRoot(WeldingMachine machine, char drive) => root;
+
+        public void RecordAccessibleRoot(
+            WeldingMachine machine,
+            char drive,
+            string accessibleRoot)
+        {
+        }
+    }
+
+    private sealed class EmptyDailyCsvLocator : IDailyCsvLocator
+    {
+        public Task<IReadOnlyList<string>> FindAsync(
+            WeldingMachine machine,
+            DateOnly date,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
+    }
+
+    private sealed class StaticDailyCsvLocator(IReadOnlyList<string> files) : IDailyCsvLocator
+    {
+        public Task<IReadOnlyList<string>> FindAsync(
+            WeldingMachine machine,
+            DateOnly date,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(files);
+    }
+
+    private static void CreateIrsWorkbook(
+        string path,
+        IReadOnlyList<IReadOnlyList<string>> dataRows)
+    {
+        using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        WriteZipEntry(
+            archive,
+            "[Content_Types].xml",
+            """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+              <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+              <Default Extension="xml" ContentType="application/xml"/>
+              <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+              <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+            </Types>
+            """);
+        WriteZipEntry(
+            archive,
+            "_rels/.rels",
+            """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+              <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+            </Relationships>
+            """);
+        WriteZipEntry(
+            archive,
+            "xl/_rels/workbook.xml.rels",
+            """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+              <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+            </Relationships>
+            """);
+        WriteZipEntry(
+            archive,
+            "xl/workbook.xml",
+            """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+            </workbook>
+            """);
+        WriteZipEntry(archive, "xl/worksheets/sheet1.xml", IrsWorksheetXml(dataRows));
+    }
+
+    private static string IrsWorksheetXml(IReadOnlyList<IReadOnlyList<string>> dataRows)
+    {
+        var row1 = new[]
+        {
+            "", "Eqpt", "Vision Type", "Re-inspection target", "Process Method",
+            "Prod. date", "Batch Order", "Sort Order", "Lot ID", "Cell ID",
+            "Camera Location", "Camera Number", "Group Rank", "Group Count",
+            "Group Category", "Tail cell rank", "Tail cell defect ranking", "Image",
+            "1st judgment", "", "", "", "2nd judgment", "", "", "", "PKG ID",
+            "Request for NG Cell OUT", "Hold/Release"
+        };
+        var row2 = new[]
+        {
+            "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+            "", "Result", "reason", "Inspector", "completion date", "Result", "reason",
+            "Inspector", "completion date", "", "", ""
+        };
+        var builder = new StringBuilder();
+        builder.AppendLine("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""");
+        builder.AppendLine("""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>""");
+        AppendIrsRow(builder, 1, row1);
+        AppendIrsRow(builder, 2, row2);
+        for (var index = 0; index < dataRows.Count; index++)
+        {
+            AppendIrsRow(builder, index + 3, dataRows[index]);
+        }
+        builder.AppendLine("</sheetData></worksheet>");
+        return builder.ToString();
+    }
+
+    private static void AppendIrsRow(
+        StringBuilder builder,
+        int rowNumber,
+        IReadOnlyList<string> values)
+    {
+        builder.Append($"<row r=\"{rowNumber}\">");
+        for (var index = 0; index < values.Count; index++)
+        {
+            if (string.IsNullOrEmpty(values[index])) continue;
+            builder
+                .Append("<c r=\"")
+                .Append(ColumnName(index))
+                .Append(rowNumber)
+                .Append("\" t=\"inlineStr\"><is><t>")
+                .Append(SecurityElement.Escape(values[index]))
+                .Append("</t></is></c>");
+        }
+        builder.AppendLine("</row>");
+    }
+
+    private static string ColumnName(int index)
+    {
+        var name = string.Empty;
+        index++;
+        while (index > 0)
+        {
+            var remainder = (index - 1) % 26;
+            name = (char)('A' + remainder) + name;
+            index = (index - 1) / 26;
+        }
+        return name;
+    }
+
+    private static void WriteZipEntry(ZipArchive archive, string name, string contents)
+    {
+        var entry = archive.CreateEntry(name);
+        using var stream = entry.Open();
+        using var writer = new StreamWriter(stream, new UTF8Encoding(false));
+        writer.Write(contents);
+    }
+
+    private static InspectionSummaryRecord SummaryRecord(
+        WeldingMachine machine,
+        DateTime inspectedAt,
+        string cellId,
+        string judge,
+        string defect)
+    {
+        var normalizedDefect = KickoutRules.NormalizeDefect(defect);
+        var key = string.Join("|", machine.Id, inspectedAt.ToString("O"), "LOT", cellId);
+        return new(
+            machine.Id,
+            inspectedAt,
+            "LOT",
+            cellId,
+            judge,
+            normalizedDefect,
+            judge.Equals("NG", StringComparison.OrdinalIgnoreCase) ? NgSide.Upper : NgSide.None,
+            key,
+            ["DATE", "TIME", "LOT-ID", "CELL-ID", "JUDGE", "JUDGE-DEFECT"],
+            [
+                inspectedAt.ToString("yyyyMMdd"),
+                inspectedAt.ToString("HH:mm:ss"),
+                "LOT",
+                cellId,
+                judge,
+                defect
+            ],
+            "source.csv");
+    }
+
+    private sealed class FakeLocator : IDailyCsvLocator
+    {
+        public Task<IReadOnlyList<string>> FindAsync(
+            WeldingMachine machine,
+            DateOnly date,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<string>>(["fake.csv"]);
+    }
+
+    private sealed class FakeSnapshotService : IReadOnlySnapshotService
+    {
+        public Task<SnapshotResult> CreateAsync(
+            string sourceCsv,
+            bool currentDate,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new SnapshotResult(sourceCsv, sourceCsv, false, null));
+    }
+
+    private sealed class FakeSummaryReader(
+        IReadOnlyList<InspectionSummaryRecord> records) : IInspectionSummaryCsvReader
+    {
+        public async IAsyncEnumerable<InspectionSummaryRecord> ReadAsync(
+            WeldingMachine machine,
+            SnapshotResult snapshot,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            foreach (var record in records.Where(record => record.MachineId == machine.Id))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return record;
+            }
+        }
+    }
+
+    private sealed class FakeReviewStore(
+        IReadOnlyList<ReviewEntry> entries) : IReviewStore
+    {
+        public Task<IReadOnlyDictionary<string, ReviewEntry>> LoadAsync(
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, ReviewEntry>>(
+                entries.ToDictionary(entry => entry.CandidateKey, StringComparer.OrdinalIgnoreCase));
+
+        public Task SaveAsync(ReviewEntry entry, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+    }
+
+    private sealed class FakeSummaryWriter : ISummaryReportWriter
+    {
+        public IReadOnlyList<SummaryReportRow> Rows { get; private set; } = [];
+
+        public Task<string> WriteAsync(
+            DateOnly reportDate,
+            DateTime windowStart,
+            DateTime windowEndExclusive,
+            IReadOnlyList<SummaryReportRow> rows,
+            IReadOnlyList<SummaryDetailRow> details,
+            CancellationToken cancellationToken)
+        {
+            Rows = rows;
+            return Task.FromResult("summary.csv");
+        }
+    }
+
+    private sealed class FakeMachineRegistry(IReadOnlyList<WeldingMachine> machines) : IMachineRegistry
+    {
+        public IReadOnlyList<WeldingMachine> All { get; } = machines;
+
+        public WeldingMachine Get(string id) =>
+            All.First(machine => machine.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed class FakeIrsWorkbookReader(
+        IReadOnlyList<IrsReviewCandidate> rows) : IIrsWorkbookReader
+    {
+        public Task<IReadOnlyList<IrsReviewCandidate>> ReadRequestedAsync(
+            string workbookPath,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(rows);
+    }
+
+    private sealed class FakeIrsImageLocator(string path) : IIrsRawImageLocator
+    {
+        public Task<IrsImageLookupResult> FindAsync(
+            WeldingMachine machine,
+            IrsReviewCandidate candidate,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new IrsImageLookupResult([path], "found"));
+    }
+}

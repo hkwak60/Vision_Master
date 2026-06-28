@@ -1,0 +1,57 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{75DE8F22-66D3-4839-99AC-2AD3CAB36D34}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KickoutMonitor.Domain", "src\KickoutMonitor.Domain\KickoutMonitor.Domain.csproj", "{809B7217-7BAE-4DC1-90A7-C3C9B6D044FE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KickoutMonitor.Application", "src\KickoutMonitor.Application\KickoutMonitor.Application.csproj", "{C561DEEC-F9F5-4DFD-8EA5-FCFCE839B69D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KickoutMonitor.Infrastructure", "src\KickoutMonitor.Infrastructure\KickoutMonitor.Infrastructure.csproj", "{9DB03B21-2732-4179-91C6-332D7E6D51F2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KickoutMonitor.App", "src\KickoutMonitor.App\KickoutMonitor.App.csproj", "{F58F86AD-2C43-4050-B26C-3839810F6C96}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{2BF56049-BB4F-4226-82DC-273E9EDD4985}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KickoutMonitor.Tests", "tests\KickoutMonitor.Tests\KickoutMonitor.Tests.csproj", "{F861FD6D-6D1B-4AE3-B264-40EF11CBCEE4}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{809B7217-7BAE-4DC1-90A7-C3C9B6D044FE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{809B7217-7BAE-4DC1-90A7-C3C9B6D044FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{809B7217-7BAE-4DC1-90A7-C3C9B6D044FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{809B7217-7BAE-4DC1-90A7-C3C9B6D044FE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C561DEEC-F9F5-4DFD-8EA5-FCFCE839B69D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C561DEEC-F9F5-4DFD-8EA5-FCFCE839B69D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C561DEEC-F9F5-4DFD-8EA5-FCFCE839B69D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C561DEEC-F9F5-4DFD-8EA5-FCFCE839B69D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9DB03B21-2732-4179-91C6-332D7E6D51F2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9DB03B21-2732-4179-91C6-332D7E6D51F2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9DB03B21-2732-4179-91C6-332D7E6D51F2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9DB03B21-2732-4179-91C6-332D7E6D51F2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F58F86AD-2C43-4050-B26C-3839810F6C96}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F58F86AD-2C43-4050-B26C-3839810F6C96}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F58F86AD-2C43-4050-B26C-3839810F6C96}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F58F86AD-2C43-4050-B26C-3839810F6C96}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F861FD6D-6D1B-4AE3-B264-40EF11CBCEE4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F861FD6D-6D1B-4AE3-B264-40EF11CBCEE4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F861FD6D-6D1B-4AE3-B264-40EF11CBCEE4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F861FD6D-6D1B-4AE3-B264-40EF11CBCEE4}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{809B7217-7BAE-4DC1-90A7-C3C9B6D044FE} = {75DE8F22-66D3-4839-99AC-2AD3CAB36D34}
+		{C561DEEC-F9F5-4DFD-8EA5-FCFCE839B69D} = {75DE8F22-66D3-4839-99AC-2AD3CAB36D34}
+		{9DB03B21-2732-4179-91C6-332D7E6D51F2} = {75DE8F22-66D3-4839-99AC-2AD3CAB36D34}
+		{F58F86AD-2C43-4050-B26C-3839810F6C96} = {75DE8F22-66D3-4839-99AC-2AD3CAB36D34}
+		{F861FD6D-6D1B-4AE3-B264-40EF11CBCEE4} = {2BF56049-BB4F-4226-82DC-273E9EDD4985}
+	EndGlobalSection
+EndGlobal

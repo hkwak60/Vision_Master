@@ -1,18 +1,38 @@
-__pycache__/
-*.py[cod]
-*.pyo
+﻿# VisionMaster / WPF
+**/bin/
+**/obj/
+**/.dotnet/
+**/.packages/
+**/runtime-*/
+*.user
+*.suo
 
+# Keep only the published executable artifact, not debug symbols.
+KickoutMonitor/publish/*
+!KickoutMonitor/publish/VisionMaster.exe
+
+# Local legacy VisionIssueTracker files kept on this PC only.
+app.py
+vision_tracker.py
+tests.py
+USER_MANUAL.md
+VisionIssueTracker.spec
+requirements.txt
+run_tracker.bat
 data/
+
+# General local output
+outputs/
 exports/
 dist/
 build/
 release/
 build_release/
-*.spec
-!VisionIssueTracker.spec
-
+*.log
+__pycache__/
+*.py[cod]
+*.pyo
 .venv/
 venv/
 .env
-
-*.log
+.agents/
