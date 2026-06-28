@@ -967,6 +967,48 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public async Task IrsDatasetService_SummaryCopiesNeedToSimulateWholeOriginalFolder()
+    {
+        var storageRoot = Path.Combine(Path.GetTempPath(), "IrsNeedToSimulateSummary", Guid.NewGuid().ToString("N"));
+        var rawFolder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "NEED_TO_SIMULATE", "SEPA", "CELL-SEPA-FOLDER");
+        Directory.CreateDirectory(rawFolder);
+        var files = new[]
+        {
+            Path.Combine(rawFolder, "CELL-SEPA_0_0.jpg"),
+            Path.Combine(rawFolder, "CELL-SEPA_0_1.jpg"),
+            Path.Combine(rawFolder, "CELL-SEPA_0_2.jpg"),
+            Path.Combine(rawFolder, "CELL-SEPA_0_0_overlay.jpg"),
+            Path.Combine(rawFolder, "CELL-SEPA_1_0.jpg"),
+            Path.Combine(rawFolder, "CELL-SEPA_1_0_overlay.jpg")
+        };
+        foreach (var file in files) await File.WriteAllTextAsync(file, "image");
+
+        var candidate = new IrsReviewCandidate("sepa-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 15, 9, 59, 23), "LOT", "CELL-SEPA", "TOP", "raw.jpg", "NG", "reason", 4);
+        var record = new IrsReviewRecord("sepa-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-SEPA", "TOP", "NG", "reason", ["SEPA"], 6, 0, 0, storageRoot, DateTimeOffset.Now, [rawFolder]);
+        var service = new IrsDatasetService(new AppStorage(storageRoot));
+
+        try
+        {
+            var items = await service.BuildQueueAsync([candidate], [record], CancellationToken.None);
+            var item = Assert.Single(items);
+            Assert.Equal([files[0], files[1], files[2]], item.ImagePaths);
+            await service.SaveDecisionAsync(item, ["Real"], false, CancellationToken.None);
+
+            var result = await service.WriteSummaryAsync([candidate], [record], items, CancellationToken.None);
+            var destination = Path.Combine(result.OutputFolder, "Dataset", "NEED_TO_SIMULATE", "SEPA", "CELL-SEPA-FOLDER");
+            Assert.True(Directory.Exists(destination));
+            foreach (var file in files)
+            {
+                Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(file))));
+            }
+            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "SEPA", "Real")));
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
+    [Fact]
     public async Task IrsDatasetService_PairsSourceMapAndActiveMapByCropSelection()
     {
         var storageRoot = Path.Combine(Path.GetTempPath(), "IrsDatasetStorage", Guid.NewGuid().ToString("N"));

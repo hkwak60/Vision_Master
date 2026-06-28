@@ -158,6 +158,13 @@ public sealed class IrsDatasetService : IIrsDatasetService
 
         foreach (var row in relevant)
         {
+            if (row.Item.IsNeedToSimulate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                CopyNeedToSimulateDataset(row.Item, datasetRoot, cancellationToken);
+                continue;
+            }
+
             foreach (var finalClass in row.Decision.FinalClasses)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -177,6 +184,40 @@ public sealed class IrsDatasetService : IIrsDatasetService
         return new(folder, summaryPath, details);
     }
 
+    private static void CopyNeedToSimulateDataset(
+        IrsDatasetItem item,
+        string datasetRoot,
+        CancellationToken cancellationToken)
+    {
+        var sourceFolder = item.ImagePaths
+            .Where(File.Exists)
+            .Select(Path.GetDirectoryName)
+            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
+        if (string.IsNullOrWhiteSpace(sourceFolder) || !Directory.Exists(sourceFolder)) return;
+
+        var destinationFolder = Path.Combine(
+            datasetRoot,
+            "NEED_TO_SIMULATE",
+            item.SourceFolder,
+            Path.GetFileName(sourceFolder));
+        CopyDirectoryContents(sourceFolder, destinationFolder, cancellationToken);
+    }
+
+    private static void CopyDirectoryContents(
+        string sourceFolder,
+        string destinationFolder,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(destinationFolder);
+        foreach (var file in Directory.EnumerateFiles(sourceFolder, "*.*", SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var relativePath = Path.GetRelativePath(sourceFolder, file);
+            var target = Path.Combine(destinationFolder, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, true);
+        }
+    }
     private IReadOnlyList<string> WriteDetailsWorkbooks(
         string folder,
         IReadOnlyList<IrsReviewCandidate> candidates,
