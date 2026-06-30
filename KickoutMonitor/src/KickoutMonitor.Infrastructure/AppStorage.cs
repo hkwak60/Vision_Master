@@ -1,13 +1,18 @@
-using KickoutMonitor.Domain;
+﻿using KickoutMonitor.Domain;
 
 namespace KickoutMonitor.Infrastructure;
 
 public sealed class AppStorage
 {
-    public AppStorage(string? root = null)
+    public AppStorage(string? root) : this(null, root)
+    {
+    }
+
+    public AppStorage(VisionMasterSettings? settings = null, string? root = null)
     {
         RequestedRoot = root
             ?? Environment.GetEnvironmentVariable("KICKOUT_MONITOR_ROOT")
+            ?? settings?.StorageRoot
             ?? @"E:\KWAK\VisionMaster";
         Root = ResolveRoot(RequestedRoot);
         Staging = Path.Combine(Root, ".staging");

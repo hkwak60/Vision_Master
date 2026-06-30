@@ -7,6 +7,12 @@ namespace KickoutMonitor.Infrastructure;
 
 public sealed class InspectionSummaryCsvReader : IInspectionSummaryCsvReader
 {
+    private readonly VisionMasterSettings _settings;
+
+    public InspectionSummaryCsvReader(VisionMasterSettings? settings = null)
+    {
+        _settings = settings ?? VisionMasterSettings.CreateDefault();
+    }
     public async IAsyncEnumerable<InspectionSummaryRecord> ReadAsync(
         WeldingMachine machine,
         SnapshotResult snapshot,
@@ -34,8 +40,8 @@ public sealed class InspectionSummaryCsvReader : IInspectionSummaryCsvReader
             var row = new CsvRow(headers, values);
             var cellId = row.Get("CELL-ID");
             if (string.IsNullOrWhiteSpace(cellId)
-                || cellId.StartsWith("OCR", StringComparison.OrdinalIgnoreCase)
-                || cellId.StartsWith("AGING", StringComparison.OrdinalIgnoreCase))
+                || _settings.KickoutRules.IgnoredCellPrefixes.Any(prefix =>
+                    cellId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }

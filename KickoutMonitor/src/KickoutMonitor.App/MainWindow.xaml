@@ -25,6 +25,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <Button Grid.Column="0" Click="KickoutButton_Click" Margin="16"
                     FontSize="24" FontWeight="SemiBold">
@@ -40,7 +41,17 @@
                     FontSize="24" FontWeight="SemiBold">
                 <StackPanel>
                     <TextBlock Text="IRS Review" HorizontalAlignment="Center"/>
-                    <TextBlock Text="Prototype raw image review from IRS workbook"
+                    <TextBlock Text="IRS crop collection and dataset review"
+                               FontSize="13" FontWeight="Normal"
+                               Foreground="#52606D" HorizontalAlignment="Center"
+                               Margin="0,8,0,0"/>
+                </StackPanel>
+            </Button>
+            <Button Grid.Column="2" Click="SettingsButton_Click" Margin="16"
+                    FontSize="24" FontWeight="SemiBold">
+                <StackPanel>
+                    <TextBlock Text="Settings" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Machines, paths, and review rules"
                                FontSize="13" FontWeight="Normal"
                                Foreground="#52606D" HorizontalAlignment="Center"
                                Margin="0,8,0,0"/>

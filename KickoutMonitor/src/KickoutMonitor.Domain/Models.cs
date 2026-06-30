@@ -1,4 +1,4 @@
-﻿namespace KickoutMonitor.Domain;
+namespace KickoutMonitor.Domain;
 
 public enum Polarity
 {
@@ -35,7 +35,10 @@ public sealed record WeldingMachine(
     string Line,
     Polarity Polarity,
     string IpAddress,
-    IReadOnlyList<char> ImageDrives)
+    IReadOnlyList<char> ImageDrives,
+    string Model = "E81C",
+    char DataDrive = 'D',
+    bool Enabled = true)
 {
     public string OutputFolderName => $"{Line}({(Polarity == Polarity.Anode ? "-" : "+")})";
     public string DisplayName => $"{Line} Welding ({(Polarity == Polarity.Anode ? "-" : "+")})";
@@ -43,7 +46,7 @@ public sealed record WeldingMachine(
         $@"\\{IpAddress}\{char.ToUpperInvariant(drive)}{(administrative ? "$" : string.Empty)}";
 
     public string DataRoot(bool administrative = false) =>
-        Path.Combine(ShareRoot('D', administrative), "Files", "Data", "Result", "Day");
+        Path.Combine(ShareRoot(DataDrive, administrative), "Files", "Data", "Result", "Day");
 }
 
 public sealed record CandidateImage(

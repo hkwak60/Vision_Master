@@ -3,10 +3,13 @@ namespace KickoutMonitor.Domain;
 public static class KickoutRules
 {
     public static bool IsEligible(string? judge, string? cellId) =>
-        string.Equals(judge?.Trim(), "NG", StringComparison.OrdinalIgnoreCase)
+        IsEligible(judge, cellId, VisionMasterSettings.CreateDefault().KickoutRules);
+
+    public static bool IsEligible(string? judge, string? cellId, KickoutRuleSettings rules) =>
+        string.Equals(judge?.Trim(), rules.NgJudgeText, StringComparison.OrdinalIgnoreCase)
         && !string.IsNullOrWhiteSpace(cellId)
-        && !cellId.TrimStart().StartsWith("OCR", StringComparison.OrdinalIgnoreCase)
-        && !cellId.TrimStart().StartsWith("AGING", StringComparison.OrdinalIgnoreCase);
+        && !rules.IgnoredCellPrefixes.Any(prefix =>
+            cellId.TrimStart().StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
     public static NgSide GetNgSide(string? upperJudge, string? lowerJudge)
     {

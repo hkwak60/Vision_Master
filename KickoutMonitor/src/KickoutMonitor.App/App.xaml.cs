@@ -11,12 +11,15 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        var machines = new MachineRegistry();
-        var storage = new AppStorage();
+
+        var settingsStore = new JsonSettingsStore();
+        var settings = settingsStore.LoadOrCreateAsync(CancellationToken.None).GetAwaiter().GetResult();
+        var machines = new MachineRegistry(settings);
+        var storage = new AppStorage(settings);
         storage.EnsureCreated(machines.All);
         var reviews = new JsonReviewStore(storage);
         var shares = new SharePathResolver();
-        var locator = new DailyCsvLocator(shares);
+        var locator = new DailyCsvLocator(shares, settings);
         var snapshots = new ReadOnlySnapshotService(storage);
         var imageLoader = new WpfPreviewImageLoader();
         var kickoutViewModel = new MainViewModel(
@@ -24,7 +27,7 @@ public partial class App : System.Windows.Application
             new KickoutQueueService(
                 locator,
                 snapshots,
-                new WeldingKickoutCsvReader(shares)),
+                new WeldingKickoutCsvReader(shares, settings)),
             reviews,
             new ClassifiedFolderService(storage),
             new DiskPreviewCache(storage),
@@ -33,21 +36,23 @@ public partial class App : System.Windows.Application
             new SummaryReportService(
                 locator,
                 snapshots,
-                new InspectionSummaryCsvReader(),
+                new InspectionSummaryCsvReader(settings),
                 reviews,
-                new SummaryReportWriter(storage)),
+                new SummaryReportWriter(storage),
+                settings),
             storage);
         var irsViewModel = new IrsReviewViewModel(
             new IrsReviewQueueService(
                 machines,
                 new IrsWorkbookReader(),
-                new IrsRawImageLocator(shares, locator)),
+                new IrsRawImageLocator(shares, locator, settings)),
             imageLoader,
             machines,
-            new IrsReviewCommitService(storage, locator, shares),
-            new IrsDatasetService(storage));
-        var window = new MainWindow(kickoutViewModel, irsViewModel);
+            new IrsReviewCommitService(storage, locator, shares, settings),
+            new IrsDatasetService(storage, settings),
+            settings);
+        var settingsViewModel = new SettingsViewModel(settingsStore, settings, settingsStore.LastWarning);
+        var window = new MainWindow(kickoutViewModel, irsViewModel, settingsViewModel);
         window.Show();
     }
 }
-

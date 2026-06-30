@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using KickoutMonitor.App.ViewModels;
 
 namespace KickoutMonitor.App;
@@ -7,14 +7,17 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _kickoutViewModel;
     private readonly IrsReviewViewModel _irsViewModel;
+    private readonly SettingsViewModel _settingsViewModel;
 
     public MainWindow(
         MainViewModel kickoutViewModel,
-        IrsReviewViewModel irsViewModel)
+        IrsReviewViewModel irsViewModel,
+        SettingsViewModel settingsViewModel)
     {
         InitializeComponent();
         _kickoutViewModel = kickoutViewModel;
         _irsViewModel = irsViewModel;
+        _settingsViewModel = settingsViewModel;
     }
 
     private void KickoutButton_Click(object sender, RoutedEventArgs e)
@@ -30,12 +33,15 @@ public partial class MainWindow : Window
         var view = new IrsReviewView { DataContext = _irsViewModel };
         view.BackRequested += (_, _) => ReturnToDashboard();
         ModuleHost.Content = view;
-        ShowModule("IRS Review", "Prototype raw image review from IRS workbook");
+        ShowModule("IRS Review", "IRS crop collection and dataset review");
     }
 
-    private void BackButton_Click(object sender, RoutedEventArgs e)
+    private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
-        ReturnToDashboard();
+        var view = new SettingsView { DataContext = _settingsViewModel };
+        view.BackRequested += (_, _) => ReturnToDashboard();
+        ModuleHost.Content = view;
+        ShowModule("Settings", "VisionMaster local configuration");
     }
 
     private void ReturnToDashboard()

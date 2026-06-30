@@ -7,12 +7,14 @@ public sealed class IrsRawImageLocator : IIrsRawImageLocator
 {
     private readonly ISharePathResolver _shares;
     private readonly IDailyCsvLocator _csvs;
+    private readonly VisionMasterSettings _settings;
     private readonly Dictionary<string, Task<CsvImageIndex>> _csvIndexCache = new(StringComparer.OrdinalIgnoreCase);
 
-    public IrsRawImageLocator(ISharePathResolver shares, IDailyCsvLocator csvs)
+    public IrsRawImageLocator(ISharePathResolver shares, IDailyCsvLocator csvs, VisionMasterSettings? settings = null)
     {
         _shares = shares;
         _csvs = csvs;
+        _settings = settings ?? VisionMasterSettings.CreateDefault();
     }
 
     public async Task<IrsImageLookupResult> FindAsync(
@@ -30,15 +32,10 @@ public sealed class IrsRawImageLocator : IIrsRawImageLocator
 
         return await Task.Run(() =>
         {
-            var model = ModelFor(machine);
             var hourRelative = Path.Combine(
-                "Files",
-                "Image",
-                model,
-                candidate.ProducedAt.ToString("yyyy"),
-                candidate.ProducedAt.ToString("MM"),
-                candidate.ProducedAt.ToString("dd"),
-                candidate.ProducedAt.ToString("HH"));
+                _settings.ProductionPaths.ImageSegments
+                    .Concat([machine.Model, candidate.ProducedAt.ToString("yyyy"), candidate.ProducedAt.ToString("MM"), candidate.ProducedAt.ToString("dd"), candidate.ProducedAt.ToString("HH")])
+                    .ToArray());
             var sideIndex = SideIndex(candidate.CameraLocation);
             foreach (var drive in machine.ImageDrives)
             {
@@ -263,11 +260,6 @@ public sealed class IrsRawImageLocator : IIrsRawImageLocator
 
     private static string SideName(string cameraLocation) =>
         SideIndex(cameraLocation) == 1 ? "LOWER" : "UPPER";
-
-    private static string ModelFor(WeldingMachine machine) =>
-        machine.Line.Equals("2-2", StringComparison.OrdinalIgnoreCase)
-            ? "E69B"
-            : "E81C";
 
     private sealed class CsvImageIndex(
         IReadOnlyDictionary<string, Dictionary<string, List<string>>> rows)

@@ -208,6 +208,63 @@ public sealed class CoreTests
         }
     }
 
+
+    [Fact]
+    public void DefaultSettings_PreserveCurrentMachineAndRuleDefaults()
+    {
+        var settings = VisionMasterSettings.CreateDefault();
+        var registry = new MachineRegistry(settings);
+
+        Assert.Equal(@"E:\KWAK\VisionMaster", settings.StorageRoot);
+        Assert.Equal(8, registry.All.Count);
+        Assert.Contains(registry.All, machine => machine.OutputFolderName == "1-1(-)" && machine.IpAddress == "10.112.99.181" && machine.Model == "E81C");
+        Assert.Contains(registry.All, machine => machine.OutputFolderName == "2-2(+)" && machine.IpAddress == "10.112.99.78" && machine.Model == "E69B");
+        Assert.Equal(['E', 'F', 'G'], registry.Get("1-1-ca").ImageDrives);
+        Assert.Equal('D', registry.Get("1-1-ca").DataDrive);
+        Assert.Contains("OCR", settings.KickoutRules.IgnoredCellPrefixes);
+        Assert.Contains("AGING", settings.KickoutRules.IgnoredCellPrefixes);
+        Assert.Equal("06:00", settings.KickoutRules.ReportStartTime);
+    }
+
+    [Fact]
+    public void DefaultSettings_ProvideIrsSelectionAndFinalClassRules()
+    {
+        var settings = VisionMasterSettings.CreateDefault();
+
+        Assert.Contains(settings.IrsRules.FirstStageSelections, option => option.Id == "TABSIDE_R" && option.CategoryFolder == "Crop_micro_tabside" && option.Token == "_R");
+        Assert.Contains(settings.IrsRules.FirstStageSelections, option => option.Id == "SEPA_SHOULDER_L" && option.CategoryFolder == "SEPA_SHOULDER");
+        Assert.Contains(settings.IrsRules.FinalClassGroups, group => group.Folder == "Crop_A" && group.Polarity == Polarity.Cathode && group.Classes.Contains("01_OK_TOP_CATHODE"));
+        Assert.Contains(settings.IrsRules.FinalClassGroups, group => group.Folder == "Crop_micro_tabside" && group.Classes.Contains("04_NG_SIDE_TORN"));
+        Assert.Contains(settings.IrsRules.FinalClassGroups, group => group.Folder == "SEPA" && group.Classes.SequenceEqual(["Real", "No Need to Retrain"]));
+    }
+
+    [Fact]
+    public async Task SettingsStore_LoadsSavesAndResetsDefaults()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "VisionMasterSettingsTests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, "settings.json");
+        var store = new JsonSettingsStore(path);
+
+        try
+        {
+            var defaults = await store.LoadOrCreateAsync(CancellationToken.None);
+            Assert.True(File.Exists(path));
+            Assert.Equal(@"E:\KWAK\VisionMaster", defaults.StorageRoot);
+
+            defaults.StorageRoot = @"C:\VisionMasterTest";
+            await store.SaveAsync(defaults, CancellationToken.None);
+            var loaded = await store.LoadOrCreateAsync(CancellationToken.None);
+            Assert.Equal(@"C:\VisionMasterTest", loaded.StorageRoot);
+
+            await store.ResetToDefaultsAsync(CancellationToken.None);
+            var reset = await store.LoadOrCreateAsync(CancellationToken.None);
+            Assert.Equal(@"E:\KWAK\VisionMaster", reset.StorageRoot);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
     [Fact]
     public void Registry_ContainsEightWeldingMachines()
     {
@@ -634,7 +691,7 @@ public sealed class CoreTests
         Directory.CreateDirectory(hourRoot);
         var image = Path.Combine(hourRoot, "20260601_CELL-22_EXT_1_0.jpg");
         await File.WriteAllTextAsync(image, "raw");
-        var machine = new WeldingMachine("2-2-ca", "2-2", Polarity.Cathode, "127.0.0.1", ['E']);
+        var machine = new WeldingMachine("2-2-ca", "2-2", Polarity.Cathode, "127.0.0.1", ['E'], "E69B");
         var candidate = new IrsReviewCandidate(
             "key",
             "PACKAGE #2-2",

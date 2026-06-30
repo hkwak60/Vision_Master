@@ -8,10 +8,12 @@ namespace KickoutMonitor.Infrastructure;
 public sealed class WeldingKickoutCsvReader : IKickoutCsvReader
 {
     private readonly ISharePathResolver _shares;
+    private readonly VisionMasterSettings _settings;
 
-    public WeldingKickoutCsvReader(ISharePathResolver shares)
+    public WeldingKickoutCsvReader(ISharePathResolver shares, VisionMasterSettings? settings = null)
     {
         _shares = shares;
+        _settings = settings ?? VisionMasterSettings.CreateDefault();
     }
 
     public async IAsyncEnumerable<KickoutCandidate> ReadAsync(
@@ -46,7 +48,7 @@ public sealed class WeldingKickoutCsvReader : IKickoutCsvReader
 
             var row = new CsvRow(headers, values);
             var cellId = row.Get("CELL-ID");
-            if (!KickoutRules.IsEligible(row.Get("JUDGE"), cellId)) continue;
+            if (!KickoutRules.IsEligible(row.Get("JUDGE"), cellId, _settings.KickoutRules)) continue;
 
             var side = KickoutRules.GetNgSide(row.Get("UPPER_JUDGE"), row.Get("LOWER_JUDGE"));
             if (side == NgSide.None) continue;

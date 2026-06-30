@@ -16,10 +16,12 @@ public sealed class IrsDatasetService : IIrsDatasetService
     };
 
     private readonly AppStorage _storage;
+    private readonly VisionMasterSettings _settings;
 
-    public IrsDatasetService(AppStorage storage)
+    public IrsDatasetService(AppStorage storage, VisionMasterSettings? settings = null)
     {
         _storage = storage;
+        _settings = settings ?? VisionMasterSettings.CreateDefault();
     }
 
     public Task<IReadOnlyList<IrsDatasetItem>> BuildQueueAsync(
@@ -286,23 +288,19 @@ public sealed class IrsDatasetService : IIrsDatasetService
 
     private string DecisionPath() => Path.Combine(_storage.Root, "irs-dataset-reviews.json");
 
-    private static IReadOnlyList<string> ClassesFor(string folder, string linePolarity)
+    private IReadOnlyList<string> ClassesFor(string folder, string linePolarity)
     {
-        var cathode = linePolarity.Contains("+", StringComparison.Ordinal);
-        return folder switch
-        {
-            "Crop_A" when cathode => ["01_OK_TOP_CATHODE", "02_OK_BACK_CATHODE", "03_NG_TORN", "04_NG_PTCL", "05_NG_FOLDED", "No Need to Retrain"],
-            "Crop_A" => ["01_OK_TOP_ANODE", "02_OK_BACK_ANODE", "03_NG_TORN", "04_NG_PTCL", "05_NG_FOLDED", "No Need to Retrain"],
-            "Crop_B" when cathode => ["01_OK_CATHODE", "02_NG_TORN", "03_NG_PTCL", "04_NG_FOLDED", "No Need to Retrain"],
-            "Crop_B" => ["01_OK_ANODE", "02_NG_TORN", "03_NG_PTCL", "04_NG_FOLDED", "No Need to Retrain"],
-            "Crop_micro" => ["01_OK_TAB", "02_OK_BTM", "03_OK_QNG_DENT", "04_NG_TORN_DENT", "05_NG_TORN_CRACK", "06_NG_TORN_VERTICAL_CRACK", "No Need to Retrain"],
-            "Crop_micro_tabside" => ["01_OK_TAB_SIDE", "02_OK_NG_MARK", "03_QNG_WRINKLE", "04_NG_SIDE_TORN", "05_NG_SIDE_PTCL", "No Need to Retrain"],
-            "Gap_DL" or "SEPA" or "SEPA_SHOULDER" => ["Real", "No Need to Retrain"],
-            _ => ["No Need to Retrain"]
-        };
+        var polarity = linePolarity.Contains("+", StringComparison.Ordinal) ? Polarity.Cathode : Polarity.Anode;
+        var match = _settings.IrsRules.FinalClassGroups.FirstOrDefault(group =>
+            group.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase)
+            && group.Polarity == polarity)
+            ?? _settings.IrsRules.FinalClassGroups.FirstOrDefault(group =>
+                group.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase)
+                && group.Polarity is null);
+        return match?.Classes.ToArray() ?? ["No Need to Retrain"];
     }
 
-    private static string OriginalClassFromFiles(IReadOnlyList<string> files, string folder, string linePolarity)
+    private string OriginalClassFromFiles(IReadOnlyList<string> files, string folder, string linePolarity)
     {
         var classes = ClassesFor(folder, linePolarity).Where(x => !x.Equals("No Need to Retrain", StringComparison.OrdinalIgnoreCase)).ToArray();
         foreach (var file in files)

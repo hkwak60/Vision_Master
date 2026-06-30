@@ -5,7 +5,7 @@ namespace KickoutMonitor.Application;
 public sealed class SummaryReportService
 {
     public const string MultiNgDefectName = "MULTI-NG";
-    private static readonly TimeSpan ReportStartTime = TimeSpan.FromHours(6);
+    private readonly TimeSpan _reportStartTime;
     private readonly IDailyCsvLocator _locator;
     private readonly IReadOnlySnapshotService _snapshots;
     private readonly IInspectionSummaryCsvReader _reader;
@@ -17,13 +17,15 @@ public sealed class SummaryReportService
         IReadOnlySnapshotService snapshots,
         IInspectionSummaryCsvReader reader,
         IReviewStore reviews,
-        ISummaryReportWriter writer)
+        ISummaryReportWriter writer,
+        VisionMasterSettings? settings = null)
     {
         _locator = locator;
         _snapshots = snapshots;
         _reader = reader;
         _reviews = reviews;
         _writer = writer;
+        _reportStartTime = TimeSpan.TryParse(settings?.KickoutRules.ReportStartTime, out var configured) ? configured : TimeSpan.FromHours(6);
     }
 
     public async Task<SummaryReportResult> GenerateAsync(
@@ -37,7 +39,7 @@ public sealed class SummaryReportService
             throw new InvalidOperationException("Select at least one line/polarity before generating a report.");
         }
 
-        var windowStart = reportDate.ToDateTime(TimeOnly.FromTimeSpan(ReportStartTime));
+        var windowStart = reportDate.ToDateTime(TimeOnly.FromTimeSpan(_reportStartTime));
         var windowEndExclusive = windowStart.AddDays(1);
         var savedReviews = await _reviews.LoadAsync(cancellationToken);
         var rows = new List<(WeldingMachine Machine, InspectionSummaryRecord Record)>();

@@ -138,6 +138,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     private readonly IMachineRegistry _machines;
     private readonly IIrsReviewCommitService _commits;
     private readonly IIrsDatasetService _dataset;
+    private readonly VisionMasterSettings _settings;
     private readonly Dictionary<string, IReadOnlyList<string>> _committedSelections = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IrsDatasetDecision> _datasetDecisions = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _previewCancellation;
@@ -157,13 +158,15 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         IPreviewImageLoader<BitmapSource> images,
         IMachineRegistry machines,
         IIrsReviewCommitService commits,
-        IIrsDatasetService dataset)
+        IIrsDatasetService dataset,
+        VisionMasterSettings? settings = null)
     {
         _queue = queue;
         _images = images;
         _machines = machines;
         _commits = commits;
         _dataset = dataset;
+        _settings = settings ?? VisionMasterSettings.CreateDefault();
         BrowseCommand = new(Browse);
         LoadCommand = new(LoadAsync, () => !IsBusy && File.Exists(WorkbookPath));
         PreviousCommand = new(Previous, () => SelectedIndex > 0);
@@ -175,26 +178,15 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         CommitCommand = new(CommitSelection, CanCommitSelection);
         GenerateDatasetCommand = new(GenerateDatasetAsync, () => !IsBusy && Candidates.Count > 0);
         SummaryReportCommand = new(SummaryReportAsync, () => !IsBusy && _datasetMode && Candidates.Count > 0);
-        SelectionOptions =
-        [
-            Option("RULEBASE", "Rulebase (R)", "RULEBASE", IrsSelectionKind.Rulebase, null, null),
-            Option("UNDETECTABLE", "Undetectable (U)", "UNDETECTABLE", IrsSelectionKind.Undetectable, null, null),
-            Option("A_L", "A L", "Crop_A", IrsSelectionKind.Crop, "Crop_A", "A_L"),
-            Option("A_R", "A R", "Crop_A", IrsSelectionKind.Crop, "Crop_A", "A_R"),
-            Option("B_L", "B L", "Crop_B", IrsSelectionKind.Crop, "Crop_B", "B_L"),
-            Option("B_R", "B R", "Crop_B", IrsSelectionKind.Crop, "Crop_B", "B_R"),
-            Option("MICRO_LL", "LL", "Crop_micro", IrsSelectionKind.Crop, "Crop_micro", "Micro_LL"),
-            Option("MICRO_LM", "LM", "Crop_micro", IrsSelectionKind.Crop, "Crop_micro", "Micro_LM"),
-            Option("MICRO_MM", "MM", "Crop_micro", IrsSelectionKind.Crop, "Crop_micro", "Micro_MM"),
-            Option("MICRO_MR", "MR", "Crop_micro", IrsSelectionKind.Crop, "Crop_micro", "Micro_MR"),
-            Option("MICRO_RR", "RR", "Crop_micro", IrsSelectionKind.Crop, "Crop_micro", "Micro_RR"),
-            Option("TABSIDE_L", "Tabside L", "Crop_micro_tabside", IrsSelectionKind.Crop, "Crop_micro_tabside", "_L"),
-            Option("TABSIDE_R", "Tabside R", "Crop_micro_tabside", IrsSelectionKind.Crop, "Crop_micro_tabside", "_R"),
-            Option("GAP", "GAP", "Gap_DL", IrsSelectionKind.Crop, "GAP_DL", null),
-            Option("SEPA", "SEPA", "SEPA", IrsSelectionKind.Crop, "SEPA", null),
-            Option("SEPA_SHOULDER_L", "Sepa Shoulder L", "SEPA_SHOULDER", IrsSelectionKind.Crop, "SEPA_SHOULDER", "SHOULDER_L"),
-            Option("SEPA_SHOULDER_R", "Sepa Shoulder R", "SEPA_SHOULDER", IrsSelectionKind.Crop, "SEPA_SHOULDER", "SHOULDER_R")
-        ];
+        SelectionOptions = _settings.IrsRules.FirstStageSelections
+            .Select(option => Option(
+                option.Id,
+                option.DisplayName,
+                option.CategoryFolder,
+                option.Kind,
+                option.MavinFolder,
+                option.Token))
+            .ToArray();
         foreach (var option in SelectionOptions)
         {
             option.PropertyChanged += SelectionOption_PropertyChanged;

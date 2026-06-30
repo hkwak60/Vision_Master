@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
 
@@ -9,15 +9,18 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
     private readonly AppStorage _storage;
     private readonly IDailyCsvLocator _csvs;
     private readonly ISharePathResolver _shares;
+    private readonly VisionMasterSettings _settings;
 
     public IrsReviewCommitService(
         AppStorage storage,
         IDailyCsvLocator csvs,
-        ISharePathResolver shares)
+        ISharePathResolver shares,
+        VisionMasterSettings? settings = null)
     {
         _storage = storage;
         _csvs = csvs;
         _shares = shares;
+        _settings = settings ?? VisionMasterSettings.CreateDefault();
     }
 
     public async Task<IrsReviewCommitResult> CommitAsync(
@@ -266,18 +269,10 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
         IrsReviewCandidate candidate,
         string folder)
     {
-        var model = machine.Line.Equals("2-2", StringComparison.OrdinalIgnoreCase)
-            ? "E69B"
-            : "E81C";
         var relative = Path.Combine(
-            "Files",
-            "Image",
-            model,
-            candidate.ProducedAt.ToString("yyyy"),
-            candidate.ProducedAt.ToString("MM"),
-            candidate.ProducedAt.ToString("dd"),
-            "Mavin",
-            folder);
+            _settings.ProductionPaths.ImageSegments
+                .Concat([machine.Model, candidate.ProducedAt.ToString("yyyy"), candidate.ProducedAt.ToString("MM"), candidate.ProducedAt.ToString("dd"), _settings.ProductionPaths.MavinFolderName, folder])
+                .ToArray());
         foreach (var drive in machine.ImageDrives)
         {
             yield return Path.Combine(_shares.GetRoot(machine, drive), relative);
@@ -545,4 +540,3 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
             _values.TryGetValue(name, out var value) ? value : null;
     }
 }
-
