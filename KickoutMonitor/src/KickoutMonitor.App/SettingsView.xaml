@@ -35,7 +35,7 @@
             <Border Background="White" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" Padding="12" Margin="0,0,0,10">
                 <StackPanel>
                     <TextBlock Text="Settings file" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding SettingsPath}" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
+                    <TextBox Text="{Binding SettingsPath, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
                     <TextBlock Text="Edit JSON values carefully. Save validates the file before writing. Current workflows use the loaded settings at startup and for future module actions." Foreground="#52606D" TextWrapping="Wrap" Margin="0,6,0,0"/>
                 </StackPanel>
             </Border>
@@ -51,3 +51,4 @@
         </Grid>
     </DockPanel>
 </UserControl>
+
