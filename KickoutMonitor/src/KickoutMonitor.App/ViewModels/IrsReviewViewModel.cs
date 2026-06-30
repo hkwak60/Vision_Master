@@ -140,6 +140,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     private readonly IIrsDatasetService _dataset;
     private readonly VisionMasterSettings _settings;
     private readonly Dictionary<string, IReadOnlyList<string>> _committedSelections = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<Task> _pendingFirstStageCommits = [];
     private readonly Dictionary<string, IrsDatasetDecision> _datasetDecisions = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _previewCancellation;
     private IrsCandidateItem? _selectedCandidate;
@@ -488,7 +489,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         AddLog(
             $"{item.LinePolarity} {item.CellId}: committed {string.Join(", ", selections.Select(x => x.DisplayName))}; copy queued.");
         var request = new IrsReviewCommitRequest(machine, item.Candidate, selections);
-        _ = Task.Run(async () =>
+        var copyTask = Task.Run(async () =>
         {
             try
             {
@@ -508,6 +509,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 });
             }
         });
+        TrackFirstStageCommit(copyTask);
 
         ClearSelections();
         Next();
@@ -692,12 +694,39 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(FinalClassVisibility));
     }
 
+    private void TrackFirstStageCommit(Task task)
+    {
+        lock (_pendingFirstStageCommits)
+        {
+            _pendingFirstStageCommits.RemoveAll(x => x.IsCompleted);
+            _pendingFirstStageCommits.Add(task);
+        }
+    }
+
+    private async Task WaitForFirstStageCommitsAsync()
+    {
+        Task[] pending;
+        lock (_pendingFirstStageCommits)
+        {
+            _pendingFirstStageCommits.RemoveAll(x => x.IsCompleted);
+            pending = _pendingFirstStageCommits.ToArray();
+        }
+
+        if (pending.Length == 0) return;
+        AddLog($"Waiting for {pending.Length:N0} queued IRS copy job(s) before dataset generation.");
+        await Task.WhenAll(pending);
+        lock (_pendingFirstStageCommits)
+        {
+            _pendingFirstStageCommits.RemoveAll(x => x.IsCompleted);
+        }
+    }
     private async Task GenerateDatasetAsync()
     {
         if (_loadedCandidates.Count == 0) return;
         IsBusy = true;
         try
         {
+            await WaitForFirstStageCommitsAsync();
             var records = await _commits.LoadRecordsAsync(CancellationToken.None);
             _loadedReviewRecords = records;
             var reviewed = records.Select(x => x.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -747,7 +776,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         try
         {
             var decisions = await _dataset.LoadDecisionsAsync(CancellationToken.None);
-            var missing = _datasetItems.Count(x => !decisions.ContainsKey(x.Key));
+            var missing = _datasetItems.Count(x => !x.IsNeedToSimulate && !decisions.ContainsKey(x.Key));
             if (missing > 0)
             {
                 Status = $"Cannot generate summary: {missing:N0} dataset item(s) are not classified.";

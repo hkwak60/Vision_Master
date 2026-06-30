@@ -522,10 +522,13 @@ public sealed class CoreTests
         var storage = new AppStorage(root);
         var overkillSource = Path.Combine(root, "classified", "overkill-cell");
         var multiSource = Path.Combine(root, "classified", "multi-cell");
+        var realSource = Path.Combine(root, "classified", "real-cell");
         Directory.CreateDirectory(overkillSource);
         Directory.CreateDirectory(multiSource);
+        Directory.CreateDirectory(realSource);
         await File.WriteAllTextAsync(Path.Combine(overkillSource, "raw.jpg"), "overkill");
         await File.WriteAllTextAsync(Path.Combine(multiSource, "raw.jpg"), "multi");
+        await File.WriteAllTextAsync(Path.Combine(realSource, "raw.jpg"), "real");
 
         var writer = new SummaryReportWriter(storage);
         try
@@ -535,7 +538,7 @@ public sealed class CoreTests
                 new DateTime(2026, 6, 25, 6, 0, 0),
                 new DateTime(2026, 6, 26, 6, 0, 0),
                 [
-                    new SummaryReportRow("1-1(-)", "ALL", 10, 2, 1, 1, 0.2, 0.1, 0.5)
+                    new SummaryReportRow("1-1(-)", "ALL", 10, 3, 2, 1, 0.3, 0.2, 0.1)
                 ],
                 [
                     new SummaryDetailRow(
@@ -551,7 +554,14 @@ public sealed class CoreTests
                         ReviewDecision.MultiDefectNg,
                         multiSource,
                         ["CELL-ID", "JUDGE", "JUDGE-DEFECT"],
-                        ["CELL-MULTI", "NG", "GAP"])
+                        ["CELL-MULTI", "NG", "GAP"]),
+                    new SummaryDetailRow(
+                        "1-1(-)",
+                        "C_DIM",
+                        ReviewDecision.RealNg,
+                        realSource,
+                        ["CELL-ID", "JUDGE", "JUDGE-DEFECT"],
+                        ["CELL-REAL", "NG", "C_DIM"])
                 ],
                 CancellationToken.None);
 
@@ -573,6 +583,13 @@ public sealed class CoreTests
                 "1-1(-)",
                 "MULTI-NG",
                 "multi-cell",
+                "raw.jpg")));
+            Assert.True(File.Exists(Path.Combine(
+                reportFolder,
+                "NG",
+                "1-1(-)",
+                "C_DIM",
+                "real-cell",
                 "raw.jpg")));
             Assert.False(File.Exists(Path.Combine(reportFolder, "NG", "1-1(-)", "B_DIM", "overkill-cell", "raw.jpg")));
         }
@@ -1065,6 +1082,36 @@ public sealed class CoreTests
             if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
         }
     }
+
+    [Fact]
+    public async Task IrsDatasetService_SummaryIgnoresUnclassifiedNeedToSimulateItems()
+    {
+        var storageRoot = Path.Combine(Path.GetTempPath(), "IrsNeedToSimulateUnclassified", Guid.NewGuid().ToString("N"));
+        var rawFolder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "NEED_TO_SIMULATE", "SEPA", "CELL-SEPA-FOLDER");
+        Directory.CreateDirectory(rawFolder);
+        await File.WriteAllTextAsync(Path.Combine(rawFolder, "CELL-SEPA_0_0.jpg"), "image");
+        await File.WriteAllTextAsync(Path.Combine(rawFolder, "CELL-SEPA_0_1.jpg"), "image");
+        await File.WriteAllTextAsync(Path.Combine(rawFolder, "CELL-SEPA_0_2.jpg"), "image");
+
+        var candidate = new IrsReviewCandidate("sepa-unclassified-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 15, 9, 59, 23), "LOT", "CELL-SEPA", "TOP", "raw.jpg", "NG", "reason", 4);
+        var record = new IrsReviewRecord("sepa-unclassified-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-SEPA", "TOP", "NG", "reason", ["SEPA"], 3, 0, 0, storageRoot, DateTimeOffset.Now, [rawFolder]);
+        var service = new IrsDatasetService(new AppStorage(storageRoot));
+
+        try
+        {
+            var items = await service.BuildQueueAsync([candidate], [record], CancellationToken.None);
+            var item = Assert.Single(items);
+            Assert.True(item.IsNeedToSimulate);
+
+            var result = await service.WriteSummaryAsync([candidate], [record], items, CancellationToken.None);
+            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "NEED_TO_SIMULATE")));
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
+
     [Fact]
     public async Task IrsDatasetService_PairsSourceMapAndActiveMapByCropSelection()
     {

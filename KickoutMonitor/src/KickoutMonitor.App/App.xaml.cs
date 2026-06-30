@@ -1,4 +1,5 @@
-﻿using System.Windows;
+using System.Threading;
+using System.Windows;
 using KickoutMonitor.App.Services;
 using KickoutMonitor.App.ViewModels;
 using KickoutMonitor.Application;
@@ -8,8 +9,25 @@ namespace KickoutMonitor.App;
 
 public partial class App : System.Windows.Application
 {
+    private Mutex? _singleInstance;
+    private bool _ownsSingleInstance;
+
     protected override void OnStartup(StartupEventArgs e)
     {
+        _singleInstance = new Mutex(true, "Local\\VisionMaster.SingleInstance", out var createdNew);
+        _ownsSingleInstance = createdNew;
+        if (!createdNew)
+        {
+            MessageBox.Show(
+                "VisionMaster is already running. Close the existing window before opening another copy.",
+                "VisionMaster",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            Shutdown();
+            return;
+        }
+
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
         base.OnStartup(e);
 
         var settingsStore = new JsonSettingsStore();
@@ -53,6 +71,19 @@ public partial class App : System.Windows.Application
             settings);
         var settingsViewModel = new SettingsViewModel(settingsStore, settings, settingsStore.LastWarning);
         var window = new MainWindow(kickoutViewModel, irsViewModel, settingsViewModel);
+        MainWindow = window;
         window.Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        if (_ownsSingleInstance)
+        {
+            _singleInstance?.ReleaseMutex();
+        }
+        _singleInstance?.Dispose();
+        _singleInstance = null;
+        _ownsSingleInstance = false;
+        base.OnExit(e);
     }
 }

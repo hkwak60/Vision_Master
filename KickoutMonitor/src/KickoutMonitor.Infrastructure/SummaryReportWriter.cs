@@ -158,7 +158,7 @@ public sealed class SummaryReportWriter : ISummaryReportWriter
         foreach (var detail in details)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (detail.Decision is not (ReviewDecision.Overkill or ReviewDecision.MultiDefectNg)
+            if (detail.Decision is not (ReviewDecision.RealNg or ReviewDecision.Overkill or ReviewDecision.MultiDefectNg)
                 || string.IsNullOrWhiteSpace(detail.LocalFolder)
                 || !Directory.Exists(detail.LocalFolder))
             {
