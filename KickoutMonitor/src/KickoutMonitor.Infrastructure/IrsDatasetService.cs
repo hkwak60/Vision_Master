@@ -170,7 +170,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
             foreach (var finalClass in row.Decision.FinalClasses)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var destinationFolder = Path.Combine(datasetRoot, row.Item.SourceFolder, SafeName(finalClass));
+                var destinationFolder = DatasetDestinationFolder(row.Item, finalClass, datasetRoot);
                 Directory.CreateDirectory(destinationFolder);
                 foreach (var image in row.Item.ImagePaths.Where(File.Exists))
                 {
@@ -185,6 +185,29 @@ public sealed class IrsDatasetService : IIrsDatasetService
         var details = WriteDetailsWorkbooks(folder, candidates, reviewRecords, relevant);
         return new(folder, summaryPath, details);
     }
+
+    private static string DatasetDestinationFolder(
+        IrsDatasetItem item,
+        string finalClass,
+        string datasetRoot)
+    {
+        if (IsClassificationFolder(item.SourceFolder))
+        {
+            return Path.Combine(
+                datasetRoot,
+                item.SourceFolder,
+                SafeName(item.LinePolarity),
+                SafeName(finalClass));
+        }
+
+        return Path.Combine(datasetRoot, item.SourceFolder, SafeName(finalClass));
+    }
+
+    private static bool IsClassificationFolder(string folder) =>
+        folder.Equals("Crop_A", StringComparison.OrdinalIgnoreCase)
+        || folder.Equals("Crop_B", StringComparison.OrdinalIgnoreCase)
+        || folder.Equals("Crop_micro", StringComparison.OrdinalIgnoreCase)
+        || folder.Equals("Crop_micro_tabside", StringComparison.OrdinalIgnoreCase);
 
     private static void CopyNeedToSimulateDataset(
         IrsDatasetItem item,

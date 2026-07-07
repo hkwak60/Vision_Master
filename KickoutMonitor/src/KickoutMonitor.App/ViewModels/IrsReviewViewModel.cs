@@ -740,6 +740,11 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
 
             var items = await _dataset.BuildQueueAsync(_loadedCandidates, records, CancellationToken.None);
             var decisions = await _dataset.LoadDecisionsAsync(CancellationToken.None);
+            _datasetDecisions.Clear();
+            foreach (var decision in decisions.Values)
+            {
+                _datasetDecisions[decision.ItemKey] = decision;
+            }
             _datasetItems = items;
             Candidates.Clear();
             ClearPreviews();

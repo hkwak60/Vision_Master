@@ -80,7 +80,7 @@ Final-stage hotkeys are `R` for Real, `N` for No Need to Retrain, and `1-6` for 
 
 ## IRS Summary / Dataset Export Rules
 
-The summary cannot generate unless every final-stage item is classified. Normal crop final-stage items export to `Dataset\<crop-folder>\<final-class>\`.
+The summary cannot generate unless every final-stage item is classified. Classification crop final-stage items export to `Dataset\<crop-folder>\<line-polarity>\<final-class>\`. Segmentation-style final-stage items export to `Dataset\<crop-folder>\<final-class>\`.
 
 NEED_TO_SIMULATE final-stage items export the whole original folder to `Dataset\NEED_TO_SIMULATE\<first-stage-class>\<original-folder-name>\`. NEED_TO_SIMULATE must not export as `Dataset\<first-stage-class>\Real`.
 

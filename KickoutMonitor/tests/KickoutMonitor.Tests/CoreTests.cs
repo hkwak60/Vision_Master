@@ -1551,13 +1551,14 @@ public sealed class CoreTests
             var item = Assert.Single(items);
             await service.SaveDecisionAsync(item, ["01_OK_TOP_CATHODE"], false, CancellationToken.None);
             var result = await service.WriteSummaryAsync([candidate], [record], items, CancellationToken.None);
-            var destination = Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "01_OK_TOP_CATHODE");
+            var destination = Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "1-1(+)", "01_OK_TOP_CATHODE");
 
             foreach (var file in files)
             {
                 Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(file))));
                 Assert.False(File.Exists(Path.Combine(destination, $"CELL-NAME_{Path.GetFileName(file)}")));
             }
+            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "01_OK_TOP_CATHODE")));
         }
         finally
         {
