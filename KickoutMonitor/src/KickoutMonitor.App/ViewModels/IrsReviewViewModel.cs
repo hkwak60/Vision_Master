@@ -822,7 +822,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 }
             }
 
-            foreach (var klass in item.DatasetItem.AllowedClasses)
+            foreach (var klass in FilterFinalClasses(item.DatasetItem))
             {
                 var id = klass.Equals("No Need to Retrain", StringComparison.OrdinalIgnoreCase)
                     ? "NO_NEED"
@@ -839,6 +839,28 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         {
             _restoringSelections = false;
         }
+    }
+
+    internal static IReadOnlyList<string> FilterFinalClasses(IrsDatasetItem item)
+    {
+        if (!item.SourceFolder.Equals("Crop_A", StringComparison.OrdinalIgnoreCase))
+        {
+            return item.AllowedClasses;
+        }
+
+        return item.AllowedClasses
+            .Where(klass => CropAClassMatchesCamera(klass, item.CameraLocation))
+            .ToArray();
+    }
+
+    private static bool CropAClassMatchesCamera(string klass, string cameraLocation)
+    {
+        var isTop = cameraLocation.Trim().Equals("TOP", StringComparison.OrdinalIgnoreCase);
+        var isBottom = cameraLocation.Trim().Equals("BTM", StringComparison.OrdinalIgnoreCase)
+            || cameraLocation.Trim().Equals("BOTTOM", StringComparison.OrdinalIgnoreCase);
+        if (isTop && klass.Contains("_OK_BACK_", StringComparison.OrdinalIgnoreCase)) return false;
+        if (isBottom && klass.Contains("_OK_TOP_", StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
     }
 
     private void CommitDatasetSelection()

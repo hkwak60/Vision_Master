@@ -69,7 +69,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
                         missingCropFolder,
                         "NEED_TO_SIMULATE",
                         images,
-                        ClassesFor(missingCropFolder, record.LinePolarity),
+                        ClassesFor(missingCropFolder, record.LinePolarity, candidate.CameraLocation),
                         true));
                     continue;
                 }
@@ -97,7 +97,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
                         folder,
                         originalClass,
                         pair,
-                        ClassesFor(folder, record.LinePolarity),
+                        ClassesFor(folder, record.LinePolarity, candidate.CameraLocation),
                         false));
                 }
             }
@@ -288,7 +288,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
 
     private string DecisionPath() => Path.Combine(_storage.Root, "irs-dataset-reviews.json");
 
-    private IReadOnlyList<string> ClassesFor(string folder, string linePolarity)
+    private IReadOnlyList<string> ClassesFor(string folder, string linePolarity, string cameraLocation)
     {
         var polarity = linePolarity.Contains("+", StringComparison.Ordinal) ? Polarity.Cathode : Polarity.Anode;
         var match = _settings.IrsRules.FinalClassGroups.FirstOrDefault(group =>
@@ -297,12 +297,32 @@ public sealed class IrsDatasetService : IIrsDatasetService
             ?? _settings.IrsRules.FinalClassGroups.FirstOrDefault(group =>
                 group.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase)
                 && group.Polarity is null);
-        return match?.Classes.ToArray() ?? ["No Need to Retrain"];
+        var classes = match?.Classes.ToArray() ?? ["No Need to Retrain"];
+        return folder.Equals("Crop_A", StringComparison.OrdinalIgnoreCase)
+            ? classes.Where(klass => CropAClassMatchesCamera(klass, cameraLocation)).ToArray()
+            : classes;
+    }
+
+    private static bool CropAClassMatchesCamera(string klass, string cameraLocation)
+    {
+        var isTop = cameraLocation.Trim().Equals("TOP", StringComparison.OrdinalIgnoreCase);
+        var isBottom = cameraLocation.Trim().Equals("BTM", StringComparison.OrdinalIgnoreCase)
+            || cameraLocation.Trim().Equals("BOTTOM", StringComparison.OrdinalIgnoreCase);
+        if (isTop && klass.Contains("_OK_BACK_", StringComparison.OrdinalIgnoreCase)) return false;
+        if (isBottom && klass.Contains("_OK_TOP_", StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
     }
 
     private string OriginalClassFromFiles(IReadOnlyList<string> files, string folder, string linePolarity)
     {
-        var classes = ClassesFor(folder, linePolarity).Where(x => !x.Equals("No Need to Retrain", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var polarity = linePolarity.Contains("+", StringComparison.Ordinal) ? Polarity.Cathode : Polarity.Anode;
+        var classes = _settings.IrsRules.FinalClassGroups
+            .Where(group => group.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase)
+                && (group.Polarity == polarity || group.Polarity is null))
+            .SelectMany(group => group.Classes)
+            .Where(x => !x.Equals("No Need to Retrain", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         foreach (var file in files)
         {
             var name = Path.GetFileName(file);

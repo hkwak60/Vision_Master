@@ -1383,6 +1383,37 @@ public sealed class CoreTests
             Assert.Equal("NEED_TO_SIMULATE", item.OriginalClass);
             Assert.Equal([upper1, upper2, upper3], item.ImagePaths);
             Assert.Contains("01_OK_TOP_CATHODE", item.AllowedClasses);
+            Assert.DoesNotContain("02_OK_BACK_CATHODE", item.AllowedClasses);
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
+
+    [Fact]
+    public async Task IrsDatasetService_CropABottomCameraHidesTopOkClass()
+    {
+        var storageRoot = Path.Combine(Path.GetTempPath(), "IrsCropABtmClasses", Guid.NewGuid().ToString("N"));
+        var rawFolder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "NEED_TO_SIMULATE", "Crop_A", "CELL-BTM-FOLDER");
+        Directory.CreateDirectory(rawFolder);
+        var lower1 = Path.Combine(rawFolder, "CELL-BTM_1_0.jpg");
+        var lower2 = Path.Combine(rawFolder, "CELL-BTM_1_1.jpg");
+        var lower3 = Path.Combine(rawFolder, "CELL-BTM_1_2.jpg");
+        foreach (var file in new[] { lower1, lower2, lower3 }) await File.WriteAllTextAsync(file, "image");
+
+        var candidate = new IrsReviewCandidate("btm-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-BTM", "BTM", "raw.jpg", "NG", "reason", 4);
+        var record = new IrsReviewRecord("btm-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-BTM", "BTM", "NG", "reason", ["A_L"], 3, 0, 0, storageRoot, DateTimeOffset.Now, [rawFolder]);
+
+        try
+        {
+            var items = await new IrsDatasetService(new AppStorage(storageRoot)).BuildQueueAsync([candidate], [record], CancellationToken.None);
+            var item = Assert.Single(items);
+
+            Assert.Equal([lower1, lower2, lower3], item.ImagePaths);
+            Assert.Contains("02_OK_BACK_CATHODE", item.AllowedClasses);
+            Assert.DoesNotContain("01_OK_TOP_CATHODE", item.AllowedClasses);
+            Assert.Contains("03_NG_TORN", item.AllowedClasses);
         }
         finally
         {
