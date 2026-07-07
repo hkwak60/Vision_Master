@@ -7,16 +7,19 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _kickoutViewModel;
     private readonly IrsReviewViewModel _irsViewModel;
+    private readonly DlngReviewViewModel _dlngViewModel;
     private readonly SettingsViewModel _settingsViewModel;
 
     public MainWindow(
         MainViewModel kickoutViewModel,
         IrsReviewViewModel irsViewModel,
+        DlngReviewViewModel dlngViewModel,
         SettingsViewModel settingsViewModel)
     {
         InitializeComponent();
         _kickoutViewModel = kickoutViewModel;
         _irsViewModel = irsViewModel;
+        _dlngViewModel = dlngViewModel;
         _settingsViewModel = settingsViewModel;
     }
 
@@ -34,6 +37,14 @@ public partial class MainWindow : Window
         view.BackRequested += (_, _) => ReturnToDashboard();
         ModuleHost.Content = view;
         ShowModule("IRS Review", "IRS crop collection and dataset review");
+    }
+
+    private void DlngButton_Click(object sender, RoutedEventArgs e)
+    {
+        var view = new DlngReviewView { DataContext = _dlngViewModel };
+        view.BackRequested += (_, _) => ReturnToDashboard();
+        ModuleHost.Content = view;
+        ShowModule("DLNG Review", "DLNG crop review and report");
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)

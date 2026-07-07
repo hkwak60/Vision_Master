@@ -273,6 +273,290 @@ public sealed class CoreTests
         Assert.Contains(registry.All, x => x.OutputFolderName == "2-2(+)");
     }
 
+    [Fact]
+    public async Task DlngCsvReader_FiltersEligibleRowsAndUsesBypassSide()
+    {
+        var csv = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".csv");
+        var headers = new[]
+        {
+            "DATE", "TIME", "MODEL-ID", "LOT-ID", "CELL-ID", "JUDGE", "JUDGE-DEFECT",
+            "UPPER_JUDGE", "LOWER_JUDGE", "UPPER_GAP_DL-JUDGE", "LOWER_GAP_DL-JUDGE",
+            "UPPER_IMAGE-PATH-1", "UPPER_IMAGE-PATH-2", "UPPER_IMAGE-PATH-3",
+            "LOWER_IMAGE-PATH-1", "LOWER_IMAGE-PATH-2", "LOWER_IMAGE-PATH-3"
+        };
+        var good = new[]
+        {
+            "20260623", "00:00:30", "E81C", "LOT", "CELL-DLNG", "DLNG", "GAP_DL",
+            "OK", "OK", "BYPASS_NG", "OK",
+            @"E:\Files\Image\E81C\2026\06\23\00\OK\DL_OK\CELL-DLNG\CELL-DLNG_0_0.jpg",
+            @"E:\Files\Image\E81C\2026\06\23\00\OK\DL_OK\CELL-DLNG\CELL-DLNG_0_1.jpg",
+            @"E:\Files\Image\E81C\2026\06\23\00\OK\DL_OK\CELL-DLNG\CELL-DLNG_0_2.jpg",
+            "", "", ""
+        };
+        var ignored = new[]
+        {
+            "20260623", "00:01:30", "E81C", "LOT", "CELL-QNG", "Q-NG", "GAP_DL",
+            "OK", "OK", "BYPASS_NG", "OK", "", "", "", "", "", ""
+        };
+        var ignoredOcr = new[]
+        {
+            "20260623", "00:02:30", "E81C", "LOT", "OCR-CELL", "DLNG", "GAP_DL",
+            "OK", "OK", "BYPASS_NG", "OK", "", "", "", "", "", ""
+        };
+        var ignoredAging = new[]
+        {
+            "20260623", "00:03:30", "E81C", "LOT", "AGING-CELL", "DLNG", "GAP_DL",
+            "OK", "OK", "BYPASS_NG", "OK", "", "", "", "", "", ""
+        };
+        await File.WriteAllLinesAsync(csv, [string.Join(",", headers), string.Join(",", good), string.Join(",", ignored), string.Join(",", ignoredOcr), string.Join(",", ignoredAging)]);
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "127.0.0.1", ['E']);
+            var snapshot = new SnapshotResult(csv, csv, false, null);
+            var items = new List<DlngReviewItem>();
+            await foreach (var item in new DlngCsvReader(new SharePathResolver())
+                               .ReadAsync(machine, snapshot, null, CancellationToken.None))
+            {
+                items.Add(item);
+            }
+
+            var result = Assert.Single(items);
+            Assert.Equal("DLNG", result.Judge);
+            Assert.Equal("GAP_DL", result.JudgeDefect);
+            Assert.Equal("UPPER", result.Side);
+            Assert.Equal(3, result.Images.Count);
+        }
+        finally
+        {
+            File.Delete(csv);
+        }
+    }
+
+    [Fact]
+    public async Task DlngCropLocator_LoadsClassificationPairsAndSourceClass()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DlngCropTests", Guid.NewGuid().ToString("N"));
+        var cropRoot = Path.Combine(root, "Files", "Image", "E81C", "2026", "06", "23", "Mavin", "Crop_A", "03_NG_TORN");
+        Directory.CreateDirectory(cropRoot);
+        var source = Path.Combine(cropRoot, "CELL-1_01-1_AN_010203_UPPER_1_A_L_CL03_NG_P1.000_SourceMap.jpg");
+        var active = Path.Combine(cropRoot, "CELL-1_01-1_AN_010203_UPPER_1_A_L_CL03_NG_P1.000_ActiveMap.jpg");
+        await File.WriteAllBytesAsync(source, [1]);
+        await File.WriteAllBytesAsync(active, [2]);
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['E']);
+            var item = DlngItem(machine, "A_L", "UPPER", "CELL-1");
+            var expanded = await new DlngCropLocator(new FakeShareResolver(root))
+                .ExpandAsync(machine, item, null, CancellationToken.None);
+
+            var result = Assert.Single(expanded);
+            Assert.Equal("Crop_A", result.CropFolder);
+            Assert.Equal("03_NG_TORN", result.SourceClass);
+            Assert.Equal(DlngModelKind.Classification, result.ModelKind);
+            Assert.Equal(2, result.Images.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task DlngCropLocator_BDimCreatesHornmarkAndLeadedgePairs()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DlngBDimTests", Guid.NewGuid().ToString("N"));
+        var horn = Path.Combine(root, "Files", "Image", "E81C", "2026", "06", "23", "Mavin", "HORNMARK");
+        var lead = Path.Combine(root, "Files", "Image", "E81C", "2026", "06", "23", "Mavin", "LEADEDGE");
+        Directory.CreateDirectory(horn);
+        Directory.CreateDirectory(lead);
+        await File.WriteAllBytesAsync(Path.Combine(horn, "CELL-2_01-1_AN_010203_UPPER_1_HORN MARK L_f0_SourceImg.jpg"), [1]);
+        await File.WriteAllBytesAsync(Path.Combine(horn, "CELL-2_01-1_AN_010203_UPPER_1_HORN MARK L_f0_SourceImg_mask.png"), [2]);
+        await File.WriteAllBytesAsync(Path.Combine(lead, "CELL-2_01-1_AN_010203_UPPER_1_LEAD EDGE L_SourceImg.jpg"), [3]);
+        await File.WriteAllBytesAsync(Path.Combine(lead, "CELL-2_01-1_AN_010203_UPPER_1_LEAD EDGE L_SourceImg.png"), [4]);
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['E']);
+            var item = DlngItem(machine, "B_DIM_L", "UPPER", "CELL-2");
+            var expanded = await new DlngCropLocator(new FakeShareResolver(root))
+                .ExpandAsync(machine, item, null, CancellationToken.None);
+
+            Assert.Contains(expanded, x => x.CropFolder == "HORNMARK" && x.Images.Count == 2);
+            Assert.Contains(expanded, x => x.CropFolder == "LEADEDGE" && x.Images.Count == 2);
+            Assert.Equal(2, expanded.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task DlngCropLocator_FallsBackToRawWhenCropMissing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DlngFallbackTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['E']);
+            var item = DlngItem(machine, "GAP_DL", "UPPER", "CELL-3") with
+            {
+                Images =
+                [
+                    new("Raw 1", Path.Combine(root, "raw1.jpg"), false),
+                    new("Raw 2", Path.Combine(root, "raw2.jpg"), false),
+                    new("Raw 3", Path.Combine(root, "raw3.jpg"), false)
+                ]
+            };
+            var expanded = await new DlngCropLocator(new FakeShareResolver(root))
+                .ExpandAsync(machine, item, null, CancellationToken.None);
+
+            var result = Assert.Single(expanded);
+            Assert.Equal(DlngModelKind.FallbackRaw, result.ModelKind);
+            Assert.Equal("NEED_TO_SIMULATE", result.SourceClass);
+            Assert.Equal(3, result.Images.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task DlngReport_GeneratesWorkbookAndCopiesClassifiedCrops()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DlngReportTests", Guid.NewGuid().ToString("N"));
+        var csv = Path.Combine(root, "result.csv");
+        var cropRoot = Path.Combine(root, "share", "Files", "Image", "E81C", "2026", "06", "23", "Mavin", "Crop_A", "03_NG_TORN");
+        Directory.CreateDirectory(cropRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(csv)!);
+        var source = Path.Combine(cropRoot, "CELL-RPT_01-1_AN_070000_UPPER_1_A_L_CL03_NG_P1.000_SourceMap.jpg");
+        var active = Path.Combine(cropRoot, "CELL-RPT_01-1_AN_070000_UPPER_1_A_L_CL03_NG_P1.000_ActiveMap.jpg");
+        await File.WriteAllBytesAsync(source, [1]);
+        await File.WriteAllBytesAsync(active, [2]);
+        var headers = new[]
+        {
+            "DATE", "TIME", "MODEL-ID", "LOT-ID", "CELL-ID", "JUDGE", "JUDGE-DEFECT",
+            "UPPER_JUDGE", "LOWER_JUDGE", "UPPER_A_L-JUDGE", "LOWER_A_L-JUDGE",
+            "UPPER_IMAGE-PATH-1", "UPPER_IMAGE-PATH-2", "UPPER_IMAGE-PATH-3"
+        };
+        var values = new[]
+        {
+            "20260623", "07:00:00", "E81C", "LOT", "CELL-RPT", "DLNG", "A_L",
+            "OK", "OK", "BYPASS_NG", "OK", "", "", ""
+        };
+        await File.WriteAllLinesAsync(csv, [string.Join(",", headers), string.Join(",", values)]);
+
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['E']);
+            var storage = new AppStorage(Path.Combine(root, "out"));
+            storage.EnsureCreated([machine]);
+            var reviews = new JsonDlngReviewStore(storage);
+            var queue = new DlngQueueService(
+                new SingleFileLocator(csv, new DateOnly(2026, 6, 23)),
+                new FakeSnapshotService(),
+                new DlngCsvReader(new FakeShareResolver(Path.Combine(root, "share"))),
+                new DlngCropLocator(new FakeShareResolver(Path.Combine(root, "share"))));
+            var items = await queue.LoadAsync(machine, new DateOnly(2026, 6, 23), null, CancellationToken.None);
+            var item = Assert.Single(items);
+            await reviews.SaveAsync(new(
+                item.Key,
+                item.MachineId,
+                item.LinePolarity,
+                item.InspectedAt,
+                item.CellId,
+                item.Judge,
+                item.JudgeDefect,
+                item.Side,
+                item.CropFolder,
+                item.SourceClass,
+                "04_NG_PTCL",
+                false,
+                item.Images.Select(x => x.Path).ToArray(),
+                DateTimeOffset.Now), CancellationToken.None);
+
+            var result = await new DlngReportGenerator(queue, reviews, storage)
+                .GenerateAsync([machine], new DateOnly(2026, 6, 23), null, CancellationToken.None);
+
+            Assert.True(File.Exists(result.SummaryWorkbook));
+            var destination = Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "1-1(-)", "04_NG_PTCL");
+            Assert.True(Directory.Exists(destination));
+            Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(source))));
+            Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(active))));
+            Assert.False(File.Exists(Path.Combine(destination, $"1-1(-)_CELL-RPT_A_L_{Path.GetFileName(source)}")));
+            Assert.False(File.Exists(Path.Combine(destination, $"1-1(-)_CELL-RPT_A_L_{Path.GetFileName(active)}")));
+            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "04_NG_PTCL")));
+            Assert.Equal(1, Assert.Single(result.Rows).SwitchedCount);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task DlngReport_CopiesSegmentationNoNeedToOverkillFolder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DlngSegReportTests", Guid.NewGuid().ToString("N"));
+        var csv = Path.Combine(root, "result.csv");
+        var cropRoot = Path.Combine(root, "share", "Files", "Image", "E81C", "2026", "06", "23", "Mavin", "Gap_DL");
+        Directory.CreateDirectory(cropRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(csv)!);
+        await File.WriteAllBytesAsync(Path.Combine(cropRoot, "CELL-SEG_01-1_AN_070000_UPPER_2_Gap_DL_W0_C0_OK_SourceImg.jpg"), [1]);
+        await File.WriteAllBytesAsync(Path.Combine(cropRoot, "CELL-SEG_01-1_AN_070000_UPPER_2_Gap_DL_W0_C0_OK_SourceImg_mask.png"), [2]);
+        var headers = new[]
+        {
+            "DATE", "TIME", "MODEL-ID", "LOT-ID", "CELL-ID", "JUDGE", "JUDGE-DEFECT",
+            "UPPER_JUDGE", "LOWER_JUDGE", "UPPER_GAP_DL-JUDGE", "LOWER_GAP_DL-JUDGE",
+            "UPPER_IMAGE-PATH-1", "UPPER_IMAGE-PATH-2", "UPPER_IMAGE-PATH-3"
+        };
+        var values = new[]
+        {
+            "20260623", "07:00:00", "E81C", "LOT", "CELL-SEG", "DLNG", "GAP_DL",
+            "OK", "OK", "BYPASS_NG", "OK", "", "", ""
+        };
+        await File.WriteAllLinesAsync(csv, [string.Join(",", headers), string.Join(",", values)]);
+
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['E']);
+            var storage = new AppStorage(Path.Combine(root, "out"));
+            storage.EnsureCreated([machine]);
+            var reviews = new JsonDlngReviewStore(storage);
+            var queue = new DlngQueueService(
+                new SingleFileLocator(csv, new DateOnly(2026, 6, 23)),
+                new FakeSnapshotService(),
+                new DlngCsvReader(new FakeShareResolver(Path.Combine(root, "share"))),
+                new DlngCropLocator(new FakeShareResolver(Path.Combine(root, "share"))));
+            var item = Assert.Single(await queue.LoadAsync(machine, new DateOnly(2026, 6, 23), null, CancellationToken.None));
+            await reviews.SaveAsync(new(
+                item.Key,
+                item.MachineId,
+                item.LinePolarity,
+                item.InspectedAt,
+                item.CellId,
+                item.Judge,
+                item.JudgeDefect,
+                item.Side,
+                item.CropFolder,
+                item.SourceClass,
+                "No Need to Train",
+                false,
+                item.Images.Select(x => x.Path).ToArray(),
+                DateTimeOffset.Now), CancellationToken.None);
+
+            var result = await new DlngReportGenerator(queue, reviews, storage)
+                .GenerateAsync([machine], new DateOnly(2026, 6, 23), null, CancellationToken.None);
+
+            Assert.True(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "Gap_DL", "OVERKILL")));
+            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "Gap_DL", "No Need to Train")));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     [Theory]
     [InlineData(@"E:\Files\Image\cell\a.jpg", @"\\10.112.99.181\E\Files\Image\cell\a.jpg")]
     [InlineData(@"F:\Files\Image\cell\b.jpg", @"\\10.112.99.181\F\Files\Image\cell\b.jpg")]
@@ -621,6 +905,36 @@ public sealed class CoreTests
             Assert.Equal("SECOND_REASON", row.SecondReason);
             Assert.Equal("OK", row.SecondResult);
             Assert.DoesNotContain("FIRST", row.SecondReason, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task IrsWorkbookReader_AcceptsNgOutRequestFormat()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "IrsWorkbookNgOutTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var workbook = Path.Combine(root, "irs-ng-out.xlsx");
+        CreateIrsWorkbook(
+            workbook,
+            [
+                ["", "PACKAGE #1-1", "Welding Minus", "Algorithm NG", "Manual", "2026-06-24 07:49:21", "2", "1009", "LOT", "CELL-NGOUT", "TOP", "1", "", "", "", "", "", "IMG-NGOUT.JPG", "NG", "FIRST_REASON", "", "", "NG", "SECOND_REASON", "", "", "2026-06-29 08:10:54", "Success", "U", "", "PKG", "Request", "2026-06-29 08:10:54", "Inspector", "Y"],
+                ["", "PACKAGE #1-1", "Welding Minus", "Algorithm NG", "Manual", "2026-06-24 07:50:21", "2", "1010", "LOT", "CELL-SKIP", "TOP", "1", "", "", "", "", "", "IMG-SKIP.JPG", "NG", "FIRST_REASON", "", "", "NG", "SECOND_REASON", "", "", "2026-06-29 08:10:54", "Success", "U", "", "PKG", "Not request", "2026-06-29 08:10:54", "Inspector", "Y"]
+            ],
+            useNgOutHeaders: true);
+
+        try
+        {
+            var rows = await new IrsWorkbookReader().ReadRequestedAsync(workbook, CancellationToken.None);
+
+            var row = Assert.Single(rows);
+            Assert.Equal("CELL-NGOUT", row.CellId);
+            Assert.Equal("SECOND_REASON", row.SecondReason);
+            Assert.Equal("NG", row.SecondResult);
+            Assert.Equal("IMG-NGOUT.JPG", row.RawImageFileName);
         }
         finally
         {
@@ -1147,6 +1461,42 @@ public sealed class CoreTests
             if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
         }
     }
+
+    [Fact]
+    public async Task IrsDatasetService_SummaryPreservesOriginalCropFileNames()
+    {
+        var storageRoot = Path.Combine(Path.GetTempPath(), "IrsDatasetNames", Guid.NewGuid().ToString("N"));
+        var folder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "Crop_A");
+        Directory.CreateDirectory(folder);
+        var files = new[]
+        {
+            Path.Combine(folder, "CELL-NAME_UPPER_1_A_L_CL01_OK_SourceMap.jpg"),
+            Path.Combine(folder, "CELL-NAME_UPPER_1_A_L_CL01_OK_ActiveMap.jpg")
+        };
+        foreach (var file in files) await File.WriteAllTextAsync(file, "image");
+        var candidate = new IrsReviewCandidate("name-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-NAME", "TOP", "raw.jpg", "NG", "reason", 4);
+        var record = new IrsReviewRecord("name-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-NAME", "TOP", "NG", "reason", ["A_L"], 0, 2, 0, storageRoot, DateTimeOffset.Now, files);
+        var service = new IrsDatasetService(new AppStorage(storageRoot));
+
+        try
+        {
+            var items = await service.BuildQueueAsync([candidate], [record], CancellationToken.None);
+            var item = Assert.Single(items);
+            await service.SaveDecisionAsync(item, ["01_OK_TOP_CATHODE"], false, CancellationToken.None);
+            var result = await service.WriteSummaryAsync([candidate], [record], items, CancellationToken.None);
+            var destination = Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "01_OK_TOP_CATHODE");
+
+            foreach (var file in files)
+            {
+                Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(file))));
+                Assert.False(File.Exists(Path.Combine(destination, $"CELL-NAME_{Path.GetFileName(file)}")));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
     private sealed class TestSharePathResolver(string root) : ISharePathResolver
     {
         public string GetRoot(WeldingMachine machine, char drive) => root;
@@ -1179,7 +1529,8 @@ public sealed class CoreTests
 
     private static void CreateIrsWorkbook(
         string path,
-        IReadOnlyList<IReadOnlyList<string>> dataRows)
+        IReadOnlyList<IReadOnlyList<string>> dataRows,
+        bool useNgOutHeaders = false)
     {
         using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
         WriteZipEntry(
@@ -1221,12 +1572,24 @@ public sealed class CoreTests
               <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
             </workbook>
             """);
-        WriteZipEntry(archive, "xl/worksheets/sheet1.xml", IrsWorksheetXml(dataRows));
+        WriteZipEntry(archive, "xl/worksheets/sheet1.xml", IrsWorksheetXml(dataRows, useNgOutHeaders));
     }
 
-    private static string IrsWorksheetXml(IReadOnlyList<IReadOnlyList<string>> dataRows)
+    private static string IrsWorksheetXml(
+        IReadOnlyList<IReadOnlyList<string>> dataRows,
+        bool useNgOutHeaders)
     {
-        var row1 = new[]
+        var row1 = useNgOutHeaders
+            ? new[]
+            {
+                "", "Eqpt", "Vision Type", "Re-inspection target", "Process Method",
+                "Prod. date", "Batch Order", "Sort Order", "Lot ID", "Cell ID",
+                "Camera Location", "Camera Number", "Group Rank", "Group Count",
+                "Group Category", "Tail cell rank", "Tail cell defect ranking", "Image",
+                "1st judgment", "", "", "", "2nd judgment", "", "", "", "NG Out",
+                "", "", "", "", "", "Hold/Release", "", ""
+            }
+            : new[]
         {
             "", "Eqpt", "Vision Type", "Re-inspection target", "Process Method",
             "Prod. date", "Batch Order", "Sort Order", "Lot ID", "Cell ID",
@@ -1235,7 +1598,15 @@ public sealed class CoreTests
             "1st judgment", "", "", "", "2nd judgment", "", "", "", "PKG ID",
             "Request for NG Cell OUT", "Hold/Release"
         };
-        var row2 = new[]
+        var row2 = useNgOutHeaders
+            ? new[]
+            {
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "Result", "reason", "Inspector", "completion date", "Result", "reason",
+                "Inspector", "completion date", "DateTime", "Result", "Judgment grade",
+                "Message", "PKG ID", "Request", "DateTime", "Inspector", "Result"
+            }
+            : new[]
         {
             "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
             "", "Result", "reason", "Inspector", "completion date", "Result", "reason",
@@ -1324,6 +1695,40 @@ public sealed class CoreTests
             "source.csv");
     }
 
+    private static DlngReviewItem DlngItem(
+        WeldingMachine machine,
+        string defect,
+        string side,
+        string cellId) =>
+        new(
+            $"key|{defect}|{side}|{cellId}",
+            machine.Id,
+            machine.OutputFolderName,
+            machine.Polarity,
+            new DateTime(2026, 6, 23, 1, 2, 3),
+            "E81C",
+            "LOT",
+            cellId,
+            "DLNG",
+            defect,
+            side,
+            string.Empty,
+            string.Empty,
+            DlngModelKind.FallbackRaw,
+            [],
+            "source.csv",
+            2,
+            string.Empty);
+
+    private sealed class FakeShareResolver(string root) : ISharePathResolver
+    {
+        public string GetRoot(WeldingMachine machine, char drive) => root;
+
+        public void RecordAccessibleRoot(WeldingMachine machine, char drive, string root)
+        {
+        }
+    }
+
     private sealed class FakeLocator : IDailyCsvLocator
     {
         public Task<IReadOnlyList<string>> FindAsync(
@@ -1331,6 +1736,15 @@ public sealed class CoreTests
             DateOnly date,
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<string>>(["fake.csv"]);
+    }
+
+    private sealed class SingleFileLocator(string path, DateOnly date) : IDailyCsvLocator
+    {
+        public Task<IReadOnlyList<string>> FindAsync(
+            WeldingMachine machine,
+            DateOnly requestedDate,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<string>>(requestedDate == date ? [path] : []);
     }
 
     private sealed class FakeSnapshotService : IReadOnlySnapshotService

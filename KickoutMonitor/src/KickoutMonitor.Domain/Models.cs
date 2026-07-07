@@ -179,6 +179,13 @@ public enum IrsSelectionKind
     Crop
 }
 
+public enum DlngModelKind
+{
+    Classification,
+    Segmentation,
+    FallbackRaw
+}
+
 public sealed record IrsReviewSelection(
     string Id,
     string DisplayName,
@@ -246,3 +253,60 @@ public sealed record IrsSummaryResult(
     string OutputFolder,
     string SummaryWorkbook,
     IReadOnlyList<string> DetailWorkbooks);
+
+public sealed record DlngImage(
+    string Label,
+    string Path,
+    bool IsMask);
+
+public sealed record DlngReviewItem(
+    string Key,
+    string MachineId,
+    string LinePolarity,
+    Polarity Polarity,
+    DateTime InspectedAt,
+    string Model,
+    string LotId,
+    string CellId,
+    string Judge,
+    string JudgeDefect,
+    string Side,
+    string CropFolder,
+    string SourceClass,
+    DlngModelKind ModelKind,
+    IReadOnlyList<DlngImage> Images,
+    string SourceCsv,
+    int SourceRow,
+    string SourceFolder);
+
+public sealed record DlngReviewRecord(
+    string ItemKey,
+    string MachineId,
+    string LinePolarity,
+    DateTime InspectedAt,
+    string CellId,
+    string Judge,
+    string JudgeDefect,
+    string Side,
+    string CropFolder,
+    string SourceClass,
+    string FinalClass,
+    bool IsFallbackRaw,
+    IReadOnlyList<string> ImagePaths,
+    DateTimeOffset UpdatedAt);
+
+public sealed record DlngReportRow(
+    string LinePolarity,
+    string Judge,
+    string JudgeDefect,
+    string CropFolder,
+    string SourceClass,
+    string FinalClass,
+    int Count,
+    int SwitchedCount);
+
+public sealed record DlngReportResult(
+    DateOnly ReportDate,
+    string OutputFolder,
+    string SummaryWorkbook,
+    IReadOnlyList<DlngReportRow> Rows);

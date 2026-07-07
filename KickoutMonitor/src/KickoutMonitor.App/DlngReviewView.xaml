@@ -1,0 +1,309 @@
+<UserControl x:Class="KickoutMonitor.App.DlngReviewView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#F3F5F7"
+             Focusable="True">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="{StaticResource HeaderBackground}" Padding="18,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button Content="Back" Click="BackButton_Click"
+                        VerticalAlignment="Center" Margin="0,0,14,0"/>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="DLNG Review" Foreground="White"
+                               FontSize="22" FontWeight="SemiBold"/>
+                    <TextBlock Text="Cropped DLNG / C-NG / QNG / NG review"
+                               Foreground="#C8D1DA" FontSize="12"/>
+                </StackPanel>
+                <TextBlock Grid.Column="2" Text="{Binding PositionText}" Foreground="White"
+                           FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <StatusBar DockPanel.Dock="Bottom" Background="#E1E5E9">
+            <TextBlock Text="{Binding Status}" TextWrapping="Wrap"/>
+        </StatusBar>
+
+        <Grid Margin="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="84"/>
+                <RowDefinition Height="105"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Border Background="White" BorderBrush="{StaticResource PanelBorder}"
+                    BorderThickness="1" Padding="8" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="410"/>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                        <TextBlock Text="Lines / Polarities" FontWeight="SemiBold"/>
+                        <ListBox ItemsSource="{Binding MachineOptions}" Height="42"
+                                 BorderBrush="{StaticResource PanelBorder}"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding IsSelected}"
+                                              Content="{Binding Label}"
+                                              Margin="7,2" MinWidth="78"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                        <TextBlock Text="Start date" FontWeight="SemiBold"/>
+                        <DatePicker SelectedDate="{Binding StartDate}" Height="34"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Margin="0,0,10,0">
+                        <TextBlock Text="End date" FontWeight="SemiBold"/>
+                        <DatePicker SelectedDate="{Binding EndDate}" Height="34"/>
+                    </StackPanel>
+                    <Button Grid.Column="3" Content="Load DLNG Queue"
+                            Command="{Binding LoadCommand}" VerticalAlignment="Bottom"/>
+                    <StackPanel Grid.Column="4" Margin="16,0,10,0">
+                        <TextBlock Text="Report date" FontWeight="SemiBold"/>
+                        <DatePicker SelectedDate="{Binding ReportDate}" Height="34"/>
+                    </StackPanel>
+                    <Button Grid.Column="5" Content="Generate DLNG Report"
+                            Command="{Binding GenerateReportCommand}" VerticalAlignment="Bottom"/>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="1" Background="#18212A" BorderBrush="{StaticResource PanelBorder}"
+                    BorderThickness="1" Padding="8" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="3*"/>
+                        <ColumnDefinition Width="2*"/>
+                    </Grid.ColumnDefinitions>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="Activity Log"
+                                   Foreground="White" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <ListBox x:Name="ActivityLogList" ItemsSource="{Binding ActivityLog}" Background="#18212A"
+                                 Foreground="#D9E2EC" BorderThickness="0"
+                                 FontFamily="Consolas" FontSize="12"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+                    </DockPanel>
+                    <DockPanel Grid.Column="1" Margin="12,0,0,0">
+                        <TextBlock DockPanel.Dock="Top" Text="DLNG Report Summary"
+                                   Foreground="White" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <DataGrid ItemsSource="{Binding SummaryRows}"
+                                  AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                  Background="#F8FAFC" BorderThickness="0"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Line" Binding="{Binding LinePolarity}" Width="70"/>
+                                <DataGridTextColumn Header="Folder" Binding="{Binding CropFolder}" Width="105"/>
+                                <DataGridTextColumn Header="Source" Binding="{Binding SourceClass}" Width="115"/>
+                                <DataGridTextColumn Header="Final" Binding="{Binding FinalClass}" Width="130"/>
+                                <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="60"/>
+                                <DataGridTextColumn Header="Switch" Binding="{Binding SwitchedCount}" Width="65"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="410"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="300"/>
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Background="White" BorderBrush="{StaticResource PanelBorder}"
+                        BorderThickness="1" Margin="0,0,10,0">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Padding="12,10" BorderBrush="{StaticResource PanelBorder}"
+                                BorderThickness="0,0,0,1">
+                            <TextBlock Text="DLNG Review Queue" FontSize="16" FontWeight="SemiBold"/>
+                        </Border>
+                        <DataGrid ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}"
+                                  AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                  SelectionMode="Single"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow">
+                                    <Setter Property="Background" Value="White"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ReviewStatus}" Value="Saved">
+                                            <Setter Property="Background" Value="#D9EAD3"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding ReviewStatus}" Value="Save failed">
+                                            <Setter Property="Background" Value="#F4CCCC"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.RowStyle>
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="66"/>
+                                <DataGridTextColumn Header="Line" Binding="{Binding LinePolarity}" Width="68"/>
+                                <DataGridTextColumn Header="Cell ID" Binding="{Binding CellId}" Width="112"/>
+                                <DataGridTextColumn Header="Judge" Binding="{Binding Judge}" Width="65"/>
+                                <DataGridTextColumn Header="Defect" Binding="{Binding Defect}" Width="112"/>
+                                <DataGridTextColumn Header="Folder" Binding="{Binding CropFolder}" Width="105"/>
+                                <DataGridTextColumn Header="Side" Binding="{Binding Side}" Width="64"/>
+                                <DataGridTextColumn Header="Review" Binding="{Binding ReviewStatus}" Width="80"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Border>
+
+                <Border Grid.Column="1" Background="#111820" BorderBrush="{StaticResource PanelBorder}"
+                        BorderThickness="1" Margin="0,0,10,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Border Background="#EEF1F4" Padding="8">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding CurrentPreview.Label}"
+                                           Foreground="#243B53" FontWeight="SemiBold"/>
+                                <TextBlock Text="  |  " Foreground="#829AB1"/>
+                                <TextBlock Text="{Binding ImagePositionText}" Foreground="#52606D"/>
+                            </StackPanel>
+                        </Border>
+                        <Grid Grid.Row="1">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <ScrollViewer x:Name="ImageScrollViewer"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Auto"
+                                          PanningMode="Both"
+                                          CanContentScroll="False"
+                                          PreviewMouseWheel="ImageScrollViewer_PreviewMouseWheel"
+                                          PreviewMouseLeftButtonDown="ImageScrollViewer_PreviewMouseLeftButtonDown"
+                                          PreviewMouseLeftButtonUp="ImageScrollViewer_PreviewMouseLeftButtonUp"
+                                          PreviewMouseMove="ImageScrollViewer_PreviewMouseMove"
+                                          LostMouseCapture="ImageScrollViewer_LostMouseCapture"
+                                          Cursor="Hand"
+                                          Background="#111820">
+                                <Grid MinWidth="200" MinHeight="200">
+                                    <Image x:Name="ReviewImage"
+                                           Source="{Binding CurrentPreview.Image, NotifyOnTargetUpdated=True}"
+                                           Stretch="Uniform"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TargetUpdated="ReviewImage_TargetUpdated">
+                                        <Image.LayoutTransform>
+                                            <ScaleTransform x:Name="ImageScale" ScaleX="1" ScaleY="1"/>
+                                        </Image.LayoutTransform>
+                                    </Image>
+                                    <Border HorizontalAlignment="Left" VerticalAlignment="Top"
+                                            Margin="10" Padding="8,5" Background="#CC111820"
+                                            CornerRadius="4">
+                                        <TextBlock Text="{Binding DisplayOverlay}" Foreground="White"
+                                                   FontWeight="SemiBold" TextWrapping="Wrap"
+                                                   MaxWidth="420"/>
+                                    </Border>
+                                    <TextBlock Text="{Binding CurrentPreview.State}"
+                                               Foreground="#D9E2EC" FontSize="16"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                            </ScrollViewer>
+                            <Border Grid.Row="1" Background="#18212A" Padding="8">
+                                <Grid>
+                                    <TextBlock Text="Drag or scroll: pan   Ctrl + scroll: zoom at pointer"
+                                               Foreground="#9FB3C8" HorizontalAlignment="Left"/>
+                                    <TextBlock x:Name="ZoomText" Text="60%"
+                                               Foreground="White" FontWeight="SemiBold"
+                                               HorizontalAlignment="Right"/>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Column="2" Background="White" BorderBrush="{StaticResource PanelBorder}"
+                        BorderThickness="1" Padding="12">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <StackPanel.Resources>
+                                <Style TargetType="ToggleButton">
+                                    <Setter Property="Margin" Value="2"/>
+                                    <Setter Property="Padding" Value="6,4"/>
+                                    <Setter Property="MinHeight" Value="27"/>
+                                    <Setter Property="FontSize" Value="12"/>
+                                    <Setter Property="Background" Value="#F8FAFC"/>
+                                    <Setter Property="BorderBrush" Value="#BCCCDC"/>
+                                </Style>
+                            </StackPanel.Resources>
+                            <TextBlock Text="Final Class" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <ItemsControl ItemsSource="{Binding FinalClassOptions}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="1"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <ToggleButton Content="{Binding DisplayName}"
+                                                      IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Button Content="Enter: Commit Selection"
+                                    Command="{Binding CommitCommand}"
+                                    Margin="2,6,2,8"
+                                    Padding="8,5"/>
+                            <Separator/>
+                            <TextBlock Text="DLNG Item" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,8"/>
+                            <TextBlock Text="Cell ID" Foreground="#52606D"/>
+                            <TextBlock Text="{Binding SelectedCandidate.CellId}" FontWeight="SemiBold"
+                                       TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <TextBlock Text="Judge / Defect" Foreground="#52606D"/>
+                            <TextBlock FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,10">
+                                <Run Text="{Binding SelectedCandidate.Judge, Mode=OneWay}"/>
+                                <Run Text=" / "/>
+                                <Run Text="{Binding SelectedCandidate.Defect, Mode=OneWay}"/>
+                            </TextBlock>
+                            <TextBlock Text="Crop folder" Foreground="#52606D"/>
+                            <TextBlock Text="{Binding SelectedCandidate.CropFolder}" FontWeight="SemiBold"
+                                       Margin="0,0,0,10"/>
+                            <TextBlock Text="Source class" Foreground="#52606D"/>
+                            <TextBlock Text="{Binding SelectedCandidate.SourceClass}" FontWeight="SemiBold"
+                                       TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <TextBlock Text="Review" Foreground="#52606D"/>
+                            <TextBlock Text="{Binding SelectedCandidate.ReviewStatus}" FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+                            <Separator/>
+                            <TextBlock Text="Image Navigation" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                            <UniformGrid Columns="2">
+                                <Button Content="Left: Previous" Command="{Binding PreviousImageCommand}"/>
+                                <Button Content="Right: Next" Command="{Binding NextImageCommand}"/>
+                            </UniformGrid>
+                            <TextBlock Text="Cell Navigation" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                            <UniformGrid Columns="2">
+                                <Button Content="Up: Previous" Command="{Binding PreviousCommand}"/>
+                                <Button Content="Down: Next" Command="{Binding NextCommand}"/>
+                            </UniformGrid>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</UserControl>

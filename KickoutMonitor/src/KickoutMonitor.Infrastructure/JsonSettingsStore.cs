@@ -28,6 +28,7 @@ public sealed class JsonSettingsStore
             await using var stream = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
             var settings = await JsonSerializer.DeserializeAsync<VisionMasterSettings>(stream, VisionMasterSettings.JsonOptions, cancellationToken)
                 ?? VisionMasterSettings.CreateDefault();
+            FillMissingDefaults(settings);
             var errors = settings.Validate();
             if (errors.Count == 0) return settings;
             LastWarning = "Settings validation failed; using defaults: " + string.Join(" ", errors);
@@ -64,9 +65,22 @@ public sealed class JsonSettingsStore
     {
         var settings = JsonSerializer.Deserialize<VisionMasterSettings>(json, VisionMasterSettings.JsonOptions)
             ?? throw new InvalidOperationException("Settings JSON is empty.");
+        FillMissingDefaults(settings);
         var errors = settings.Validate();
         if (errors.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
         return settings;
+    }
+
+    private static void FillMissingDefaults(VisionMasterSettings settings)
+    {
+        var defaults = VisionMasterSettings.CreateDefault();
+        if (settings.IrsRules.FirstStageSelections.Count == 0) settings.IrsRules = defaults.IrsRules;
+        if (settings.DlngRules.EligibleJudges.Count == 0
+            || settings.DlngRules.DefectMappings.Count == 0
+            || settings.DlngRules.SegmentationClasses.Count == 0)
+        {
+            settings.DlngRules = defaults.DlngRules;
+        }
     }
 
     private static string DefaultRoot()

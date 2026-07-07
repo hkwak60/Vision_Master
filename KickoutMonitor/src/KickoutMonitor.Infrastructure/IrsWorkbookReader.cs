@@ -36,54 +36,98 @@ public sealed class IrsWorkbookReader : IIrsWorkbookReader
             var rowValues = rows.ToDictionary(
                 row => int.Parse(row.Attribute("r")!.Value, CultureInfo.InvariantCulture),
                 row => ReadRow(row, sharedStrings));
-            if (!rowValues.TryGetValue(1, out var row1)
-                || !rowValues.TryGetValue(2, out var row2))
+            var headerRowNumber = FindHeaderRow(rowValues)
+                ?? throw new InvalidDataException("The IRS workbook does not contain recognizable IRS headers.");
+            if (!rowValues.TryGetValue(headerRowNumber, out var row1))
             {
-                throw new InvalidDataException("The IRS workbook must have two header rows.");
+                throw new InvalidDataException("The IRS workbook does not contain a readable header row.");
             }
 
-            var headers = BuildHeaders(row1, row2);
+            rowValues.TryGetValue(headerRowNumber + 1, out var possibleSubHeader);
+            var hasSubHeader = possibleSubHeader is not null && LooksLikeSubHeader(possibleSubHeader);
+            var headers = BuildHeaders(
+                row1,
+                hasSubHeader ? possibleSubHeader! : new Dictionary<int, string>());
+            var firstDataRow = headerRowNumber + (hasSubHeader ? 2 : 1);
             var requested = new List<IrsReviewCandidate>();
-            foreach (var pair in rowValues.Where(x => x.Key >= 3).OrderBy(x => x.Key))
+            foreach (var pair in rowValues.Where(x => x.Key >= firstDataRow).OrderBy(x => x.Key))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var row = new IrsRow(headers, pair.Value);
-                if (!row.Get("Request for NG Cell OUT").Equals(
+                if (!row.GetAny("Request for NG Cell OUT", "NG Out/Request", "Request").Equals(
                         "Request",
                         StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                var producedAt = ParseDate(row.Get("Prod. date"));
-                var cellId = row.Get("Cell ID");
+                var producedAt = ParseDate(row.GetAny("Prod. date", "Prod date", "Production date"));
+                var cellId = row.GetAny("Cell ID", "CellID", "Cell");
                 if (producedAt is null || string.IsNullOrWhiteSpace(cellId)) continue;
-                var image = row.Get("Image");
+                var image = row.GetAny("Image", "Image file", "Image filename");
+                var eqpt = row.GetAny("Eqpt", "Equipment", "Machine");
+                var visionType = row.GetAny("Vision Type", "VisionType", "Vision");
+                var cameraLocation = row.GetAny("Camera Location", "CameraLocation", "Side");
                 var key = string.Join(
                     "|",
-                    row.Get("Eqpt"),
-                    row.Get("Vision Type"),
+                    eqpt,
+                    visionType,
                     producedAt.Value.ToString("O", CultureInfo.InvariantCulture),
                     cellId,
-                    row.Get("Camera Location"),
+                    cameraLocation,
                     image);
                 requested.Add(new(
                     key,
-                    row.Get("Eqpt"),
-                    row.Get("Vision Type"),
+                    eqpt,
+                    visionType,
                     string.Empty,
                     producedAt.Value,
-                    row.Get("Lot ID"),
+                    row.GetAny("Lot ID", "LotID", "Lot"),
                     cellId,
-                    row.Get("Camera Location"),
+                    cameraLocation,
                     image,
-                    row.Get("2nd judgment/Result"),
-                    row.Get("2nd judgment/reason"),
+                    row.GetAny("2nd judgment/Result", "Second judgment/Result", "2nd judgment result", "Second result"),
+                    row.GetAny("2nd judgment/reason", "Second judgment/reason", "2nd judgment reason", "Second reason"),
                     pair.Key));
             }
 
-            return requested;
+        return requested;
         }, cancellationToken);
+    }
+
+    private static int? FindHeaderRow(IReadOnlyDictionary<int, IReadOnlyDictionary<int, string>> rows)
+    {
+        foreach (var (rowNumber, values) in rows.Where(x => x.Key <= 10).OrderBy(x => x.Key))
+        {
+            var normalized = values.Values
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(NormalizeHeader)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (normalized.Contains(NormalizeHeader("Eqpt"))
+                && normalized.Contains(NormalizeHeader("Cell ID"))
+                && normalized.Contains(NormalizeHeader("Prod. date")))
+            {
+                return rowNumber;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool LooksLikeSubHeader(IReadOnlyDictionary<int, string> row)
+    {
+        var values = row.Values
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .ToArray();
+        if (values.Length == 0) return false;
+        return values.Any(value =>
+            value.Equals("Result", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("reason", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Inspector", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("completion date", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Request", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("PKG ID", StringComparison.OrdinalIgnoreCase));
     }
 
     private static Dictionary<int, string> BuildHeaders(
@@ -197,6 +241,7 @@ public sealed class IrsWorkbookReader : IIrsWorkbookReader
     private sealed class IrsRow
     {
         private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _normalizedValues = new(StringComparer.OrdinalIgnoreCase);
 
         public IrsRow(
             IReadOnlyDictionary<int, string> headers,
@@ -207,10 +252,32 @@ public sealed class IrsWorkbookReader : IIrsWorkbookReader
                 _values[header] = values.TryGetValue(column, out var value)
                     ? value.Trim()
                     : string.Empty;
+                _normalizedValues[NormalizeHeader(header)] = _values[header];
             }
         }
 
         public string Get(string header) =>
             _values.TryGetValue(header, out var value) ? value : string.Empty;
+
+        public string GetAny(params string[] headers)
+        {
+            foreach (var header in headers)
+            {
+                if (_values.TryGetValue(header, out var value)) return value;
+                if (_normalizedValues.TryGetValue(NormalizeHeader(header), out value)) return value;
+            }
+
+            return string.Empty;
+        }
     }
+
+    private static string NormalizeHeader(string header) =>
+        new(header
+            .Where(character => !char.IsWhiteSpace(character)
+                && character != '.'
+                && character != '-'
+                && character != '_'
+                && character != '/')
+            .Select(char.ToUpperInvariant)
+            .ToArray());
 }

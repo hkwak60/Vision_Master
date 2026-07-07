@@ -84,6 +84,38 @@ NEED_TO_SIMULATE final-stage items export the whole original folder to `Dataset\
 
 `No Need to Retrain` items are excluded from retrain dataset counts.
 
+## DLNG Review Workflow
+
+DLNG Review loads Welding production CSVs for selected line/polarity machines and a selected date range.
+
+Eligible rows must have `JUDGE` equal to `DLNG`, `C-NG`, `QNG`, or `NG`. `Q-NG` is not included by default. Rows with blank or unmapped `JUDGE-DEFECT` are ignored.
+
+Cell IDs starting with global ignored prefixes, including `OCR` and `AGING`, are ignored in DLNG Review the same way they are ignored in Kickout review.
+
+For `JUDGE = NG`, the review side comes from `UPPER_JUDGE` and `LOWER_JUDGE`. For `DLNG`, `C-NG`, and `QNG`, the review side comes from `UPPER_<JUDGE-DEFECT>-JUDGE` or `LOWER_<JUDGE-DEFECT>-JUDGE` equal to `BYPASS_NG`. `SEPA_SHOULDER` may use `SEPA_SHOULDER_DL` CSV columns.
+
+DLNG crop lookup is bounded to Mavin crop folders under `\\<ip>\<drive>\Files\Image\<model>\<yyyy>\<MM>\<dd>\Mavin\<crop-folder>`. It must not broad-scan production PCs.
+
+Classification crops are paired as `SourceMap` plus `ActiveMap` and display their source class folder plus side. Segmentation crops are paired as `SourceImg` plus `_mask` or same-stem `.png` and display `Segmentation` plus side.
+
+If a mapped crop is missing, DLNG Review falls back to the three raw production images from the review side. Fallback items are classified as `Real` or `No Need to Train` and exported under `NEED_TO_SIMULATE`.
+
+## DLNG Defect Mapping
+
+`A_L` and `A_R` map to `Crop_A`. `B_L` and `B_R` map to `Crop_B`. `Micro_LL`, `Micro_LM`, `Micro_MM`, `Micro_MR`, and `Micro_RR` map to `Crop_micro`. `Tab_Burr_LL`, `Tab_Burr_LM`, `Tab_Burr_LB`, `Tab_Burr_RR`, `Tab_Burr_RB`, `Tab_Burr_RM`, `TABSIDE_L`, and `TABSIDE_R` map to `Crop_micro_tabside`.
+
+`BEAD_CNT` maps to `SEGMENTATION`. `SEPA_DL`, `SEPA`, `SEPA_TAB`, `SEPA_LEFT`, and `SEPA_RIGHT` map to `SEPA`. `SEPA_SHOULDER` maps to `SEPA_SHOULDER`. `GAP` and `GAP_DL` map to `Gap_DL`. `H_DIM_L` and `H_DIM_R` map to `HORNMARK`. `B_DIM_L` and `B_DIM_R` create two review pairs, one from `HORNMARK` and one from `LEADEDGE`.
+
+## DLNG Report Rules
+
+A DLNG report date means `06:00:00` on the selected date through before `06:00:00` on the next day.
+
+The report cannot generate unless all DLNG review items in the requested window are classified. Output goes under `DLNG_REPORT\DLNG_REPORT_<yyyyMMdd>`.
+
+Classification crop items export to `Dataset\<crop-folder>\<line-polarity>\<final-class>\`. Segmentation crop items export to `Dataset\<crop-folder>\<final-class>\`; for segmentation crops, `No Need to Train` exports to `Dataset\<crop-folder>\OVERKILL\`. Missing-crop fallback raw items export to `Dataset\NEED_TO_SIMULATE\<crop-folder>\<cell-id>\`.
+
+The DLNG workbook summarizes counts by line/polarity, `JUDGE`, `JUDGE-DEFECT`, crop folder, source class, and final class. Classification switch counts compare the original source class folder to the final user-selected class. Segmentation items report `Real` and `No Need to Train` counts without class-switch math.
+
 ## Settings
 
 Settings are stored locally in `E:\KWAK\VisionMaster\settings.json` by default. If the file is missing, VisionMaster creates defaults that match the current hard-coded behavior. If the file is invalid, VisionMaster loads defaults and shows a warning in the Settings page.

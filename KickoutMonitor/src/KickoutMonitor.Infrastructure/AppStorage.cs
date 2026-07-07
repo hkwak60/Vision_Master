@@ -19,6 +19,8 @@ public sealed class AppStorage
         Temp = Path.Combine(Root, ".temp");
         Summary = Path.Combine(Root, "NG_Summary");
         ReviewFile = Path.Combine(Root, "kickout-reviews.json");
+        DlngReviewFile = Path.Combine(Root, "dlng-reviews.json");
+        DlngReport = Path.Combine(Root, "DLNG_REPORT");
     }
 
     public string RequestedRoot { get; }
@@ -27,6 +29,8 @@ public sealed class AppStorage
     public string Temp { get; }
     public string Summary { get; }
     public string ReviewFile { get; }
+    public string DlngReviewFile { get; }
+    public string DlngReport { get; }
 
     public void EnsureCreated(IEnumerable<WeldingMachine> machines)
     {
@@ -34,6 +38,7 @@ public sealed class AppStorage
         Directory.CreateDirectory(Staging);
         Directory.CreateDirectory(Temp);
         Directory.CreateDirectory(Summary);
+        Directory.CreateDirectory(DlngReport);
         foreach (var machine in machines)
         {
             var machineRoot = Path.Combine(Root, machine.OutputFolderName);

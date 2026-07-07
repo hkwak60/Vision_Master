@@ -143,3 +143,36 @@ public interface IIrsDatasetService
         IReadOnlyList<IrsDatasetItem> datasetItems,
         CancellationToken cancellationToken);
 }
+
+public interface IDlngCsvReader
+{
+    IAsyncEnumerable<DlngReviewItem> ReadAsync(
+        WeldingMachine machine,
+        SnapshotResult snapshot,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken);
+}
+
+public interface IDlngCropLocator
+{
+    Task<IReadOnlyList<DlngReviewItem>> ExpandAsync(
+        WeldingMachine machine,
+        DlngReviewItem candidate,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken);
+}
+
+public interface IDlngReviewStore
+{
+    Task<IReadOnlyDictionary<string, DlngReviewRecord>> LoadAsync(CancellationToken cancellationToken);
+    Task SaveAsync(DlngReviewRecord record, CancellationToken cancellationToken);
+}
+
+public interface IDlngReportService
+{
+    Task<DlngReportResult> GenerateAsync(
+        IReadOnlyList<WeldingMachine> machines,
+        DateOnly reportDate,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken);
+}

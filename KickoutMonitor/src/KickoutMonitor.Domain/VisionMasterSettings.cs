@@ -10,6 +10,7 @@ public sealed class VisionMasterSettings
     public KickoutRuleSettings KickoutRules { get; set; } = new();
     public List<MachineSetting> Machines { get; set; } = [];
     public IrsRuleSettings IrsRules { get; set; } = new();
+    public DlngRuleSettings DlngRules { get; set; } = new();
 
     public static VisionMasterSettings CreateDefault() => new()
     {
@@ -27,7 +28,8 @@ public sealed class VisionMasterSettings
             Machine("2-2-an", "2-2", Polarity.Anode, "10.112.99.77", "E69B"),
             Machine("2-2-ca", "2-2", Polarity.Cathode, "10.112.99.78", "E69B")
         ],
-        IrsRules = IrsRuleSettings.CreateDefault()
+        IrsRules = IrsRuleSettings.CreateDefault(),
+        DlngRules = DlngRuleSettings.CreateDefault()
     };
 
     public static JsonSerializerOptions JsonOptions { get; } = new()
@@ -66,6 +68,12 @@ public sealed class VisionMasterSettings
         {
             if (string.IsNullOrWhiteSpace(group.Folder)) errors.Add("IRS final class group Folder is required.");
             if (group.Classes.Count == 0) errors.Add($"IRS final class group {group.Folder}: at least one class is required.");
+        }
+
+        foreach (var map in DlngRules.DefectMappings)
+        {
+            if (string.IsNullOrWhiteSpace(map.Defect)) errors.Add("DLNG defect mapping Defect is required.");
+            if (map.CropFolders.Count == 0) errors.Add($"DLNG mapping {map.Defect}: at least one crop folder is required.");
         }
 
         return errors;
@@ -190,5 +198,71 @@ public sealed class IrsFinalClassGroupSetting
     public string Folder { get; set; } = string.Empty;
     public Polarity? Polarity { get; set; }
     public List<string> Classes { get; set; } = [];
+}
+
+public sealed class DlngRuleSettings
+{
+    public List<string> EligibleJudges { get; set; } = [];
+    public List<DlngDefectMappingSetting> DefectMappings { get; set; } = [];
+    public List<string> SegmentationClasses { get; set; } = [];
+
+    public static DlngRuleSettings CreateDefault() => new()
+    {
+        EligibleJudges = ["DLNG", "C-NG", "QNG", "NG"],
+        SegmentationClasses = ["Real", "No Need to Train"],
+        DefectMappings =
+        [
+            Map("A_L", DlngModelKind.Classification, ["Crop_A"], "A_L"),
+            Map("A_R", DlngModelKind.Classification, ["Crop_A"], "A_R"),
+            Map("B_L", DlngModelKind.Classification, ["Crop_B"], "B_L"),
+            Map("B_R", DlngModelKind.Classification, ["Crop_B"], "B_R"),
+            Map("BEAD_CNT", DlngModelKind.Segmentation, ["SEGMENTATION"], "BEAD"),
+            Map("SEPA_DL", DlngModelKind.Segmentation, ["SEPA"], "SEPA DL"),
+            Map("SEPA", DlngModelKind.Segmentation, ["SEPA"], "SEPA"),
+            Map("SEPA_TAB", DlngModelKind.Segmentation, ["SEPA"], "SEPA"),
+            Map("SEPA_LEFT", DlngModelKind.Segmentation, ["SEPA"], "SEPA"),
+            Map("SEPA_RIGHT", DlngModelKind.Segmentation, ["SEPA"], "SEPA"),
+            Map("SEPA_SHOULDER", DlngModelKind.Segmentation, ["SEPA_SHOULDER"], "SEPA SHOULDER"),
+            Map("Micro_LL", DlngModelKind.Classification, ["Crop_micro"], "Micro_LL"),
+            Map("Micro_LM", DlngModelKind.Classification, ["Crop_micro"], "Micro_LM"),
+            Map("Micro_MM", DlngModelKind.Classification, ["Crop_micro"], "Micro_MM"),
+            Map("Micro_MR", DlngModelKind.Classification, ["Crop_micro"], "Micro_MR"),
+            Map("Micro_RR", DlngModelKind.Classification, ["Crop_micro"], "Micro_RR"),
+            Map("B_DIM_L", DlngModelKind.Segmentation, ["HORNMARK", "LEADEDGE"], "L"),
+            Map("B_DIM_R", DlngModelKind.Segmentation, ["HORNMARK", "LEADEDGE"], "R"),
+            Map("H_DIM_L", DlngModelKind.Segmentation, ["HORNMARK"], "L"),
+            Map("H_DIM_R", DlngModelKind.Segmentation, ["HORNMARK"], "R"),
+            Map("GAP", DlngModelKind.Segmentation, ["Gap_DL"], "Gap_DL"),
+            Map("GAP_DL", DlngModelKind.Segmentation, ["Gap_DL"], "Gap_DL"),
+            Map("Tab_Burr_LL", DlngModelKind.Classification, ["Crop_micro_tabside"], "L"),
+            Map("Tab_Burr_LM", DlngModelKind.Classification, ["Crop_micro_tabside"], "L"),
+            Map("Tab_Burr_LB", DlngModelKind.Classification, ["Crop_micro_tabside"], "L"),
+            Map("Tab_Burr_RR", DlngModelKind.Classification, ["Crop_micro_tabside"], "R"),
+            Map("Tab_Burr_RB", DlngModelKind.Classification, ["Crop_micro_tabside"], "R"),
+            Map("Tab_Burr_RM", DlngModelKind.Classification, ["Crop_micro_tabside"], "R"),
+            Map("TABSIDE_L", DlngModelKind.Classification, ["Crop_micro_tabside"], "L"),
+            Map("TABSIDE_R", DlngModelKind.Classification, ["Crop_micro_tabside"], "R")
+        ]
+    };
+
+    private static DlngDefectMappingSetting Map(
+        string defect,
+        DlngModelKind kind,
+        List<string> cropFolders,
+        string? token) => new()
+    {
+        Defect = defect,
+        ModelKind = kind,
+        CropFolders = cropFolders,
+        Token = token
+    };
+}
+
+public sealed class DlngDefectMappingSetting
+{
+    public string Defect { get; set; } = string.Empty;
+    public DlngModelKind ModelKind { get; set; }
+    public List<string> CropFolders { get; set; } = [];
+    public string? Token { get; set; }
 }
 

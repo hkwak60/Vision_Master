@@ -174,7 +174,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
                 Directory.CreateDirectory(destinationFolder);
                 foreach (var image in row.Item.ImagePaths.Where(File.Exists))
                 {
-                    var target = Path.Combine(destinationFolder, $"{row.Item.CellId}_{Path.GetFileName(image)}");
+                    var target = Path.Combine(destinationFolder, Path.GetFileName(image));
                     File.Copy(image, target, true);
                 }
             }
