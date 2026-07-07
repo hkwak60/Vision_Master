@@ -14,6 +14,7 @@ public partial class IrsReviewView : UserControl
     private const double MinimumZoom = 0.2;
     private const double MaximumZoom = 5.0;
     private const double DefaultZoom = 0.6;
+    private const double MicroTabsideDefaultZoom = 0.4;
     private double _zoom = DefaultZoom;
     private bool _isDragging;
     private Point _dragStart;
@@ -153,7 +154,7 @@ public partial class IrsReviewView : UserControl
     {
         if (ReviewImage.Source is null)
         {
-            SetZoom(DefaultZoom);
+            SetZoom(DefaultZoomForSelection());
             return;
         }
 
@@ -175,7 +176,7 @@ public partial class IrsReviewView : UserControl
             return;
         }
 
-        SetZoom(DefaultZoom);
+        SetZoom(DefaultZoomForSelection());
         _resetViewForCell = false;
         Dispatcher.BeginInvoke(
             DispatcherPriority.Loaded,
@@ -184,6 +185,17 @@ public partial class IrsReviewView : UserControl
                 ImageScrollViewer.ScrollToHorizontalOffset(0);
                 ImageScrollViewer.ScrollToVerticalOffset(0);
             });
+    }
+
+    private double DefaultZoomForSelection()
+    {
+        if (DataContext is IrsReviewViewModel { SelectedCandidate.DatasetItem.SourceFolder: var folder }
+            && folder.Equals("Crop_micro_tabside", StringComparison.OrdinalIgnoreCase))
+        {
+            return MicroTabsideDefaultZoom;
+        }
+
+        return DefaultZoom;
     }
 
     private void CaptureImageViewport()

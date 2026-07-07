@@ -74,6 +74,8 @@ Normal crop items are grouped as source/overlay pairs by crop token. For example
 
 NEED_TO_SIMULATE final-stage items display only the 3 raw images from the defect side. NEED_TO_SIMULATE does not display overlays during final review.
 
+`Crop_micro_tabside` crop images default to 40% image zoom in review views. Other crop/raw image types default to 60%.
+
 For `Crop_A` final-stage items, camera location limits the OK final-class choices: `TOP` hides `02_OK_BACK_*`, and `BTM`/`BOTTOM` hides `01_OK_TOP_*`. NG final classes remain available for both camera locations.
 
 Final-stage hotkeys are `R` for Real, `N` for No Need to Retrain, and `1-6` for the matching numbered subclass. Revisiting a classified final-stage item must show the previous final-class selection.
