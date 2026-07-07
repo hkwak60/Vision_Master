@@ -171,6 +171,9 @@
                                         <DataTrigger Binding="{Binding Decision}" Value="MultiDefectNg">
                                             <Setter Property="Background" Value="#CFE2F3"/>
                                         </DataTrigger>
+                                        <DataTrigger Binding="{Binding Decision}" Value="Ignore">
+                                            <Setter Property="Background" Value="#E5E7EB"/>
+                                        </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </DataGrid.RowStyle>
@@ -301,6 +304,8 @@
                             <Button Content="Multi-Defect NG  [M]"
                                     Command="{Binding MultiDefectCommand}"
                                     Background="#CFE2F3"/>
+                            <Button Content="Ignore  [I]" Command="{Binding IgnoreCommand}"
+                                    Background="#E5E7EB"/>
 
                             <TextBlock Text="Comment" FontWeight="SemiBold" Margin="0,12,0,4"/>
                             <TextBox Text="{Binding Comment, UpdateSourceTrigger=PropertyChanged}"

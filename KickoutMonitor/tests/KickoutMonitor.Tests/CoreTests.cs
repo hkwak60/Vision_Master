@@ -208,6 +208,40 @@ public sealed class CoreTests
         }
     }
 
+    [Fact]
+    public async Task Ignore_DoesNotCopyImages()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KickoutMonitorTests", Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(root, "source", "20260609_224553_LOT_CELL");
+        Directory.CreateDirectory(source);
+        await File.WriteAllBytesAsync(Path.Combine(source, "raw.jpg"), [0xFF, 0xD8, 0x00, 0xFF, 0xD9]);
+
+        var storage = new AppStorage(Path.Combine(root, "output"));
+        var machine = new WeldingMachine("1-2-ca", "1-2", Polarity.Cathode, "127.0.0.1", ['E']);
+        storage.EnsureCreated([machine]);
+        var candidate = new KickoutCandidate(
+            "key", machine.Id, DateTime.Now, "E81C", "LOT", "CELL", "GAP",
+            NgSide.Upper, [], source, "result.csv", 2);
+
+        try
+        {
+            var result = await new ClassifiedFolderService(storage).ClassifyAsync(
+                machine,
+                candidate,
+                ReviewDecision.Ignore,
+                CancellationToken.None);
+
+            Assert.Equal(CopyState.NotRequested, result.State);
+            Assert.Null(result.Destination);
+            Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(storage.MachineRoot(machine), "NG")));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(storage.MachineRoot(machine), "OVERKILL")));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
 
     [Fact]
     public void DefaultSettings_PreserveCurrentMachineAndRuleDefaults()
@@ -800,6 +834,54 @@ public sealed class CoreTests
         Assert.Equal(1.0 / 3.0, all.ConfirmedNgRate, 6);
         Assert.Equal(1.0 / 3.0, all.OverkillRate, 6);
         Assert.Equal(writer.Rows, result.Rows);
+    }
+
+    [Fact]
+    public async Task SummaryReport_IgnoreRowsAreExcludedFromCountsAndDetails()
+    {
+        var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "127.0.0.1", ['E']);
+        var ok = SummaryRecord(
+            machine,
+            new DateTime(2026, 6, 25, 6, 30, 0),
+            "CELL-OK",
+            "OK",
+            "");
+        var real = SummaryRecord(
+            machine,
+            new DateTime(2026, 6, 25, 8, 0, 0),
+            "CELL-REAL",
+            "NG",
+            "B_DIM");
+        var ignored = SummaryRecord(
+            machine,
+            new DateTime(2026, 6, 25, 9, 0, 0),
+            "CELL-IGNORE",
+            "NG",
+            "C_DIM");
+        var writer = new FakeSummaryWriter();
+        var service = new SummaryReportService(
+            new FakeLocator(),
+            new FakeSnapshotService(),
+            new FakeSummaryReader([ok, real, ignored]),
+            new FakeReviewStore([
+                new ReviewEntry(real.CandidateKey, ReviewDecision.RealNg, CopyState.Copied, "", null, DateTimeOffset.Now),
+                new ReviewEntry(ignored.CandidateKey, ReviewDecision.Ignore, CopyState.NotRequested, "", null, DateTimeOffset.Now)
+            ]),
+            writer);
+
+        var result = await service.GenerateAsync(
+            [machine],
+            new DateOnly(2026, 6, 25),
+            null,
+            CancellationToken.None);
+
+        var all = Assert.Single(result.Rows, row => row.Defect == "ALL");
+        Assert.Equal(2, all.TotalInspected);
+        Assert.Equal(1, all.InitialNg);
+        Assert.Equal(1, all.RealNg);
+        Assert.Equal(0, all.Overkill);
+        Assert.DoesNotContain(result.Rows, row => row.Defect == "C_DIM");
+        Assert.DoesNotContain(writer.Details, detail => detail.Values.Contains("CELL-IGNORE"));
     }
 
     [Fact]
@@ -1866,6 +1948,7 @@ public sealed class CoreTests
     private sealed class FakeSummaryWriter : ISummaryReportWriter
     {
         public IReadOnlyList<SummaryReportRow> Rows { get; private set; } = [];
+        public IReadOnlyList<SummaryDetailRow> Details { get; private set; } = [];
 
         public Task<string> WriteAsync(
             DateOnly reportDate,
@@ -1876,6 +1959,7 @@ public sealed class CoreTests
             CancellationToken cancellationToken)
         {
             Rows = rows;
+            Details = details;
             return Task.FromResult("summary.csv");
         }
     }

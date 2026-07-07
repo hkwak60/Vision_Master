@@ -79,6 +79,7 @@ public sealed class SummaryReportService
                 x => x.Record.CandidateKey,
                 StringComparer.OrdinalIgnoreCase)
             .Select(x => x.First())
+            .Where(x => !IsIgnored(x.Record, savedReviews))
             .ToArray();
         var ngRecords = records
             .Where(x => string.Equals(x.Record.Judge, "NG", StringComparison.OrdinalIgnoreCase))
@@ -173,7 +174,8 @@ public sealed class SummaryReportService
     private static bool IsFinal(ReviewDecision decision) =>
         decision is ReviewDecision.RealNg
             or ReviewDecision.Overkill
-            or ReviewDecision.MultiDefectNg;
+            or ReviewDecision.MultiDefectNg
+            or ReviewDecision.Ignore;
 
     private static IReadOnlyList<SummaryDetailRow> BuildDetails(
         IReadOnlyList<(WeldingMachine Machine, InspectionSummaryRecord Record)> ngRecords,
@@ -205,4 +207,10 @@ public sealed class SummaryReportService
         reviews[record.CandidateKey].Decision == ReviewDecision.MultiDefectNg
             ? MultiNgDefectName
             : record.Defect;
+
+    private static bool IsIgnored(
+        InspectionSummaryRecord record,
+        IReadOnlyDictionary<string, ReviewEntry> reviews) =>
+        reviews.TryGetValue(record.CandidateKey, out var review)
+        && review.Decision == ReviewDecision.Ignore;
 }

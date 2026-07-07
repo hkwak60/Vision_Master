@@ -30,7 +30,7 @@ Only `JUDGE = NG` rows are reviewed. Cell IDs starting with `OCR` or `AGING` are
 
 `UPPER_JUDGE` and `LOWER_JUDGE` decide which side images to display. Upper side displays `0_0`, `0_1`, `0_2`; lower side displays `1_0`, `1_1`, `1_2`. If both sides are NG, all 12 raw/overlay files are relevant.
 
-The user classifies each queue item as Real NG, Overkill, or Multi-Defect NG. Real NG images stay grouped by defect. Overkill goes under `OVERKILL\<defect>`. Multi-defect NG is summarized as `MULTI-NG`.
+The user classifies each queue item as Real NG, Overkill, Multi-Defect NG, or Ignore. Real NG images stay grouped by defect. Overkill goes under `OVERKILL\<defect>`. Multi-defect NG is summarized as `MULTI-NG`. Ignore marks the cell reviewed but does not copy images and excludes the cell from summary counts, details, and copied report images.
 
 ## Kickout Summary Rules
 

@@ -106,7 +106,7 @@ public partial class KickoutMonitorView : UserControl
     {
         if (Keyboard.FocusedElement is TextBoxBase or ComboBox or DatePicker) return;
         if (DataContext is not MainViewModel viewModel) return;
-        if (e.Key is Key.R or Key.O or Key.M or Key.Left or Key.Right or Key.Up or Key.Down)
+        if (e.Key is Key.R or Key.O or Key.M or Key.I or Key.Left or Key.Right or Key.Up or Key.Down)
         {
             viewModel.HandleHotkey(e.Key);
             e.Handled = true;

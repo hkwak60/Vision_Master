@@ -19,7 +19,8 @@ public enum ReviewDecision
     Pending,
     RealNg,
     Overkill,
-    MultiDefectNg
+    MultiDefectNg,
+    Ignore
 }
 
 public enum CopyState

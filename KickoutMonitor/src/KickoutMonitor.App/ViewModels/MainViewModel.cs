@@ -98,6 +98,7 @@ public sealed class CandidateItem : INotifyPropertyChanged
         ReviewDecision.RealNg => "Real NG",
         ReviewDecision.Overkill => "Overkill",
         ReviewDecision.MultiDefectNg => "Multi-Defect NG",
+        ReviewDecision.Ignore => "Ignore",
         _ => "Pending"
     };
     public string ReviewComment
@@ -197,6 +198,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RealNgCommand = new(() => ReviewAsync(ReviewDecision.RealNg), CanReview);
         OverkillCommand = new(() => ReviewAsync(ReviewDecision.Overkill), CanReview);
         MultiDefectCommand = new(() => ReviewAsync(ReviewDecision.MultiDefectNg), CanReview);
+        IgnoreCommand = new(() => ReviewAsync(ReviewDecision.Ignore), CanReview);
         PreviousCommand = new(Previous, () => SelectedIndex > 0);
         NextCommand = new(Next, () => SelectedIndex >= 0 && SelectedIndex < Candidates.Count - 1);
         PreviousImageCommand = new(
@@ -217,6 +219,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public AsyncRelayCommand RealNgCommand { get; }
     public AsyncRelayCommand OverkillCommand { get; }
     public AsyncRelayCommand MultiDefectCommand { get; }
+    public AsyncRelayCommand IgnoreCommand { get; }
     public RelayCommand PreviousCommand { get; }
     public RelayCommand NextCommand { get; }
     public AsyncRelayCommand PreviousImageCommand { get; }
@@ -314,6 +317,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             case Key.M when CanReview():
                 MultiDefectCommand.Execute(null);
                 break;
+            case Key.I when CanReview():
+                IgnoreCommand.Execute(null);
+                break;
             case Key.Left when PreviousImageCommand.CanExecute(null):
                 PreviousImageCommand.Execute(null);
                 break;
@@ -397,7 +403,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                             if (review?.Decision is not (
                                 ReviewDecision.RealNg
                                 or ReviewDecision.Overkill
-                                or ReviewDecision.MultiDefectNg))
+                                or ReviewDecision.MultiDefectNg
+                                or ReviewDecision.Ignore))
                             {
                                 Status = $"Caching review images locally: {++cachedCount:N0}";
                                 workingRecord = await _cache.EnsureCachedAsync(
@@ -542,11 +549,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             item.Decision = decision;
             item.CopyState = copy.State;
             item.ReviewComment = Comment.Trim();
-            if (copy.State == CopyState.Copied
-                && decision is (
+            if (decision is (
                     ReviewDecision.RealNg
                     or ReviewDecision.Overkill
-                    or ReviewDecision.MultiDefectNg))
+                    or ReviewDecision.MultiDefectNg
+                    or ReviewDecision.Ignore)
+                && copy.State is CopyState.Copied or CopyState.NotRequested)
             {
                 ClearPreviews();
                 await _cache.RemoveAsync(
@@ -637,7 +645,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 candidate.Decision is not (
                     ReviewDecision.RealNg
                     or ReviewDecision.Overkill
-                    or ReviewDecision.MultiDefectNg)))
+                    or ReviewDecision.MultiDefectNg
+                    or ReviewDecision.Ignore)))
         {
             return;
         }
