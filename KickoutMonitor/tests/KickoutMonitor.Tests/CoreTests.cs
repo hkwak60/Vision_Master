@@ -362,6 +362,42 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public async Task DlngCropLocator_UsesRawImageDriveForCropLookup()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DlngDriveCropTests", Guid.NewGuid().ToString("N"));
+        var eCropRoot = Path.Combine(root, "E", "Files", "Image", "E81C", "2026", "06", "23", "Mavin", "Crop_A", "03_NG_TORN");
+        var fCropRoot = Path.Combine(root, "F", "Files", "Image", "E81C", "2026", "06", "23", "Mavin", "Crop_A", "04_NG_PTCL");
+        Directory.CreateDirectory(eCropRoot);
+        Directory.CreateDirectory(fCropRoot);
+        await File.WriteAllBytesAsync(Path.Combine(eCropRoot, "CELL-DRIVE_01-1_AN_010203_UPPER_1_A_L_CL03_NG_P1.000_SourceMap.jpg"), [1]);
+        await File.WriteAllBytesAsync(Path.Combine(eCropRoot, "CELL-DRIVE_01-1_AN_010203_UPPER_1_A_L_CL03_NG_P1.000_ActiveMap.jpg"), [2]);
+        var fSource = Path.Combine(fCropRoot, "CELL-DRIVE_01-1_AN_010203_UPPER_1_A_L_CL04_NG_P1.000_SourceMap.jpg");
+        var fActive = Path.Combine(fCropRoot, "CELL-DRIVE_01-1_AN_010203_UPPER_1_A_L_CL04_NG_P1.000_ActiveMap.jpg");
+        await File.WriteAllBytesAsync(fSource, [3]);
+        await File.WriteAllBytesAsync(fActive, [4]);
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "127.0.0.1", ['E', 'F']);
+            var item = DlngItem(machine, "A_L", "UPPER", "CELL-DRIVE") with
+            {
+                Images = [new("Raw 1", @"\\127.0.0.1\F\Files\Image\E81C\2026\06\23\01\OK\CELL-DRIVE\raw.jpg", false)]
+            };
+            var expanded = await new DlngCropLocator(new DriveShareResolver(root))
+                .ExpandAsync(machine, item, null, CancellationToken.None);
+
+            var result = Assert.Single(expanded);
+            Assert.Equal("04_NG_PTCL", result.SourceClass);
+            Assert.Equal(
+                [fActive, fSource],
+                result.Images.Select(image => image.Path).OrderBy(path => path, StringComparer.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public async Task DlngCropLocator_BDimCreatesHornmarkAndLeadedgePairs()
     {
         var root = Path.Combine(Path.GetTempPath(), "DlngBDimTests", Guid.NewGuid().ToString("N"));
@@ -1723,6 +1759,16 @@ public sealed class CoreTests
     private sealed class FakeShareResolver(string root) : ISharePathResolver
     {
         public string GetRoot(WeldingMachine machine, char drive) => root;
+
+        public void RecordAccessibleRoot(WeldingMachine machine, char drive, string root)
+        {
+        }
+    }
+
+    private sealed class DriveShareResolver(string root) : ISharePathResolver
+    {
+        public string GetRoot(WeldingMachine machine, char drive) =>
+            Path.Combine(root, char.ToUpperInvariant(drive).ToString());
 
         public void RecordAccessibleRoot(WeldingMachine machine, char drive, string root)
         {

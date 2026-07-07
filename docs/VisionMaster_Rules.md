@@ -60,7 +60,7 @@ Reclassifying a first-stage row deletes prior local saved results for that row a
 
 ## IRS Crop Lookup Rules
 
-Search bounded Mavin folder roots only: `\\<ip>\<drive>\Files\Image\<model>\<yyyy>\<MM>\<dd>\Mavin\<crop-folder>`.
+Search bounded Mavin folder roots only: `\\<ip>\<drive>\Files\Image\<model>\<yyyy>\<MM>\<dd>\Mavin\<crop-folder>`. Crop search follows the drive from the production raw image path whenever that drive is known; configured image drives are only a fallback.
 
 Do not broad-scan production PCs. Search only the selected crop folders.
 
@@ -94,7 +94,7 @@ Cell IDs starting with global ignored prefixes, including `OCR` and `AGING`, are
 
 For `JUDGE = NG`, the review side comes from `UPPER_JUDGE` and `LOWER_JUDGE`. For `DLNG`, `C-NG`, and `QNG`, the review side comes from `UPPER_<JUDGE-DEFECT>-JUDGE` or `LOWER_<JUDGE-DEFECT>-JUDGE` equal to `BYPASS_NG`. `SEPA_SHOULDER` may use `SEPA_SHOULDER_DL` CSV columns.
 
-DLNG crop lookup is bounded to Mavin crop folders under `\\<ip>\<drive>\Files\Image\<model>\<yyyy>\<MM>\<dd>\Mavin\<crop-folder>`. It must not broad-scan production PCs.
+DLNG crop lookup is bounded to Mavin crop folders under `\\<ip>\<drive>\Files\Image\<model>\<yyyy>\<MM>\<dd>\Mavin\<crop-folder>`. It must not broad-scan production PCs. The crop image drive follows the raw image drive from the production CSV image-path columns, so if raw images are on `F:`, crops are searched under `F:` for that item. Configured image drives are only a fallback when no raw-image drive can be read.
 
 Classification crops are paired as `SourceMap` plus `ActiveMap` and display their source class folder plus side. Segmentation crops are paired as `SourceImg` plus `_mask` or same-stem `.png` and display `Segmentation` plus side.
 

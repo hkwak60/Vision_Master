@@ -273,7 +273,7 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
             _settings.ProductionPaths.ImageSegments
                 .Concat([machine.Model, candidate.ProducedAt.ToString("yyyy"), candidate.ProducedAt.ToString("MM"), candidate.ProducedAt.ToString("dd"), _settings.ProductionPaths.MavinFolderName, folder])
                 .ToArray());
-        foreach (var drive in machine.ImageDrives)
+        foreach (var drive in CropSearchDrives(machine, candidate))
         {
             yield return Path.Combine(_shares.GetRoot(machine, drive), relative);
             if (folder.Equals("GAP_DL", StringComparison.OrdinalIgnoreCase))
@@ -281,6 +281,19 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
                 yield return Path.Combine(_shares.GetRoot(machine, drive), relative.Replace("GAP_DL", "Gap_DL"));
             }
         }
+    }
+
+    private static IReadOnlyList<char> CropSearchDrives(
+        WeldingMachine machine,
+        IrsReviewCandidate candidate)
+    {
+        var rawDrives = (candidate.RawImagePaths ?? [])
+            .Select(ProductionPathMapper.TryGetImageDrive)
+            .Where(drive => drive is not null)
+            .Select(drive => drive!.Value)
+            .Distinct()
+            .ToArray();
+        return rawDrives.Length > 0 ? rawDrives : machine.ImageDrives;
     }
 
     private static bool MatchesSide(string fileName, string cameraLocation)

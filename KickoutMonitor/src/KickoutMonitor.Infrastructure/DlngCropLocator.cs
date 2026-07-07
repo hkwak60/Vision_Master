@@ -237,7 +237,7 @@ public sealed class DlngCropLocator : IDlngCropLocator
             _settings.ProductionPaths.ImageSegments
                 .Concat([machine.Model, candidate.InspectedAt.ToString("yyyy"), candidate.InspectedAt.ToString("MM"), candidate.InspectedAt.ToString("dd"), _settings.ProductionPaths.MavinFolderName, folder])
                 .ToArray());
-        foreach (var drive in machine.ImageDrives)
+        foreach (var drive in CropSearchDrives(machine, candidate))
         {
             yield return Path.Combine(_shares.GetRoot(machine, drive), relative);
             if (folder.Equals("Gap_DL", StringComparison.OrdinalIgnoreCase))
@@ -245,6 +245,19 @@ public sealed class DlngCropLocator : IDlngCropLocator
                 yield return Path.Combine(_shares.GetRoot(machine, drive), relative.Replace("Gap_DL", "GAP_DL"));
             }
         }
+    }
+
+    private static IReadOnlyList<char> CropSearchDrives(
+        WeldingMachine machine,
+        DlngReviewItem candidate)
+    {
+        var rawDrives = candidate.Images
+            .Select(image => ProductionPathMapper.TryGetImageDrive(image.Path))
+            .Where(drive => drive is not null)
+            .Select(drive => drive!.Value)
+            .Distinct()
+            .ToArray();
+        return rawDrives.Length > 0 ? rawDrives : machine.ImageDrives;
     }
 
     private static bool MatchesSide(string path, string side) =>
