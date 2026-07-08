@@ -390,7 +390,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             if (item is null) return;
             var classes = item.Item.ModelKind is DlngModelKind.Segmentation or DlngModelKind.FallbackRaw
                 ? _settings.DlngRules.SegmentationClasses
-                : DlngRules.ClassesFor(item.Item.CropFolder, item.Item.Polarity, _settings);
+                : DlngRules.ClassesFor(item.Item.CropFolder, item.Item.Polarity, _settings, item.Item.Side);
             var selected = _reviewRecords.TryGetValue(item.Item.Key, out var saved)
                 ? saved.FinalClass
                 : string.Empty;

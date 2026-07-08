@@ -102,6 +102,8 @@ DLNG crop lookup is bounded to Mavin crop folders under `\\<ip>\<drive>\Files\Im
 
 Classification crops are paired as `SourceMap` plus `ActiveMap` and display their source class folder plus side. Segmentation crops are paired as `SourceImg` plus `_mask` or same-stem `.png` and display `Segmentation` plus side.
 
+For DLNG `Crop_A` final-class choices, review side limits the OK classes: `UPPER` hides `02_OK_BACK_*`, and `LOWER` hides `01_OK_TOP_*`. NG final classes remain available for both sides.
+
 If a mapped crop is missing, DLNG Review falls back to the three raw production images from the review side. Fallback items are classified as `Real` or `No Need to Train` and exported under `NEED_TO_SIMULATE`.
 
 ## DLNG Defect Mapping

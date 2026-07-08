@@ -273,6 +273,24 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public void DlngCropAClasses_FollowReviewSide()
+    {
+        var settings = VisionMasterSettings.CreateDefault();
+
+        var upperAnode = DlngRules.ClassesFor("Crop_A", Polarity.Anode, settings, "UPPER");
+        var lowerAnode = DlngRules.ClassesFor("Crop_A", Polarity.Anode, settings, "LOWER");
+        var lowerCathode = DlngRules.ClassesFor("Crop_A", Polarity.Cathode, settings, "LOWER");
+
+        Assert.Contains("01_OK_TOP_ANODE", upperAnode);
+        Assert.DoesNotContain("02_OK_BACK_ANODE", upperAnode);
+        Assert.Contains("02_OK_BACK_ANODE", lowerAnode);
+        Assert.DoesNotContain("01_OK_TOP_ANODE", lowerAnode);
+        Assert.Contains("03_NG_TORN", lowerAnode);
+        Assert.Contains("02_OK_BACK_CATHODE", lowerCathode);
+        Assert.DoesNotContain("01_OK_TOP_CATHODE", lowerCathode);
+    }
+
+    [Fact]
     public async Task SettingsStore_LoadsSavesAndResetsDefaults()
     {
         var root = Path.Combine(Path.GetTempPath(), "VisionMasterSettingsTests", Guid.NewGuid().ToString("N"));
