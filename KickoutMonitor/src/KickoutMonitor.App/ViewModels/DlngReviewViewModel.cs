@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using KickoutMonitor.Application;
@@ -142,8 +143,8 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         MachineOptions = new(_machines.All.Select((machine, index) => new MachineOption(machine, index == 0)));
         LoadCommand = new(LoadQueueAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && StartDate is not null && EndDate is not null);
         GenerateReportCommand = new(GenerateReportAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && ReportDate is not null);
-        PreviousCommand = new(Previous, () => SelectedIndex > 0);
-        NextCommand = new(Next, () => SelectedIndex >= 0 && SelectedIndex < Candidates.Count - 1);
+        PreviousCommand = new(Previous, CanPrevious);
+        NextCommand = new(Next, CanNext);
         PreviousImageCommand = new(PreviousImageAsync, () => CurrentImageIndex > 0);
         NextImageCommand = new(NextImageAsync, () => CurrentImageIndex >= 0 && CurrentImageIndex < PreviewImages.Count - 1);
         CommitCommand = new(CommitSelection, () => !IsBusy && SelectedCandidate is not null && FinalClassOptions.Any(x => x.IsSelected));
@@ -196,8 +197,16 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         }
     }
 
-    public int SelectedIndex => SelectedCandidate is null ? -1 : Candidates.IndexOf(SelectedCandidate);
-    public string PositionText => SelectedIndex < 0 ? "0 / 0" : $"{SelectedIndex + 1} / {Candidates.Count}";
+    public int SelectedIndex => DisplayedIndexOf(SelectedCandidate);
+    public string PositionText
+    {
+        get
+        {
+            var displayed = DisplayedCandidates();
+            var index = DisplayedIndexOf(SelectedCandidate, displayed);
+            return index < 0 ? "0 / 0" : $"{index + 1} / {displayed.Count}";
+        }
+    }
     public string DisplayOverlay => SelectedCandidate?.DisplayOverlay ?? string.Empty;
 
     public int CurrentImageIndex
@@ -495,16 +504,49 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         PreviewImageLoaded?.Invoke(this, EventArgs.Empty);
     }
 
+    private IReadOnlyList<DlngCandidateItem> DisplayedCandidates()
+    {
+        var view = CollectionViewSource.GetDefaultView(Candidates);
+        return view is null ? Candidates.ToArray() : view.Cast<DlngCandidateItem>().ToArray();
+    }
+
+    private int DisplayedIndexOf(DlngCandidateItem? item)
+    {
+        if (item is null) return -1;
+        return DisplayedIndexOf(item, DisplayedCandidates());
+    }
+
+    private static int DisplayedIndexOf(DlngCandidateItem? item, IReadOnlyList<DlngCandidateItem> displayed)
+    {
+        if (item is null) return -1;
+        for (var index = 0; index < displayed.Count; index++)
+        {
+            if (ReferenceEquals(displayed[index], item)) return index;
+        }
+        return -1;
+    }
+
+    private bool CanPrevious() => DisplayedIndexOf(SelectedCandidate) > 0;
+
+    private bool CanNext()
+    {
+        var displayed = DisplayedCandidates();
+        var index = DisplayedIndexOf(SelectedCandidate, displayed);
+        return index >= 0 && index < displayed.Count - 1;
+    }
+
     private void Previous()
     {
-        var index = SelectedIndex;
-        if (index > 0) SelectedCandidate = Candidates[index - 1];
+        var displayed = DisplayedCandidates();
+        var index = DisplayedIndexOf(SelectedCandidate, displayed);
+        if (index > 0) SelectedCandidate = displayed[index - 1];
     }
 
     private void Next()
     {
-        var index = SelectedIndex;
-        if (index >= 0 && index < Candidates.Count - 1) SelectedCandidate = Candidates[index + 1];
+        var displayed = DisplayedCandidates();
+        var index = DisplayedIndexOf(SelectedCandidate, displayed);
+        if (index >= 0 && index < displayed.Count - 1) SelectedCandidate = displayed[index + 1];
     }
 
     private async Task PreviousImageAsync()

@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using KickoutMonitor.App.Services;
@@ -170,8 +171,8 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         _settings = settings ?? VisionMasterSettings.CreateDefault();
         BrowseCommand = new(Browse);
         LoadCommand = new(LoadAsync, () => !IsBusy && File.Exists(WorkbookPath));
-        PreviousCommand = new(Previous, () => SelectedIndex > 0);
-        NextCommand = new(Next, () => SelectedIndex >= 0 && SelectedIndex < Candidates.Count - 1);
+        PreviousCommand = new(Previous, CanPrevious);
+        NextCommand = new(Next, CanNext);
         PreviousImageCommand = new(PreviousImageAsync, () => CurrentImageIndex > 0);
         NextImageCommand = new(
             NextImageAsync,
@@ -247,8 +248,16 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         }
     }
 
-    public int SelectedIndex => SelectedCandidate is null ? -1 : Candidates.IndexOf(SelectedCandidate);
-    public string PositionText => SelectedIndex < 0 ? "0 / 0" : $"{SelectedIndex + 1} / {Candidates.Count}";
+    public int SelectedIndex => DisplayedIndexOf(SelectedCandidate);
+    public string PositionText
+    {
+        get
+        {
+            var displayed = DisplayedCandidates();
+            var index = DisplayedIndexOf(SelectedCandidate, displayed);
+            return index < 0 ? "0 / 0" : $"{index + 1} / {displayed.Count}";
+        }
+    }
     public string ReasonOverlay => SelectedCandidate?.SecondReason ?? string.Empty;
 
     public int CurrentImageIndex
@@ -447,18 +456,51 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         await LoadCurrentPreviewAsync(token);
     }
 
+    private IReadOnlyList<IrsCandidateItem> DisplayedCandidates()
+    {
+        var view = CollectionViewSource.GetDefaultView(Candidates);
+        return view is null ? Candidates.ToArray() : view.Cast<IrsCandidateItem>().ToArray();
+    }
+
+    private int DisplayedIndexOf(IrsCandidateItem? item)
+    {
+        if (item is null) return -1;
+        return DisplayedIndexOf(item, DisplayedCandidates());
+    }
+
+    private static int DisplayedIndexOf(IrsCandidateItem? item, IReadOnlyList<IrsCandidateItem> displayed)
+    {
+        if (item is null) return -1;
+        for (var index = 0; index < displayed.Count; index++)
+        {
+            if (ReferenceEquals(displayed[index], item)) return index;
+        }
+        return -1;
+    }
+
+    private bool CanPrevious() => DisplayedIndexOf(SelectedCandidate) > 0;
+
+    private bool CanNext()
+    {
+        var displayed = DisplayedCandidates();
+        var index = DisplayedIndexOf(SelectedCandidate, displayed);
+        return index >= 0 && index < displayed.Count - 1;
+    }
+
     private void Previous()
     {
-        var index = SelectedIndex;
-        if (index > 0) SelectedCandidate = Candidates[index - 1];
+        var displayed = DisplayedCandidates();
+        var index = DisplayedIndexOf(SelectedCandidate, displayed);
+        if (index > 0) SelectedCandidate = displayed[index - 1];
     }
 
     private void Next()
     {
-        var index = SelectedIndex;
-        if (index >= 0 && index < Candidates.Count - 1)
+        var displayed = DisplayedCandidates();
+        var index = DisplayedIndexOf(SelectedCandidate, displayed);
+        if (index >= 0 && index < displayed.Count - 1)
         {
-            SelectedCandidate = Candidates[index + 1];
+            SelectedCandidate = displayed[index + 1];
         }
     }
 
