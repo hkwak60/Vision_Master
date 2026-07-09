@@ -270,15 +270,19 @@ public sealed class DlngCropLocator : IDlngCropLocator
         var name = FileName(path);
         if (folder.Equals("HORNMARK", StringComparison.OrdinalIgnoreCase))
         {
-            return name.Contains($"HORN MARK {token}", StringComparison.OrdinalIgnoreCase)
-                || name.Contains($"HORNMARK {token}", StringComparison.OrdinalIgnoreCase)
-                || name.Contains($"HORNMARK_{token}", StringComparison.OrdinalIgnoreCase);
+            return SideTokenAliases(token).Any(alias =>
+                name.Contains($"HORN MARK {alias}", StringComparison.OrdinalIgnoreCase)
+                || name.Contains($"HORNMARK {alias}", StringComparison.OrdinalIgnoreCase)
+                || name.Contains($"HORNMARK_{alias}", StringComparison.OrdinalIgnoreCase)
+                || name.Contains($"HORN {alias}", StringComparison.OrdinalIgnoreCase)
+                || name.Contains($"HORN_{alias}", StringComparison.OrdinalIgnoreCase));
         }
         if (folder.Equals("LEADEDGE", StringComparison.OrdinalIgnoreCase))
         {
-            return name.Contains($"LEAD EDGE {token}", StringComparison.OrdinalIgnoreCase)
-                || name.Contains($"LEADEDGE {token}", StringComparison.OrdinalIgnoreCase)
-                || name.Contains($"LEADEDGE_{token}", StringComparison.OrdinalIgnoreCase);
+            return SideTokenAliases(token).Any(alias =>
+                name.Contains($"LEAD EDGE {alias}", StringComparison.OrdinalIgnoreCase)
+                || name.Contains($"LEADEDGE {alias}", StringComparison.OrdinalIgnoreCase)
+                || name.Contains($"LEADEDGE_{alias}", StringComparison.OrdinalIgnoreCase));
         }
         if (folder.Equals("SEPA", StringComparison.OrdinalIgnoreCase)
             || folder.Equals("SEPA_SHOULDER", StringComparison.OrdinalIgnoreCase))
@@ -296,6 +300,14 @@ public sealed class DlngCropLocator : IDlngCropLocator
 
         return name.Contains(token, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static IReadOnlyList<string> SideTokenAliases(string token) =>
+        token.ToUpperInvariant() switch
+        {
+            "L" => ["L", "LEFT"],
+            "R" => ["R", "RIGHT"],
+            _ => [token]
+        };
 
     private static bool MatchesLooseSideToken(string fileName, string side)
     {

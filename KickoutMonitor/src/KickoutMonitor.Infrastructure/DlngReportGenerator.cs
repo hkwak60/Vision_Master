@@ -82,10 +82,12 @@ public sealed class DlngReportGenerator : IDlngReportService
                 x.Item.Judge,
                 x.Item.JudgeDefect,
                 x.Item.CropFolder,
+                DatasetSection = DatasetSection(x.Item, x.Decision),
                 x.Decision.SourceClass,
                 x.Decision.FinalClass
             })
             .Select(group => new DlngReportRow(
+                group.Key.DatasetSection,
                 group.Key.LinePolarity,
                 group.Key.Judge,
                 group.Key.JudgeDefect,
@@ -95,6 +97,7 @@ public sealed class DlngReportGenerator : IDlngReportService
                 group.Count(),
                 group.Count(x => IsSwitch(x.Item, x.Decision))))
             .OrderBy(x => x.LinePolarity)
+            .ThenBy(x => x.DatasetSection)
             .ThenBy(x => x.CropFolder)
             .ThenBy(x => x.SourceClass)
             .ThenBy(x => x.FinalClass)
@@ -118,7 +121,13 @@ public sealed class DlngReportGenerator : IDlngReportService
     {
         var destinationFolder = DatasetDestinationFolder(item, decision, datasetRoot);
         Directory.CreateDirectory(destinationFolder);
-        foreach (var image in decision.ImagePaths.Where(File.Exists))
+        var images = decision.IsFallbackRaw && Directory.Exists(item.SourceFolder)
+            ? Directory.EnumerateFiles(item.SourceFolder)
+                .Where(IsImageFile)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+            : decision.ImagePaths.Where(File.Exists).ToArray();
+        foreach (var image in images)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var target = Path.Combine(destinationFolder, Path.GetFileName(image));
@@ -135,6 +144,7 @@ public sealed class DlngReportGenerator : IDlngReportService
         {
             return Path.Combine(
                 datasetRoot,
+                "Segmentation",
                 "NEED_TO_SIMULATE",
                 SafeName(item.CropFolder),
                 SafeName(item.CellId));
@@ -144,6 +154,8 @@ public sealed class DlngReportGenerator : IDlngReportService
         {
             return Path.Combine(
                 datasetRoot,
+                "Classification",
+                SafeName(ClassificationCategory(decision.SourceClass, decision.FinalClass)),
                 SafeName(item.CropFolder),
                 SafeName(item.LinePolarity),
                 SafeName(DatasetClassFolder(item, decision)));
@@ -151,8 +163,46 @@ public sealed class DlngReportGenerator : IDlngReportService
 
         return Path.Combine(
             datasetRoot,
+            "Segmentation",
             SafeName(item.CropFolder),
             SafeName(DatasetClassFolder(item, decision)));
+    }
+
+    private static string DatasetSection(DlngReviewItem item, DlngReviewRecord decision)
+    {
+        if (item.ModelKind == DlngModelKind.Classification && !decision.IsFallbackRaw)
+        {
+            return $"Classification/{ClassificationCategory(decision.SourceClass, decision.FinalClass)}";
+        }
+
+        return "Segmentation";
+    }
+
+    private static string ClassificationCategory(string sourceClass, string finalClass)
+    {
+        if (sourceClass.Equals(finalClass, StringComparison.OrdinalIgnoreCase))
+        {
+            return "정상검출";
+        }
+
+        var sourceOk = IsOkClass(sourceClass);
+        var finalOk = IsOkClass(finalClass);
+        if (sourceOk && !finalOk) return "미검_오검";
+        if (!sourceOk && finalOk) return "과검";
+        return "미검_오검";
+    }
+
+    private static bool IsOkClass(string className)
+    {
+        var value = className.Trim();
+        if (value.Length == 0) return false;
+        var firstPart = value.Split('_', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? value;
+        if (firstPart.All(char.IsDigit))
+        {
+            value = value[(firstPart.Length)..].TrimStart('_', ' ', '-');
+        }
+
+        return value.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string DatasetClassFolder(DlngReviewItem item, DlngReviewRecord decision) =>
@@ -203,7 +253,7 @@ public sealed class DlngReportGenerator : IDlngReportService
         var summary = summaryRows
             .Select(x => new[]
             {
-                x.LinePolarity, x.Judge, x.JudgeDefect, x.CropFolder, x.SourceClass,
+                x.DatasetSection, x.LinePolarity, x.Judge, x.JudgeDefect, x.CropFolder, x.SourceClass,
                 x.FinalClass, x.Count.ToString(CultureInfo.InvariantCulture),
                 x.SwitchedCount.ToString(CultureInfo.InvariantCulture)
             })
@@ -212,11 +262,12 @@ public sealed class DlngReportGenerator : IDlngReportService
             archive,
             "xl/worksheets/sheet1.xml",
             WorksheetXml(
-                ["Line", "Judge", "Judge Defect", "Crop Folder", "Source Class", "Final Class", "Count", "Switched Count"],
+                ["Dataset Section", "Line", "Judge", "Judge Defect", "Crop Folder", "Source Class", "Final Class", "Count", "Switched Count"],
                 summary));
 
         var detailRows = details.Select(x => new[]
         {
+            DatasetSection(x.Item, x.Decision),
             x.Item.LinePolarity,
             x.Item.InspectedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             x.Item.CellId,
@@ -233,7 +284,7 @@ public sealed class DlngReportGenerator : IDlngReportService
             archive,
             "xl/worksheets/sheet2.xml",
             WorksheetXml(
-                ["Line", "Time", "Cell ID", "Judge", "Judge Defect", "Side", "Crop Folder", "Source Class", "Final Class", "Fallback Raw", "Images"],
+                ["Dataset Section", "Line", "Time", "Cell ID", "Judge", "Judge Defect", "Side", "Crop Folder", "Source Class", "Final Class", "Fallback Raw", "Images"],
                 detailRows));
     }
 
@@ -279,6 +330,15 @@ public sealed class DlngReportGenerator : IDlngReportService
         using var stream = entry.Open();
         using var writer = new StreamWriter(stream, new UTF8Encoding(false));
         writer.Write(contents);
+    }
+
+    private static bool IsImageFile(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".png", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".bmp", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string SafeName(string value)

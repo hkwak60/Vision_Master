@@ -297,6 +297,7 @@ public sealed record DlngReviewRecord(
     DateTimeOffset UpdatedAt);
 
 public sealed record DlngReportRow(
+    string DatasetSection,
     string LinePolarity,
     string Judge,
     string JudgeDefect,

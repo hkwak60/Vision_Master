@@ -104,7 +104,7 @@ Classification crops are paired as `SourceMap` plus `ActiveMap` and display thei
 
 For DLNG `Crop_A` final-class choices, review side limits the OK classes: `UPPER` hides `02_OK_BACK_*`, and `LOWER` hides `01_OK_TOP_*`. NG final classes remain available for both sides.
 
-If a mapped crop is missing, DLNG Review falls back to the three raw production images from the review side. Fallback items are classified as `Real` or `No Need to Train` and exported under `NEED_TO_SIMULATE`.
+If a mapped crop is missing, DLNG Review displays the three raw production images from the review side. During report generation, fallback export copies the full original raw image folder when available, so all raw images for that cell are saved under `Segmentation\NEED_TO_SIMULATE`.
 
 ## DLNG Defect Mapping
 
@@ -118,9 +118,16 @@ A DLNG report date means `06:00:00` on the selected date through before `06:00:0
 
 The report cannot generate unless all DLNG review items in the requested window are classified. Output goes under `DLNG_REPORT\DLNG_REPORT_<yyyyMMdd>`.
 
-Classification crop items export to `Dataset\<crop-folder>\<line-polarity>\<final-class>\`. Segmentation crop items export to `Dataset\<crop-folder>\<final-class>\`; for segmentation crops, `No Need to Train` exports to `Dataset\<crop-folder>\OVERKILL\`. Missing-crop fallback raw items export to `Dataset\NEED_TO_SIMULATE\<crop-folder>\<cell-id>\`.
+Dataset export uses these top-level folders:
 
-The DLNG workbook summarizes counts by line/polarity, `JUDGE`, `JUDGE-DEFECT`, crop folder, source class, and final class. Classification switch counts compare the original source class folder to the final user-selected class. Segmentation items report `Real` and `No Need to Train` counts without class-switch math.
+- `Dataset\Classification\미검_오검\...`: classification crops whose original class was OK and user final class is NG, plus other non-overkill class switches that need retraining review.
+- `Dataset\Classification\과검\...`: classification crops whose original class was NG and user final class is OK.
+- `Dataset\Classification\정상검출\...`: classification crops whose original class matches the user final class.
+- `Dataset\Segmentation\...`: segmentation crop items and missing-crop raw fallback items.
+
+Within classification categories, the folder hierarchy remains `\<crop-folder>\<line-polarity>\<final-class>\`. Segmentation crop items export to `Dataset\Segmentation\<crop-folder>\<final-class>\`; for segmentation crops, `No Need to Train` exports to `Dataset\Segmentation\<crop-folder>\OVERKILL\`. Missing-crop fallback raw items export to `Dataset\Segmentation\NEED_TO_SIMULATE\<crop-folder>\<cell-id>\`.
+
+The DLNG workbook summarizes counts by dataset section, line/polarity, `JUDGE`, `JUDGE-DEFECT`, crop folder, source class, and final class. Classification switch counts compare the original source class folder to the final user-selected class. Segmentation items report `Real` and `No Need to Train` counts without class-switch math.
 
 ## Settings
 
