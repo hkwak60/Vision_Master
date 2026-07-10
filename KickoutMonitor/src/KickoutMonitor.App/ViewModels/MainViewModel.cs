@@ -445,7 +445,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             foreach (var item in loaded
-                         .OrderBy(item => item.Candidate.InspectedAt)
+                         .OrderBy(IsUnclassified)
+                         .ThenBy(item => item.Candidate.InspectedAt)
                          .ThenBy(item => item.LinePolarity, StringComparer.OrdinalIgnoreCase))
             {
                 Candidates.Add(item);
@@ -533,6 +534,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     private bool CanReview() => !IsBusy && SelectedCandidate is not null;
+
+    private static bool IsUnclassified(CandidateItem item) =>
+        item.Decision == ReviewDecision.Pending;
 
     private IReadOnlyList<CandidateItem> DisplayedCandidates()
     {

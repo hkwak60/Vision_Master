@@ -406,13 +406,21 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 _committedSelections[record.Key] = record.Selections;
             }
 
-            foreach (var record in records)
+            var queueItems = records.Select(record =>
             {
                 var item = new IrsCandidateItem(record);
                 if (_committedSelections.ContainsKey(record.Key))
                 {
                     item.ReviewStatus = "Saved";
                 }
+                return item;
+            });
+            foreach (var item in queueItems
+                         .OrderBy(IsUnclassified)
+                         .ThenBy(item => item.Candidate.ProducedAt)
+                         .ThenBy(item => item.LinePolarity, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(item => item.CellId, StringComparer.OrdinalIgnoreCase))
+            {
                 Candidates.Add(item);
             }
             SelectedCandidate = Candidates.FirstOrDefault();
@@ -455,6 +463,9 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         CurrentImageIndex = PreviewImages.Count > 0 ? 0 : -1;
         await LoadCurrentPreviewAsync(token);
     }
+
+    private static bool IsUnclassified(IrsCandidateItem item) =>
+        !item.ReviewStatus.StartsWith("Saved", StringComparison.OrdinalIgnoreCase);
 
     private IReadOnlyList<IrsCandidateItem> DisplayedCandidates()
     {
@@ -793,12 +804,17 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             ClearPreviews();
             _datasetMode = true;
             NotifyModeVisualsChanged();
-            foreach (var datasetItem in items)
+            var queueItems = items.Select(datasetItem => new IrsCandidateItem(datasetItem)
             {
-                var item = new IrsCandidateItem(datasetItem)
-                {
-                    ReviewStatus = decisions.ContainsKey(datasetItem.Key) ? "Saved" : "Pending"
-                };
+                ReviewStatus = decisions.ContainsKey(datasetItem.Key) ? "Saved" : "Pending"
+            });
+            foreach (var item in queueItems
+                         .OrderBy(IsUnclassified)
+                         .ThenBy(item => item.Candidate.ProducedAt)
+                         .ThenBy(item => item.LinePolarity, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(item => item.CellId, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(item => item.Candidate.SecondReason, StringComparer.OrdinalIgnoreCase))
+            {
                 Candidates.Add(item);
             }
             SelectedCandidate = Candidates.FirstOrDefault();

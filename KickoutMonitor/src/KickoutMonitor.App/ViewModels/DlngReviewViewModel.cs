@@ -343,7 +343,12 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
                 }
             }
 
-            foreach (var item in loaded.OrderBy(x => x.Item.InspectedAt).ThenBy(x => x.LinePolarity))
+            foreach (var item in loaded
+                         .OrderBy(IsUnclassified)
+                         .ThenBy(x => x.Item.InspectedAt)
+                         .ThenBy(x => x.LinePolarity, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(x => x.CellId, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(x => x.CropFolder, StringComparer.OrdinalIgnoreCase))
             {
                 Candidates.Add(item);
             }
@@ -483,6 +488,9 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         CurrentImageIndex = PreviewImages.Count > 0 ? 0 : -1;
         await LoadCurrentPreviewAsync(token);
     }
+
+    private static bool IsUnclassified(DlngCandidateItem item) =>
+        !item.ReviewStatus.StartsWith("Saved", StringComparison.OrdinalIgnoreCase);
 
     private async Task LoadCurrentPreviewAsync(CancellationToken cancellationToken)
     {
