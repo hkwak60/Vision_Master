@@ -777,6 +777,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             {
                 Status = $"Cannot generate dataset: {missing.Length:N0} IRS row(s) are not reviewed.";
                 AddLog(Status);
+                LogMissingFirstStageRows(missing);
                 return;
             }
 
@@ -813,6 +814,31 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    private void LogMissingFirstStageRows(IReadOnlyList<IrsReviewCandidate> missing)
+    {
+        var missingKeys = missing.Select(x => x.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in Candidates.Where(x => missingKeys.Contains(x.Candidate.Key)))
+        {
+            item.ReviewStatus = "Missing";
+        }
+
+        SelectedCandidate = Candidates.FirstOrDefault(x => missingKeys.Contains(x.Candidate.Key))
+            ?? SelectedCandidate;
+
+        foreach (var candidate in missing.Take(25))
+        {
+            AddLog(
+                $"Missing IRS first-stage review: {candidate.LinePolarity} " +
+                $"{candidate.ProducedAt:yyyy-MM-dd HH:mm:ss} cell={candidate.CellId} " +
+                $"camera={candidate.CameraLocation} result={candidate.SecondResult} reason={candidate.SecondReason}.");
+        }
+
+        if (missing.Count > 25)
+        {
+            AddLog($"Missing IRS first-stage review: {missing.Count - 25:N0} additional row(s) not shown.");
         }
     }
 
