@@ -291,6 +291,22 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public void DlngCropMicroClasses_FollowReviewSide()
+    {
+        var settings = VisionMasterSettings.CreateDefault();
+
+        var upper = DlngRules.ClassesFor("Crop_micro", Polarity.Anode, settings, "UPPER");
+        var lower = DlngRules.ClassesFor("Crop_micro", Polarity.Anode, settings, "LOWER");
+
+        Assert.Contains("01_OK_TAB", upper);
+        Assert.DoesNotContain("02_OK_BTM", upper);
+        Assert.Contains("02_OK_BTM", lower);
+        Assert.DoesNotContain("01_OK_TAB", lower);
+        Assert.Contains("03_OK_QNG_DENT", upper);
+        Assert.Contains("04_NG_TORN_DENT", lower);
+    }
+
+    [Fact]
     public async Task SettingsStore_LoadsSavesAndResetsDefaults()
     {
         var root = Path.Combine(Path.GetTempPath(), "VisionMasterSettingsTests", Guid.NewGuid().ToString("N"));

@@ -27,9 +27,17 @@ public static class DlngRules
 
         var classes = group?.Classes.ToArray()
             ?? settings.DlngRules.SegmentationClasses.ToArray();
-        return cropFolder.Equals("Crop_A", StringComparison.OrdinalIgnoreCase)
-            ? classes.Where(klass => CropAClassMatchesSide(klass, side)).ToArray()
-            : classes;
+        if (cropFolder.Equals("Crop_A", StringComparison.OrdinalIgnoreCase))
+        {
+            return classes.Where(klass => CropAClassMatchesSide(klass, side)).ToArray();
+        }
+
+        if (cropFolder.Equals("Crop_micro", StringComparison.OrdinalIgnoreCase))
+        {
+            return classes.Where(klass => CropMicroClassMatchesSide(klass, side)).ToArray();
+        }
+
+        return classes;
     }
 
     private static bool CropAClassMatchesSide(string klass, string? side)
@@ -38,6 +46,15 @@ public static class DlngRules
         var isLower = side?.Equals("LOWER", StringComparison.OrdinalIgnoreCase) == true;
         if (isUpper && klass.Contains("_OK_BACK_", StringComparison.OrdinalIgnoreCase)) return false;
         if (isLower && klass.Contains("_OK_TOP_", StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
+    }
+
+    private static bool CropMicroClassMatchesSide(string klass, string? side)
+    {
+        var isUpper = side?.Equals("UPPER", StringComparison.OrdinalIgnoreCase) == true;
+        var isLower = side?.Equals("LOWER", StringComparison.OrdinalIgnoreCase) == true;
+        if (isUpper && klass.Equals("02_OK_BTM", StringComparison.OrdinalIgnoreCase)) return false;
+        if (isLower && klass.Equals("01_OK_TAB", StringComparison.OrdinalIgnoreCase)) return false;
         return true;
     }
 }
