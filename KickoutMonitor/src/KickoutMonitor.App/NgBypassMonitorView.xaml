@@ -84,7 +84,8 @@
                         <WrapPanel Margin="0,4,0,0">
                             <CheckBox Content="UPPER" IsChecked="{Binding IncludeUpper}" Margin="0,0,10,0"/>
                             <CheckBox Content="LOWER" IsChecked="{Binding IncludeLower}" Margin="0,0,10,0"/>
-                            <CheckBox Content="Bypassed" IsChecked="{Binding Bypassed}"/>
+                            <CheckBox Content="Bypassed" IsChecked="{Binding Bypassed}" Margin="0,0,10,0"/>
+                            <CheckBox Content="Skip NG" IsEnabled="{Binding Bypassed}" IsChecked="{Binding SkipNg}"/>
                         </WrapPanel>
                     </StackPanel>
                     <Button Grid.Column="5" Content="Load Queue"

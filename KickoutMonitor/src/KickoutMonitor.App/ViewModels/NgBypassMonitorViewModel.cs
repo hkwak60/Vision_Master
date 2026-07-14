@@ -115,6 +115,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     private bool _includeUpper = true;
     private bool _includeLower;
     private bool _bypassed;
+    private bool _skipNg;
     private string _status = "Ready";
     private bool _isBusy;
     private int _currentImageIndex = -1;
@@ -210,7 +211,18 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     public bool Bypassed
     {
         get => _bypassed;
-        set => Set(ref _bypassed, value);
+        set
+        {
+            if (!Set(ref _bypassed, value)) return;
+            if (!value) SkipNg = false;
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool SkipNg
+    {
+        get => _skipNg;
+        set => Set(ref _skipNg, Bypassed && value);
     }
 
     public NgBypassCandidateItem? SelectedCandidate
@@ -307,7 +319,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
 
     private bool CanGenerateReport() => CanLoad() && ReportDate is not null;
 
-    private NgBypassQuery Query() => new(Measure.Trim(), IncludeUpper, IncludeLower, Bypassed);
+    private NgBypassQuery Query() => new(Measure.Trim(), IncludeUpper, IncludeLower, Bypassed, Bypassed && SkipNg);
 
     private async Task LoadQueueAsync()
     {

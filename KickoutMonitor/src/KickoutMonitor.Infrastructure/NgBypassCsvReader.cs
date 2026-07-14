@@ -64,6 +64,12 @@ public sealed class NgBypassCsvReader : INgBypassCsvReader
             var cellId = row.Get(ProductionCsvSchema.CellId);
             if (IsIgnoredCell(cellId)) continue;
             if (!TryTimestamp(row.Get(ProductionCsvSchema.Date), row.Get(ProductionCsvSchema.Time), out var inspectedAt)) continue;
+            if (query.Bypassed
+                && query.SkipNg
+                && row.Get(ProductionCsvSchema.Judge).Equals("NG", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
 
             foreach (var column in selectedColumns)
             {

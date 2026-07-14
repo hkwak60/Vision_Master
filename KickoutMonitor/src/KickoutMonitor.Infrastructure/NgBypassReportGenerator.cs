@@ -131,6 +131,12 @@ public sealed class NgBypassReportGenerator : INgBypassReportService
             await foreach (var record in _summaryReader.ReadAsync(machine, snapshot, cancellationToken))
             {
                 if (record.InspectedAt < windowStart || record.InspectedAt >= windowEndExclusive) continue;
+                if (query.Bypassed
+                    && query.SkipNg
+                    && record.Judge.Equals("NG", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
                 if (!selectedColumns.All(column => record.Headers.Any(header => header.Equals(column, StringComparison.OrdinalIgnoreCase)))) continue;
                 count++;
             }

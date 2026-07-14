@@ -897,6 +897,48 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public async Task NgBypassQueue_SkipNgFiltersBypassedRowsWithOverallNgJudge()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "NgBypassSkipNgTests", Guid.NewGuid().ToString("N"));
+        var csv = Path.Combine(root, "result.csv");
+        Directory.CreateDirectory(Path.GetDirectoryName(csv)!);
+        var headers = new[]
+        {
+            "DATE", "TIME", "MODEL-ID", "LOT-ID", "CELL-ID", "JUDGE", "UPPER_MEASURE_A-OK/NG",
+            "UPPER_IMAGE-PATH-1", "UPPER_IMAGE-PATH-2", "UPPER_IMAGE-PATH-3"
+        };
+        var rows = new[]
+        {
+            string.Join(",", headers),
+            @"20260623,07:00:00,E81C,LOT,CELL-JUDGE-NG,NG,BYPASS_NG,E:\a.jpg,E:\b.jpg,E:\c.jpg",
+            @"20260623,07:01:00,E81C,LOT,CELL-JUDGE-OK,OK,BYPASS_NG,E:\a.jpg,E:\b.jpg,E:\c.jpg"
+        };
+        await File.WriteAllLinesAsync(csv, rows);
+
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['E']);
+            var queue = new NgBypassQueueService(
+                new SingleFileLocator(csv, new DateOnly(2026, 6, 23)),
+                new FakeSnapshotService(),
+                new NgBypassCsvReader(new FakeShareResolver(Path.Combine(root, "share"))));
+            var result = await queue.LoadAsync(
+                machine,
+                new DateOnly(2026, 6, 23),
+                new("MEASURE_A", true, false, true, true),
+                null,
+                CancellationToken.None);
+
+            var item = Assert.Single(result.Items);
+            Assert.Equal("CELL-JUDGE-OK", item.CellId);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public async Task NgBypassReport_BlocksUntilReviewedAndExportsSeparateSummary()
     {
         var root = Path.Combine(Path.GetTempPath(), "NgBypassReportTests", Guid.NewGuid().ToString("N"));

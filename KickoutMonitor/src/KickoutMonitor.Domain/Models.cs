@@ -351,7 +351,8 @@ public sealed record NgBypassQuery(
     string Measure,
     bool IncludeUpper,
     bool IncludeLower,
-    bool Bypassed)
+    bool Bypassed,
+    bool SkipNg = false)
 {
     public string TargetValue => Bypassed ? "BYPASS_NG" : "NG";
 }

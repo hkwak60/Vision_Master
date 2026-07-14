@@ -133,7 +133,7 @@ The DLNG workbook summarizes counts by dataset section, line/polarity, `JUDGE`, 
 
 NG/Bypass Monitor reads Welding production CSVs over a selected date range and queues measure-specific rows. The user enters a measure name without `UPPER_`, `LOWER_`, or `-OK/NG`; the app checks `UPPER_<Measure>-OK/NG` and/or `LOWER_<Measure>-OK/NG` based on the selected side checkboxes.
 
-At least one side checkbox is required. If `Bypassed` is unchecked, matching rows must equal `NG`; if `Bypassed` is checked, matching rows must equal `BYPASS_NG`. Missing measure columns are reported in the activity log with machine/date/file/column details and are not silently ignored.
+At least one side checkbox is required. If `Bypassed` is unchecked, matching rows must equal `NG`; if `Bypassed` is checked, matching rows must equal `BYPASS_NG`. `Skip NG` is only available when `Bypassed` is checked, and it filters out rows whose overall `JUDGE` is `NG` from both queueing and summary inspected-row counts. Missing measure columns are reported in the activity log with machine/date/file/column details and are not silently ignored.
 
 Each matched side is a separate review item and displays the three raw images for that side. Review choices are `Real` and `Overkill`. Cell IDs starting with global ignored prefixes, including `OCR` and `AGING`, are skipped.
 
