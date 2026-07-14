@@ -27,6 +27,7 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <Button Grid.Column="0" Click="KickoutButton_Click" Margin="16"
                     FontSize="24" FontWeight="SemiBold">
@@ -58,7 +59,17 @@
                                Margin="0,8,0,0"/>
                 </StackPanel>
             </Button>
-            <Button Grid.Column="3" Click="SettingsButton_Click" Margin="16"
+            <Button Grid.Column="3" Click="NgBypassButton_Click" Margin="16"
+                    FontSize="24" FontWeight="SemiBold">
+                <StackPanel>
+                    <TextBlock Text="NG/Bypass Monitor" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Measure NG and bypass review"
+                               FontSize="13" FontWeight="Normal"
+                               Foreground="#52606D" HorizontalAlignment="Center"
+                               Margin="0,8,0,0"/>
+                </StackPanel>
+            </Button>
+            <Button Grid.Column="4" Click="SettingsButton_Click" Margin="16"
                     FontSize="24" FontWeight="SemiBold">
                 <StackPanel>
                     <TextBlock Text="Settings" HorizontalAlignment="Center"/>

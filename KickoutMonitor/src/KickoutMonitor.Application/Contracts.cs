@@ -176,3 +176,38 @@ public interface IDlngReportService
         IProgress<string>? progress,
         CancellationToken cancellationToken);
 }
+
+public interface INgBypassCsvReader
+{
+    IAsyncEnumerable<NgBypassCandidate> ReadAsync(
+        WeldingMachine machine,
+        SnapshotResult snapshot,
+        NgBypassQuery query,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken);
+}
+
+public interface INgBypassReviewStore
+{
+    Task<IReadOnlyDictionary<string, NgBypassReviewRecord>> LoadAsync(CancellationToken cancellationToken);
+    Task SaveAsync(NgBypassReviewRecord record, CancellationToken cancellationToken);
+}
+
+public interface INgBypassClassifiedFolderService
+{
+    Task<CopyResult> ClassifyAsync(
+        WeldingMachine machine,
+        NgBypassCandidate candidate,
+        ReviewDecision decision,
+        CancellationToken cancellationToken);
+}
+
+public interface INgBypassReportService
+{
+    Task<NgBypassReportResult> GenerateAsync(
+        IReadOnlyList<WeldingMachine> machines,
+        NgBypassQuery query,
+        DateOnly reportDate,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken);
+}

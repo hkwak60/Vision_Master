@@ -18,7 +18,9 @@ public sealed class AppStorage
         Staging = Path.Combine(Root, ".staging");
         Temp = Path.Combine(Root, ".temp");
         Summary = Path.Combine(Root, "NG_Summary");
+        NgBypassSummary = Path.Combine(Root, "NG_Bypass_Summary");
         ReviewFile = Path.Combine(Root, "kickout-reviews.json");
+        NgBypassReviewFile = Path.Combine(Root, "ng-bypass-reviews.json");
         DlngReviewFile = Path.Combine(Root, "dlng-reviews.json");
         DlngReport = Path.Combine(Root, "DLNG_REPORT");
     }
@@ -28,7 +30,9 @@ public sealed class AppStorage
     public string Staging { get; }
     public string Temp { get; }
     public string Summary { get; }
+    public string NgBypassSummary { get; }
     public string ReviewFile { get; }
+    public string NgBypassReviewFile { get; }
     public string DlngReviewFile { get; }
     public string DlngReport { get; }
 
@@ -38,11 +42,13 @@ public sealed class AppStorage
         Directory.CreateDirectory(Staging);
         Directory.CreateDirectory(Temp);
         Directory.CreateDirectory(Summary);
+        Directory.CreateDirectory(NgBypassSummary);
         Directory.CreateDirectory(DlngReport);
         foreach (var machine in machines)
         {
             var machineRoot = Path.Combine(Root, machine.OutputFolderName);
             Directory.CreateDirectory(Path.Combine(machineRoot, "NG"));
+            Directory.CreateDirectory(Path.Combine(machineRoot, "NG_BYPASS_MONITOR"));
             Directory.CreateDirectory(Path.Combine(machineRoot, "DLNG"));
             Directory.CreateDirectory(Path.Combine(machineRoot, "IRS_LEAK"));
             Directory.CreateDirectory(Path.Combine(machineRoot, "OVERKILL"));

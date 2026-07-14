@@ -760,6 +760,226 @@ public sealed class CoreTests
         }
     }
 
+    [Fact]
+    public async Task NgBypassQueue_UsesMeasureColumnsAndQueuesSelectedSides()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "NgBypassQueueTests", Guid.NewGuid().ToString("N"));
+        var csv = Path.Combine(root, "result.csv");
+        var raw = Path.Combine(root, "share", "Files", "Image", "Raw");
+        Directory.CreateDirectory(raw);
+        Directory.CreateDirectory(Path.GetDirectoryName(csv)!);
+        for (var side = 0; side < 2; side++)
+        {
+            for (var index = 1; index <= 3; index++)
+            {
+                await File.WriteAllBytesAsync(Path.Combine(raw, $"cell-{side}-{index}.jpg"), [1]);
+            }
+        }
+
+        var headers = new[]
+        {
+            "DATE", "TIME", "MODEL-ID", "LOT-ID", "CELL-ID", "UPPER_MEASURE_A-OK/NG", "LOWER_MEASURE_A-OK/NG",
+            "UPPER_IMAGE-PATH-1", "UPPER_IMAGE-PATH-2", "UPPER_IMAGE-PATH-3",
+            "LOWER_IMAGE-PATH-1", "LOWER_IMAGE-PATH-2", "LOWER_IMAGE-PATH-3"
+        };
+        var values = new[]
+        {
+            "20260623", "07:00:00", "E81C", "LOT", "CELL-NGBYP", "NG", "NG",
+            @"E:\Files\Image\Raw\cell-0-1.jpg", @"E:\Files\Image\Raw\cell-0-2.jpg", @"E:\Files\Image\Raw\cell-0-3.jpg",
+            @"E:\Files\Image\Raw\cell-1-1.jpg", @"E:\Files\Image\Raw\cell-1-2.jpg", @"E:\Files\Image\Raw\cell-1-3.jpg"
+        };
+        await File.WriteAllLinesAsync(csv, [string.Join(",", headers), string.Join(",", values)]);
+
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['E']);
+            var queue = new NgBypassQueueService(
+                new SingleFileLocator(csv, new DateOnly(2026, 6, 23)),
+                new FakeSnapshotService(),
+                new NgBypassCsvReader(new FakeShareResolver(Path.Combine(root, "share"))));
+            var result = await queue.LoadAsync(
+                machine,
+                new DateOnly(2026, 6, 23),
+                new("MEASURE_A", true, true, false),
+                null,
+                CancellationToken.None);
+
+            Assert.Empty(result.HeaderWarnings);
+            Assert.Equal(2, result.Items.Count);
+            Assert.Contains(result.Items, x => x.Side == "UPPER" && x.Images.Count == 3);
+            Assert.Contains(result.Items, x => x.Side == "LOWER" && x.Images.Count == 3);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task NgBypassQueue_WarnsWhenMeasureHeaderIsMissing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "NgBypassHeaderTests", Guid.NewGuid().ToString("N"));
+        var csv = Path.Combine(root, "result.csv");
+        Directory.CreateDirectory(Path.GetDirectoryName(csv)!);
+        await File.WriteAllLinesAsync(
+            csv,
+            [
+                "DATE,TIME,MODEL-ID,LOT-ID,CELL-ID,UPPER_OTHER-OK/NG",
+                "20260623,07:00:00,E81C,LOT,CELL-MISS,NG"
+            ]);
+
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['E']);
+            var queue = new NgBypassQueueService(
+                new SingleFileLocator(csv, new DateOnly(2026, 6, 23)),
+                new FakeSnapshotService(),
+                new NgBypassCsvReader(new FakeShareResolver(Path.Combine(root, "share"))));
+            var result = await queue.LoadAsync(
+                machine,
+                new DateOnly(2026, 6, 23),
+                new("MEASURE_A", true, false, false),
+                null,
+                CancellationToken.None);
+
+            Assert.Empty(result.Items);
+            var warning = Assert.Single(result.HeaderWarnings);
+            Assert.Equal("UPPER_MEASURE_A-OK/NG", warning.ColumnName);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task NgBypassQueue_UsesBypassValueAndIgnoresGlobalCellPrefixes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "NgBypassValueTests", Guid.NewGuid().ToString("N"));
+        var csv = Path.Combine(root, "result.csv");
+        Directory.CreateDirectory(Path.GetDirectoryName(csv)!);
+        var headers = new[]
+        {
+            "DATE", "TIME", "MODEL-ID", "LOT-ID", "CELL-ID", "UPPER_MEASURE_A-OK/NG",
+            "UPPER_IMAGE-PATH-1", "UPPER_IMAGE-PATH-2", "UPPER_IMAGE-PATH-3"
+        };
+        var rows = new[]
+        {
+            string.Join(",", headers),
+            @"20260623,07:00:00,E81C,LOT,CELL-BYPASS,BYPASS_NG,E:\a.jpg,E:\b.jpg,E:\c.jpg",
+            @"20260623,07:01:00,E81C,LOT,OCR-BYPASS,BYPASS_NG,E:\a.jpg,E:\b.jpg,E:\c.jpg",
+            @"20260623,07:02:00,E81C,LOT,CELL-NG,NG,E:\a.jpg,E:\b.jpg,E:\c.jpg"
+        };
+        await File.WriteAllLinesAsync(csv, rows);
+
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['E']);
+            var queue = new NgBypassQueueService(
+                new SingleFileLocator(csv, new DateOnly(2026, 6, 23)),
+                new FakeSnapshotService(),
+                new NgBypassCsvReader(new FakeShareResolver(Path.Combine(root, "share"))));
+            var result = await queue.LoadAsync(
+                machine,
+                new DateOnly(2026, 6, 23),
+                new("MEASURE_A", true, false, true),
+                null,
+                CancellationToken.None);
+
+            var item = Assert.Single(result.Items);
+            Assert.Equal("CELL-BYPASS", item.CellId);
+            Assert.Equal("BYPASS_NG", item.TargetValue);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task NgBypassReport_BlocksUntilReviewedAndExportsSeparateSummary()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "NgBypassReportTests", Guid.NewGuid().ToString("N"));
+        var csv = Path.Combine(root, "result.csv");
+        var raw = Path.Combine(root, "share", "Files", "Image", "Raw", "CELL-RPT");
+        Directory.CreateDirectory(raw);
+        Directory.CreateDirectory(Path.GetDirectoryName(csv)!);
+        await File.WriteAllBytesAsync(Path.Combine(raw, "raw1.jpg"), [1]);
+        await File.WriteAllBytesAsync(Path.Combine(raw, "raw2.jpg"), [2]);
+        await File.WriteAllBytesAsync(Path.Combine(raw, "raw3.jpg"), [3]);
+        var headers = new[]
+        {
+            "DATE", "TIME", "MODEL-ID", "LOT-ID", "CELL-ID", "UPPER_MEASURE_A-OK/NG",
+            "UPPER_IMAGE-PATH-1", "UPPER_IMAGE-PATH-2", "UPPER_IMAGE-PATH-3"
+        };
+        var values = new[]
+        {
+            "20260623", "07:00:00", "E81C", "LOT", "CELL-RPT", "NG",
+            @"E:\Files\Image\Raw\CELL-RPT\raw1.jpg",
+            @"E:\Files\Image\Raw\CELL-RPT\raw2.jpg",
+            @"E:\Files\Image\Raw\CELL-RPT\raw3.jpg"
+        };
+        await File.WriteAllLinesAsync(csv, [string.Join(",", headers), string.Join(",", values)]);
+
+        try
+        {
+            var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['E']);
+            var storage = new AppStorage(Path.Combine(root, "out"));
+            storage.EnsureCreated([machine]);
+            var reviews = new JsonNgBypassReviewStore(storage);
+            var locator = new SingleFileLocator(csv, new DateOnly(2026, 6, 23));
+            var snapshots = new FakeSnapshotService();
+            var queue = new NgBypassQueueService(
+                locator,
+                snapshots,
+                new NgBypassCsvReader(new FakeShareResolver(Path.Combine(root, "share"))));
+            var report = new NgBypassReportGenerator(
+                queue,
+                locator,
+                snapshots,
+                new InspectionSummaryCsvReader(),
+                reviews,
+                storage);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                report.GenerateAsync([machine], new("MEASURE_A", true, false, false), new DateOnly(2026, 6, 23), null, CancellationToken.None));
+
+            var item = Assert.Single((await queue.LoadAsync(machine, new DateOnly(2026, 6, 23), new("MEASURE_A", true, false, false), null, CancellationToken.None)).Items);
+            var copy = await new NgBypassClassifiedFolderService(storage)
+                .ClassifyAsync(machine, item, ReviewDecision.RealNg, CancellationToken.None);
+            await reviews.SaveAsync(new(
+                item.Key,
+                item.MachineId,
+                item.LinePolarity,
+                item.InspectedAt,
+                item.CellId,
+                item.Measure,
+                item.Side,
+                item.TargetValue,
+                ReviewDecision.RealNg,
+                copy.State,
+                copy.Destination,
+                DateTimeOffset.Now), CancellationToken.None);
+
+            var result = await report.GenerateAsync(
+                [machine],
+                new("MEASURE_A", true, false, false),
+                new DateOnly(2026, 6, 23),
+                null,
+                CancellationToken.None);
+
+            Assert.True(File.Exists(result.SummaryWorkbook));
+            var summary = Assert.Single(result.Rows);
+            Assert.Equal(1, summary.TotalInspected);
+            Assert.Equal(1, summary.Real);
+            Assert.True(Directory.Exists(Path.Combine(result.OutputFolder, "REAL", "1-1(-)", "MEASURE_A", "UPPER")));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     [Theory]
     [InlineData(@"E:\Files\Image\cell\a.jpg", @"\\10.112.99.181\E\Files\Image\cell\a.jpg")]
     [InlineData(@"F:\Files\Image\cell\b.jpg", @"\\10.112.99.181\F\Files\Image\cell\b.jpg")]

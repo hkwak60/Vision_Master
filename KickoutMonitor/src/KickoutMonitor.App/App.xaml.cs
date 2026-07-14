@@ -52,11 +52,16 @@ public partial class App : System.Windows.Application
         var storage = new AppStorage(settings);
         storage.EnsureCreated(machines.All);
         var reviews = new JsonReviewStore(storage);
+        var ngBypassReviews = new JsonNgBypassReviewStore(storage);
         var dlngReviews = new JsonDlngReviewStore(storage);
         var shares = new SharePathResolver();
         var locator = new DailyCsvLocator(shares, settings);
         var snapshots = new ReadOnlySnapshotService(storage);
         var imageLoader = new WpfPreviewImageLoader();
+        var ngBypassQueue = new NgBypassQueueService(
+            locator,
+            snapshots,
+            new NgBypassCsvReader(shares, settings));
         var dlngQueue = new DlngQueueService(
             locator,
             snapshots,
@@ -98,8 +103,22 @@ public partial class App : System.Windows.Application
             new DlngReportGenerator(dlngQueue, dlngReviews, storage),
             imageLoader,
             settings);
+        var ngBypassViewModel = new NgBypassMonitorViewModel(
+            machines,
+            ngBypassQueue,
+            ngBypassReviews,
+            new NgBypassClassifiedFolderService(storage),
+            new NgBypassReportGenerator(
+                ngBypassQueue,
+                locator,
+                snapshots,
+                new InspectionSummaryCsvReader(settings),
+                ngBypassReviews,
+                storage,
+                settings),
+            imageLoader);
         var settingsViewModel = new SettingsViewModel(settingsStore, settings, settingsStore.LastWarning);
-        var window = new MainWindow(kickoutViewModel, irsViewModel, dlngViewModel, settingsViewModel);
+        var window = new MainWindow(kickoutViewModel, irsViewModel, dlngViewModel, ngBypassViewModel, settingsViewModel);
         MainWindow = window;
         window.Show();
     }

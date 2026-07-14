@@ -129,6 +129,18 @@ Within classification categories, the folder hierarchy remains `\<crop-folder>\<
 
 The DLNG workbook summarizes counts by dataset section, line/polarity, `JUDGE`, `JUDGE-DEFECT`, crop folder, source class, and final class. Classification switch counts compare the original source class folder to the final user-selected class. Segmentation items report `Real` and `No Need to Train` counts without class-switch math.
 
+## NG/Bypass Monitor Rules
+
+NG/Bypass Monitor reads Welding production CSVs over a selected date range and queues measure-specific rows. The user enters a measure name without `UPPER_`, `LOWER_`, or `-OK/NG`; the app checks `UPPER_<Measure>-OK/NG` and/or `LOWER_<Measure>-OK/NG` based on the selected side checkboxes.
+
+At least one side checkbox is required. If `Bypassed` is unchecked, matching rows must equal `NG`; if `Bypassed` is checked, matching rows must equal `BYPASS_NG`. Missing measure columns are reported in the activity log with machine/date/file/column details and are not silently ignored.
+
+Each matched side is a separate review item and displays the three raw images for that side. Review choices are `Real` and `Overkill`. Cell IDs starting with global ignored prefixes, including `OCR` and `AGING`, are skipped.
+
+NG/Bypass Monitor stores reviews and reports separately from Kickout Monitor. Local classified copies go under `NG_BYPASS_MONITOR\REAL\<measure>\` or `NG_BYPASS_MONITOR\OVERKILL\<measure>\`. Summary output goes under `NG_Bypass_Summary\NG_Bypass_Summary_<yyyyMMdd>`.
+
+The NG/Bypass summary date uses the same production-day window as Kickout: `06:00:00` on the selected date through before `06:00:00` on the next day. Summary generation blocks until all matching report-window items are reviewed.
+
 ## Settings
 
 Settings are stored locally in `E:\KWAK\VisionMaster\settings.json` by default. If the file is missing, VisionMaster creates defaults that match the current hard-coded behavior. If the file is invalid, VisionMaster loads defaults and shows a warning in the Settings page.

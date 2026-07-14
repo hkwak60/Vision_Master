@@ -8,18 +8,21 @@ public partial class MainWindow : Window
     private readonly MainViewModel _kickoutViewModel;
     private readonly IrsReviewViewModel _irsViewModel;
     private readonly DlngReviewViewModel _dlngViewModel;
+    private readonly NgBypassMonitorViewModel _ngBypassViewModel;
     private readonly SettingsViewModel _settingsViewModel;
 
     public MainWindow(
         MainViewModel kickoutViewModel,
         IrsReviewViewModel irsViewModel,
         DlngReviewViewModel dlngViewModel,
+        NgBypassMonitorViewModel ngBypassViewModel,
         SettingsViewModel settingsViewModel)
     {
         InitializeComponent();
         _kickoutViewModel = kickoutViewModel;
         _irsViewModel = irsViewModel;
         _dlngViewModel = dlngViewModel;
+        _ngBypassViewModel = ngBypassViewModel;
         _settingsViewModel = settingsViewModel;
     }
 
@@ -45,6 +48,14 @@ public partial class MainWindow : Window
         view.BackRequested += (_, _) => ReturnToDashboard();
         ModuleHost.Content = view;
         ShowModule("DLNG Review", "DLNG crop review and report");
+    }
+
+    private void NgBypassButton_Click(object sender, RoutedEventArgs e)
+    {
+        var view = new NgBypassMonitorView { DataContext = _ngBypassViewModel };
+        view.BackRequested += (_, _) => ReturnToDashboard();
+        ModuleHost.Content = view;
+        ShowModule("NG/Bypass Monitor", "Measure NG and bypass review");
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)

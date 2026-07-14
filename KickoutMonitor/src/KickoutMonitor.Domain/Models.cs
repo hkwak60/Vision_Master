@@ -312,3 +312,87 @@ public sealed record DlngReportResult(
     string OutputFolder,
     string SummaryWorkbook,
     IReadOnlyList<DlngReportRow> Rows);
+
+public sealed record NgBypassCandidate(
+    string Key,
+    string MachineId,
+    string LinePolarity,
+    Polarity Polarity,
+    DateTime InspectedAt,
+    string Model,
+    string LotId,
+    string CellId,
+    string Measure,
+    string Side,
+    string ColumnName,
+    string TargetValue,
+    IReadOnlyList<DlngImage> Images,
+    string SourceFolder,
+    string SourceCsv,
+    int SourceRow,
+    IReadOnlyList<string> Headers,
+    IReadOnlyList<string> Values);
+
+public sealed record NgBypassReviewRecord(
+    string CandidateKey,
+    string MachineId,
+    string LinePolarity,
+    DateTime InspectedAt,
+    string CellId,
+    string Measure,
+    string Side,
+    string TargetValue,
+    ReviewDecision Decision,
+    CopyState CopyState,
+    string? LocalFolder,
+    DateTimeOffset UpdatedAt);
+
+public sealed record NgBypassQuery(
+    string Measure,
+    bool IncludeUpper,
+    bool IncludeLower,
+    bool Bypassed)
+{
+    public string TargetValue => Bypassed ? "BYPASS_NG" : "NG";
+}
+
+public sealed record NgBypassHeaderWarning(
+    string Machine,
+    DateOnly Date,
+    string FileName,
+    string ColumnName);
+
+public sealed record NgBypassLoadResult(
+    IReadOnlyList<NgBypassCandidate> Items,
+    IReadOnlyList<NgBypassHeaderWarning> HeaderWarnings);
+
+public sealed record NgBypassReportRow(
+    string LinePolarity,
+    string Measure,
+    string Side,
+    string TargetValue,
+    int TotalInspected,
+    int InitialMatched,
+    int Real,
+    int Overkill,
+    double InitialRate,
+    double RealRate,
+    double OverkillRate);
+
+public sealed record NgBypassSummaryDetailRow(
+    string LinePolarity,
+    string Measure,
+    string Side,
+    string TargetValue,
+    ReviewDecision Decision,
+    string? LocalFolder,
+    IReadOnlyList<string> Headers,
+    IReadOnlyList<string> Values);
+
+public sealed record NgBypassReportResult(
+    DateOnly ReportDate,
+    DateTime WindowStart,
+    DateTime WindowEndExclusive,
+    string OutputFolder,
+    string SummaryWorkbook,
+    IReadOnlyList<NgBypassReportRow> Rows);
