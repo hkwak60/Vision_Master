@@ -2050,8 +2050,10 @@ public sealed class CoreTests
         var storageRoot = Path.Combine(Path.GetTempPath(), "IrsSummarySections", Guid.NewGuid().ToString("N"));
         var cropFolder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "Crop_B");
         var rulebaseFolder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "RULEBASE", "CELL-RULE-FOLDER");
+        var unrelatedRulebaseFolder = Path.Combine(storageRoot, "1-1(-)", "IRS_LEAK", "RULEBASE", "CELL-OLD-FOLDER");
         Directory.CreateDirectory(cropFolder);
         Directory.CreateDirectory(rulebaseFolder);
+        Directory.CreateDirectory(unrelatedRulebaseFolder);
         var cropFiles = new[]
         {
             Path.Combine(cropFolder, "CELL-CAT_UPPER_1_B_L_CL01_OK_SourceMap.jpg"),
@@ -2060,11 +2062,14 @@ public sealed class CoreTests
         foreach (var file in cropFiles) await File.WriteAllTextAsync(file, "crop");
         var rulebaseImage = Path.Combine(rulebaseFolder, "CELL-RULE_UPPER_1.jpg");
         await File.WriteAllTextAsync(rulebaseImage, "raw");
+        var unrelatedRulebaseImage = Path.Combine(unrelatedRulebaseFolder, "CELL-OLD_UPPER_1.jpg");
+        await File.WriteAllTextAsync(unrelatedRulebaseImage, "old raw");
 
         var cropCandidate = new IrsReviewCandidate("cat-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 7, 9, 8, 0, 0), "LOT", "CELL-CAT", "TOP", "raw.jpg", "NG", "Burr", 4);
         var rulebaseCandidate = new IrsReviewCandidate("rule-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 7, 9, 8, 1, 0), "LOT", "CELL-RULE", "TOP", "raw.jpg", "NG", "Tab Folded", 5);
         var cropRecord = new IrsReviewRecord("cat-key", "1-1-ca", "1-1(+)", cropCandidate.ProducedAt, "CELL-CAT", "TOP", "NG", "Burr", ["B_L"], 0, 2, 0, storageRoot, DateTimeOffset.Now, cropFiles);
         var rulebaseRecord = new IrsReviewRecord("rule-key", "1-1-ca", "1-1(+)", rulebaseCandidate.ProducedAt, "CELL-RULE", "TOP", "NG", "Tab Folded", ["RULEBASE"], 1, 0, 0, storageRoot, DateTimeOffset.Now, [rulebaseFolder]);
+        var unrelatedRulebaseRecord = new IrsReviewRecord("old-rule-key", "1-1-an", "1-1(-)", new DateTime(2026, 7, 1, 8, 1, 0), "CELL-OLD", "TOP", "NG", "Foreign body on leadfilm", ["RULEBASE"], 1, 0, 0, storageRoot, DateTimeOffset.Now, [unrelatedRulebaseFolder]);
         var service = new IrsDatasetService(new AppStorage(storageRoot));
 
         try
@@ -2075,7 +2080,7 @@ public sealed class CoreTests
 
             var result = await service.WriteSummaryAsync(
                 [cropCandidate, rulebaseCandidate],
-                [cropRecord, rulebaseRecord],
+                [cropRecord, rulebaseRecord, unrelatedRulebaseRecord],
                 items,
                 CancellationToken.None);
 
@@ -2086,8 +2091,9 @@ public sealed class CoreTests
                 Assert.True(File.Exists(Path.Combine(classification, Path.GetFileName(file))));
             }
 
-            var rulebase = Path.Combine(result.OutputFolder, "Rulebase", "Tab Folded", "CELL-RULE-FOLDER");
+            var rulebase = Path.Combine(result.OutputFolder, "Rulebase", "1-1(+)", "Tab Folded", "CELL-RULE-FOLDER");
             Assert.True(File.Exists(Path.Combine(rulebase, Path.GetFileName(rulebaseImage))));
+            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Rulebase", "1-1(-)", "Foreign body on leadfilm")));
             Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "RULEBASE")));
         }
         finally

@@ -280,10 +280,8 @@ public sealed class IrsDatasetService : IIrsDatasetService
         foreach (var record in reviewRecords.Where(x => x.Selections.Contains("RULEBASE", StringComparer.OrdinalIgnoreCase)))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var reason = candidatesByKey.TryGetValue(record.Key, out var candidate)
-                ? candidate.SecondReason
-                : record.SecondReason;
-            var reasonFolder = SafeName(string.IsNullOrWhiteSpace(reason) ? "UNKNOWN_REASON" : reason.Trim());
+            if (!candidatesByKey.TryGetValue(record.Key, out var candidate)) continue;
+            var reasonFolder = SafeName(string.IsNullOrWhiteSpace(candidate.SecondReason) ? "UNKNOWN_REASON" : candidate.SecondReason.Trim());
             foreach (var savedPath in record.SavedPaths ?? [])
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -295,6 +293,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
                 var destinationFolder = Path.Combine(
                     summaryFolder,
                     "Rulebase",
+                    SafeName(record.LinePolarity),
                     reasonFolder,
                     Path.GetFileName(normalizedPath));
                 CopyDirectoryContents(normalizedPath, destinationFolder, cancellationToken);

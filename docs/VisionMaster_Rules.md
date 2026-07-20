@@ -86,7 +86,7 @@ The summary cannot generate unless every final-stage item is classified. Classif
 
 NEED_TO_SIMULATE final-stage items export the whole original folder to `Dataset\Segmentation\NEED_TO_SIMULATE\<first-stage-class>\<original-folder-name>\`. NEED_TO_SIMULATE must not export as `Dataset\<first-stage-class>\Real`.
 
-Rulebase first-stage rows are copied during summary generation outside `Dataset`, under `Rulebase\<2nd-judgment-reason>\<original-folder-name>\`.
+Rulebase first-stage rows from the currently loaded IRS list are copied during summary generation outside `Dataset`, under `Rulebase\<line-polarity>\<2nd-judgment-reason>\<original-folder-name>\`.
 
 `No Need to Retrain` items are excluded from retrain dataset counts.
 
