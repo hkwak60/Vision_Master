@@ -10,6 +10,12 @@ namespace KickoutMonitor.Infrastructure;
 
 public sealed class IrsDatasetService : IIrsDatasetService
 {
+    private const string ClassificationFolder = "Classification";
+    private const string SegmentationFolder = "Segmentation";
+    private const string MissingOrMisclassifiedFolder = "\uBBF8\uAC80_\uC624\uAC80";
+    private const string OverkillFolder = "\uACFC\uAC80";
+    private const string NormalDetectionFolder = "\uC815\uC0C1\uAC80\uCD9C";
+
     private static readonly HashSet<string> ExcludedFolders = new(StringComparer.OrdinalIgnoreCase)
     {
         "ORIGINAL", "RULEBASE", "UNDETECTABLE"
@@ -157,6 +163,10 @@ public sealed class IrsDatasetService : IIrsDatasetService
         Directory.CreateDirectory(folder);
         var datasetRoot = Path.Combine(folder, "Dataset");
         Directory.CreateDirectory(datasetRoot);
+        Directory.CreateDirectory(Path.Combine(datasetRoot, ClassificationFolder, MissingOrMisclassifiedFolder));
+        Directory.CreateDirectory(Path.Combine(datasetRoot, ClassificationFolder, OverkillFolder));
+        Directory.CreateDirectory(Path.Combine(datasetRoot, ClassificationFolder, NormalDetectionFolder));
+        Directory.CreateDirectory(Path.Combine(datasetRoot, SegmentationFolder));
 
         foreach (var row in relevant)
         {
@@ -180,6 +190,8 @@ public sealed class IrsDatasetService : IIrsDatasetService
             }
         }
 
+        CopyRulebaseFolders(folder, candidates, reviewRecords, cancellationToken);
+
         var summaryPath = Path.Combine(folder, $"IRS_Summary_{first:yyyyMMdd}_{last:yyyyMMdd}.xlsx");
         WriteSummaryWorkbook(summaryPath, relevant);
         var details = WriteDetailsWorkbooks(folder, candidates, reviewRecords, relevant);
@@ -195,12 +207,41 @@ public sealed class IrsDatasetService : IIrsDatasetService
         {
             return Path.Combine(
                 datasetRoot,
+                ClassificationFolder,
+                SafeName(ClassificationCategory(item.OriginalClass, finalClass)),
                 item.SourceFolder,
                 SafeName(item.LinePolarity),
                 SafeName(finalClass));
         }
 
-        return Path.Combine(datasetRoot, item.SourceFolder, SafeName(finalClass));
+        return Path.Combine(datasetRoot, SegmentationFolder, item.SourceFolder, SafeName(finalClass));
+    }
+
+    private static string ClassificationCategory(string sourceClass, string finalClass)
+    {
+        if (sourceClass.Equals(finalClass, StringComparison.OrdinalIgnoreCase))
+        {
+            return NormalDetectionFolder;
+        }
+
+        var sourceOk = IsOkClass(sourceClass);
+        var finalOk = IsOkClass(finalClass);
+        if (sourceOk && !finalOk) return MissingOrMisclassifiedFolder;
+        if (!sourceOk && finalOk) return OverkillFolder;
+        return MissingOrMisclassifiedFolder;
+    }
+
+    private static bool IsOkClass(string className)
+    {
+        var value = className.Trim();
+        if (value.Length == 0) return false;
+        var firstPart = value.Split('_', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? value;
+        if (firstPart.All(char.IsDigit))
+        {
+            value = value[(firstPart.Length)..].TrimStart('_', ' ', '-');
+        }
+
+        return value.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsClassificationFolder(string folder) =>
@@ -222,10 +263,43 @@ public sealed class IrsDatasetService : IIrsDatasetService
 
         var destinationFolder = Path.Combine(
             datasetRoot,
+            SegmentationFolder,
             "NEED_TO_SIMULATE",
             item.SourceFolder,
             Path.GetFileName(sourceFolder));
         CopyDirectoryContents(sourceFolder, destinationFolder, cancellationToken);
+    }
+
+    private static void CopyRulebaseFolders(
+        string summaryFolder,
+        IReadOnlyList<IrsReviewCandidate> candidates,
+        IReadOnlyList<IrsReviewRecord> reviewRecords,
+        CancellationToken cancellationToken)
+    {
+        var candidatesByKey = candidates.ToDictionary(x => x.Key, StringComparer.OrdinalIgnoreCase);
+        foreach (var record in reviewRecords.Where(x => x.Selections.Contains("RULEBASE", StringComparer.OrdinalIgnoreCase)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var reason = candidatesByKey.TryGetValue(record.Key, out var candidate)
+                ? candidate.SecondReason
+                : record.SecondReason;
+            var reasonFolder = SafeName(string.IsNullOrWhiteSpace(reason) ? "UNKNOWN_REASON" : reason.Trim());
+            foreach (var savedPath in record.SavedPaths ?? [])
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!Directory.Exists(savedPath)) continue;
+                var normalizedPath = savedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var parentName = Directory.GetParent(normalizedPath)?.Name ?? string.Empty;
+                if (!parentName.Equals("RULEBASE", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var destinationFolder = Path.Combine(
+                    summaryFolder,
+                    "Rulebase",
+                    reasonFolder,
+                    Path.GetFileName(normalizedPath));
+                CopyDirectoryContents(normalizedPath, destinationFolder, cancellationToken);
+            }
+        }
     }
 
     private static void CopyDirectoryContents(
@@ -273,14 +347,22 @@ public sealed class IrsDatasetService : IIrsDatasetService
 
     private void WriteSummaryWorkbook(string path, IReadOnlyList<(IrsDatasetItem Item, IrsDatasetDecision Decision)> rows)
     {
-        var data = new List<string[]> { new[] { "Folder", "Original Class", "Final Class", "Retrain Count", "DL_OK Count" } };
+        var data = new List<string[]> { new[] { "Dataset Section", "Folder", "Original Class", "Final Class", "Retrain Count", "DL_OK Count" } };
         foreach (var group in rows.SelectMany(x => x.Decision.FinalClasses.Select(final => (x.Item, Final: final)))
-                     .GroupBy(x => new { x.Item.SourceFolder, x.Item.OriginalClass, x.Final }))
+                     .GroupBy(x => new
+                     {
+                         Section = IsClassificationFolder(x.Item.SourceFolder) && !x.Item.IsNeedToSimulate
+                             ? $"{ClassificationFolder}/{ClassificationCategory(x.Item.OriginalClass, x.Final)}"
+                             : SegmentationFolder,
+                         x.Item.SourceFolder,
+                         x.Item.OriginalClass,
+                         x.Final
+                     }))
         {
             var retrain = group.Count(x => !x.Item.OriginalClass.Equals(x.Final, StringComparison.OrdinalIgnoreCase));
             var dlOk = group.Count(x => x.Item.OriginalClass.Contains("OK", StringComparison.OrdinalIgnoreCase)
                 && !x.Item.OriginalClass.Equals(x.Final, StringComparison.OrdinalIgnoreCase));
-            data.Add(new[] { group.Key.SourceFolder, group.Key.OriginalClass, group.Key.Final, retrain.ToString(CultureInfo.InvariantCulture), dlOk.ToString(CultureInfo.InvariantCulture) });
+            data.Add(new[] { group.Key.Section, group.Key.SourceFolder, group.Key.OriginalClass, group.Key.Final, retrain.ToString(CultureInfo.InvariantCulture), dlOk.ToString(CultureInfo.InvariantCulture) });
         }
 
         foreach (var group in rows.SelectMany(x => x.Decision.FinalClasses.Select(final => (x.Item, Final: final)))
@@ -288,7 +370,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
                          && !x.Item.OriginalClass.Equals(x.Final, StringComparison.OrdinalIgnoreCase))
                      .GroupBy(x => x.Item.SourceFolder))
         {
-            data.Add(new[] { $"DL_OK_{group.Key}", "", "", "", group.Count().ToString(CultureInfo.InvariantCulture) });
+            data.Add(new[] { $"{ClassificationFolder}/{MissingOrMisclassifiedFolder}", $"DL_OK_{group.Key}", "", "", "", group.Count().ToString(CultureInfo.InvariantCulture) });
         }
 
         WriteSimpleWorkbook(path, "IRS_Summary", data[0], data.Skip(1).ToArray());

@@ -82,9 +82,11 @@ Final-stage hotkeys are `R` for Real, `N` for No Need to Retrain, and `1-6` for 
 
 ## IRS Summary / Dataset Export Rules
 
-The summary cannot generate unless every final-stage item is classified. Classification crop final-stage items export to `Dataset\<crop-folder>\<line-polarity>\<final-class>\`. Segmentation-style final-stage items export to `Dataset\<crop-folder>\<final-class>\`.
+The summary cannot generate unless every final-stage item is classified. Classification crop final-stage items export using the DLNG section layout: `Dataset\Classification\미검_오검\<crop-folder>\<line-polarity>\<final-class>\`, `Dataset\Classification\과검\<crop-folder>\<line-polarity>\<final-class>\`, or `Dataset\Classification\정상검출\<crop-folder>\<line-polarity>\<final-class>\`. Segmentation-style final-stage items export to `Dataset\Segmentation\<crop-folder>\<final-class>\`.
 
-NEED_TO_SIMULATE final-stage items export the whole original folder to `Dataset\NEED_TO_SIMULATE\<first-stage-class>\<original-folder-name>\`. NEED_TO_SIMULATE must not export as `Dataset\<first-stage-class>\Real`.
+NEED_TO_SIMULATE final-stage items export the whole original folder to `Dataset\Segmentation\NEED_TO_SIMULATE\<first-stage-class>\<original-folder-name>\`. NEED_TO_SIMULATE must not export as `Dataset\<first-stage-class>\Real`.
+
+Rulebase first-stage rows are copied during summary generation outside `Dataset`, under `Rulebase\<2nd-judgment-reason>\<original-folder-name>\`.
 
 `No Need to Retrain` items are excluded from retrain dataset counts.
 

@@ -1927,7 +1927,7 @@ public sealed class CoreTests
             await service.SaveDecisionAsync(item, ["Real"], false, CancellationToken.None);
 
             var result = await service.WriteSummaryAsync([candidate], [record], items, CancellationToken.None);
-            var destination = Path.Combine(result.OutputFolder, "Dataset", "NEED_TO_SIMULATE", "SEPA", "CELL-SEPA-FOLDER");
+            var destination = Path.Combine(result.OutputFolder, "Dataset", "Segmentation", "NEED_TO_SIMULATE", "SEPA", "CELL-SEPA-FOLDER");
             Assert.True(Directory.Exists(destination));
             foreach (var file in files)
             {
@@ -2028,7 +2028,7 @@ public sealed class CoreTests
             var item = Assert.Single(items);
             await service.SaveDecisionAsync(item, ["01_OK_TOP_CATHODE"], false, CancellationToken.None);
             var result = await service.WriteSummaryAsync([candidate], [record], items, CancellationToken.None);
-            var destination = Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "1-1(+)", "01_OK_TOP_CATHODE");
+            var destination = Path.Combine(result.OutputFolder, "Dataset", "Classification", "정상검출", "Crop_A", "1-1(+)", "01_OK_TOP_CATHODE");
 
             foreach (var file in files)
             {
@@ -2036,6 +2036,59 @@ public sealed class CoreTests
                 Assert.False(File.Exists(Path.Combine(destination, $"CELL-NAME_{Path.GetFileName(file)}")));
             }
             Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "01_OK_TOP_CATHODE")));
+            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "1-1(+)", "01_OK_TOP_CATHODE")));
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
+
+    [Fact]
+    public async Task IrsDatasetService_SummaryCopiesClassificationCategoriesAndRulebaseBySecondReason()
+    {
+        var storageRoot = Path.Combine(Path.GetTempPath(), "IrsSummarySections", Guid.NewGuid().ToString("N"));
+        var cropFolder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "Crop_B");
+        var rulebaseFolder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "RULEBASE", "CELL-RULE-FOLDER");
+        Directory.CreateDirectory(cropFolder);
+        Directory.CreateDirectory(rulebaseFolder);
+        var cropFiles = new[]
+        {
+            Path.Combine(cropFolder, "CELL-CAT_UPPER_1_B_L_CL01_OK_SourceMap.jpg"),
+            Path.Combine(cropFolder, "CELL-CAT_UPPER_1_B_L_CL01_OK_ActiveMap.jpg")
+        };
+        foreach (var file in cropFiles) await File.WriteAllTextAsync(file, "crop");
+        var rulebaseImage = Path.Combine(rulebaseFolder, "CELL-RULE_UPPER_1.jpg");
+        await File.WriteAllTextAsync(rulebaseImage, "raw");
+
+        var cropCandidate = new IrsReviewCandidate("cat-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 7, 9, 8, 0, 0), "LOT", "CELL-CAT", "TOP", "raw.jpg", "NG", "Burr", 4);
+        var rulebaseCandidate = new IrsReviewCandidate("rule-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 7, 9, 8, 1, 0), "LOT", "CELL-RULE", "TOP", "raw.jpg", "NG", "Tab Folded", 5);
+        var cropRecord = new IrsReviewRecord("cat-key", "1-1-ca", "1-1(+)", cropCandidate.ProducedAt, "CELL-CAT", "TOP", "NG", "Burr", ["B_L"], 0, 2, 0, storageRoot, DateTimeOffset.Now, cropFiles);
+        var rulebaseRecord = new IrsReviewRecord("rule-key", "1-1-ca", "1-1(+)", rulebaseCandidate.ProducedAt, "CELL-RULE", "TOP", "NG", "Tab Folded", ["RULEBASE"], 1, 0, 0, storageRoot, DateTimeOffset.Now, [rulebaseFolder]);
+        var service = new IrsDatasetService(new AppStorage(storageRoot));
+
+        try
+        {
+            var items = await service.BuildQueueAsync([cropCandidate, rulebaseCandidate], [cropRecord, rulebaseRecord], CancellationToken.None);
+            var item = Assert.Single(items);
+            await service.SaveDecisionAsync(item, ["02_NG_TORN"], false, CancellationToken.None);
+
+            var result = await service.WriteSummaryAsync(
+                [cropCandidate, rulebaseCandidate],
+                [cropRecord, rulebaseRecord],
+                items,
+                CancellationToken.None);
+
+            var classification = Path.Combine(result.OutputFolder, "Dataset", "Classification", "미검_오검", "Crop_B", "1-1(+)", "02_NG_TORN");
+            Assert.True(Directory.Exists(classification));
+            foreach (var file in cropFiles)
+            {
+                Assert.True(File.Exists(Path.Combine(classification, Path.GetFileName(file))));
+            }
+
+            var rulebase = Path.Combine(result.OutputFolder, "Rulebase", "Tab Folded", "CELL-RULE-FOLDER");
+            Assert.True(File.Exists(Path.Combine(rulebase, Path.GetFileName(rulebaseImage))));
+            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "RULEBASE")));
         }
         finally
         {
