@@ -22,7 +22,11 @@ public sealed class AppStorage
         ReviewFile = Path.Combine(Root, "kickout-reviews.json");
         NgBypassReviewFile = Path.Combine(Root, "ng-bypass-reviews.json");
         DlngReviewFile = Path.Combine(Root, "dlng-reviews.json");
+        FlaggedItemFile = Path.Combine(Root, "flagged-items.json");
+        FlaggedReviewFile = Path.Combine(Root, "flagged-reviews.json");
+        FlaggedDatasetDecisionFile = Path.Combine(Root, "flagged-dataset-reviews.json");
         DlngReport = Path.Combine(Root, "DLNG_REPORT");
+        FlaggedSummary = Path.Combine(Root, "Flagged_Summary");
     }
 
     public string RequestedRoot { get; }
@@ -34,7 +38,11 @@ public sealed class AppStorage
     public string ReviewFile { get; }
     public string NgBypassReviewFile { get; }
     public string DlngReviewFile { get; }
+    public string FlaggedItemFile { get; }
+    public string FlaggedReviewFile { get; }
+    public string FlaggedDatasetDecisionFile { get; }
     public string DlngReport { get; }
+    public string FlaggedSummary { get; }
 
     public void EnsureCreated(IEnumerable<WeldingMachine> machines)
     {
@@ -44,12 +52,14 @@ public sealed class AppStorage
         Directory.CreateDirectory(Summary);
         Directory.CreateDirectory(NgBypassSummary);
         Directory.CreateDirectory(DlngReport);
+        Directory.CreateDirectory(FlaggedSummary);
         foreach (var machine in machines)
         {
             var machineRoot = Path.Combine(Root, machine.OutputFolderName);
             Directory.CreateDirectory(Path.Combine(machineRoot, "NG"));
             Directory.CreateDirectory(Path.Combine(machineRoot, "NG_BYPASS_MONITOR"));
             Directory.CreateDirectory(Path.Combine(machineRoot, "DLNG"));
+            Directory.CreateDirectory(Path.Combine(machineRoot, "FLAGGED_REVIEW"));
             Directory.CreateDirectory(Path.Combine(machineRoot, "IRS_LEAK"));
             Directory.CreateDirectory(Path.Combine(machineRoot, "OVERKILL"));
         }

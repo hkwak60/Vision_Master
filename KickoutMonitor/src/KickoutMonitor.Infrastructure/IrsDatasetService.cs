@@ -23,11 +23,22 @@ public sealed class IrsDatasetService : IIrsDatasetService
 
     private readonly AppStorage _storage;
     private readonly VisionMasterSettings _settings;
+    private readonly string _decisionFile;
+    private readonly string _summaryRoot;
+    private readonly string _summaryPrefix;
 
-    public IrsDatasetService(AppStorage storage, VisionMasterSettings? settings = null)
+    public IrsDatasetService(
+        AppStorage storage,
+        VisionMasterSettings? settings = null,
+        string? decisionFile = null,
+        string? summaryRoot = null,
+        string summaryPrefix = "IRS_Summary")
     {
         _storage = storage;
         _settings = settings ?? VisionMasterSettings.CreateDefault();
+        _decisionFile = decisionFile ?? Path.Combine(_storage.Root, "irs-dataset-reviews.json");
+        _summaryRoot = summaryRoot ?? Path.Combine(_storage.Root, "IRS_Summary");
+        _summaryPrefix = summaryPrefix;
     }
 
     public Task<IReadOnlyList<IrsDatasetItem>> BuildQueueAsync(
@@ -156,9 +167,12 @@ public sealed class IrsDatasetService : IIrsDatasetService
 
         var first = DateOnly.FromDateTime(candidates.Min(x => x.ProducedAt));
         var last = DateOnly.FromDateTime(candidates.Max(x => x.ProducedAt));
-        var root = Path.Combine(_storage.Root, "IRS_Summary");
+        var root = _summaryRoot;
         Directory.CreateDirectory(root);
-        var folder = Path.Combine(root, $"IRS_Summary_{first:yyyyMMdd}_{last:yyyyMMdd}");
+        var folderName = _summaryPrefix.Equals("IRS_Summary", StringComparison.OrdinalIgnoreCase)
+            ? $"{_summaryPrefix}_{first:yyyyMMdd}_{last:yyyyMMdd}"
+            : $"{_summaryPrefix}_{DateTime.Now:yyyyMMdd_HHmmss}";
+        var folder = Path.Combine(root, folderName);
         if (Directory.Exists(folder)) Directory.Delete(folder, true);
         Directory.CreateDirectory(folder);
         var datasetRoot = Path.Combine(folder, "Dataset");
@@ -192,7 +206,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
 
         CopyRulebaseFolders(folder, candidates, reviewRecords, cancellationToken);
 
-        var summaryPath = Path.Combine(folder, $"IRS_Summary_{first:yyyyMMdd}_{last:yyyyMMdd}.xlsx");
+        var summaryPath = Path.Combine(folder, $"{folderName}.xlsx");
         WriteSummaryWorkbook(summaryPath, relevant);
         var details = WriteDetailsWorkbooks(folder, candidates, reviewRecords, relevant);
         return new(folder, summaryPath, details);
@@ -390,7 +404,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
         await JsonSerializer.SerializeAsync(stream, records, new JsonSerializerOptions { WriteIndented = true }, cancellationToken);
     }
 
-    private string DecisionPath() => Path.Combine(_storage.Root, "irs-dataset-reviews.json");
+    private string DecisionPath() => _decisionFile;
 
     private IReadOnlyList<string> ClassesFor(string folder, string linePolarity, string cameraLocation)
     {

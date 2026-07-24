@@ -2101,6 +2101,121 @@ public sealed class CoreTests
             if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
         }
     }
+
+    [Fact]
+    public async Task FlaggedReviewService_LoadsNewAndPreviousFlagsAndResolvesRawSideImages()
+    {
+        var storageRoot = Path.Combine(Path.GetTempPath(), "FlaggedReviewTests", Guid.NewGuid().ToString("N"));
+        var shareRoot = Path.Combine(storageRoot, "share");
+        var csv = Path.Combine(storageRoot, "#1-1 WELDING VISION(+)_E81C_20260709.csv");
+        Directory.CreateDirectory(Path.GetDirectoryName(csv)!);
+        var headers = new[]
+        {
+            "DATE", "TIME", "CELL-ID",
+            "UPPER_IMAGE-PATH-1", "UPPER_IMAGE-PATH-2", "UPPER_IMAGE-PATH-3",
+            "LOWER_IMAGE-PATH-1", "LOWER_IMAGE-PATH-2", "LOWER_IMAGE-PATH-3"
+        };
+        var row = new[]
+        {
+            "20260709", "08:00:00", "CELL-FLAG",
+            @"E:\Files\Image\Raw\u1.jpg", @"E:\Files\Image\Raw\u2.jpg", @"E:\Files\Image\Raw\u3.jpg",
+            @"E:\Files\Image\Raw\l1.jpg", @"E:\Files\Image\Raw\l2.jpg", @"E:\Files\Image\Raw\l3.jpg"
+        };
+        await File.WriteAllLinesAsync(csv, [string.Join(",", headers), string.Join(",", row)]);
+        var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "unused", ['E']);
+        var store = new JsonFlaggedItemStore(new AppStorage(storageRoot));
+        var current = new FlaggedItem(
+            "flag-current",
+            "DLNG",
+            machine.Id,
+            machine.OutputFolderName,
+            machine.Polarity,
+            new DateTime(2026, 7, 9, 8, 0, 0),
+            "E81C",
+            "LOT",
+            "CELL-FLAG",
+            "LOWER",
+            "Foreign body on leadfilm",
+            [],
+            DateTimeOffset.Now,
+            DateTimeOffset.Now);
+        var previous = current with
+        {
+            Key = "flag-previous",
+            CellId = "CELL-OLD",
+            SummarizedAt = DateTimeOffset.Now
+        };
+
+        try
+        {
+            await store.SaveAsync(current, CancellationToken.None);
+            await store.SaveAsync(previous, CancellationToken.None);
+            var service = new FlaggedReviewService(
+                store,
+                new FakeIrsDatasetService(),
+                new FakeMachineRegistry([machine]),
+                new StaticDailyCsvLocator([csv]),
+                new TestSharePathResolver(shareRoot));
+
+            var newFlags = await service.LoadAsync(false, CancellationToken.None);
+            var oldFlags = await service.LoadAsync(true, CancellationToken.None);
+            var candidate = Assert.Single(await service.BuildCandidatesAsync(newFlags, CancellationToken.None));
+
+            Assert.Equal("flag-current", Assert.Single(newFlags).Key);
+            Assert.Equal("flag-previous", Assert.Single(oldFlags).Key);
+            Assert.Equal("BTM", candidate.CameraLocation);
+            Assert.Equal(3, candidate.RawImagePaths?.Count);
+            Assert.All(candidate.RawImagePaths!, path => Assert.Contains(@"\Raw\l", path));
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
+
+    [Fact]
+    public async Task FlaggedReviewService_MarksFlagsSummarizedAfterSummaryGeneration()
+    {
+        var storageRoot = Path.Combine(Path.GetTempPath(), "FlaggedSummaryMarkTests", Guid.NewGuid().ToString("N"));
+        var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "unused", ['E']);
+        var store = new JsonFlaggedItemStore(new AppStorage(storageRoot));
+        var flag = new FlaggedItem(
+            "flag-summary",
+            "Kickout",
+            machine.Id,
+            machine.OutputFolderName,
+            machine.Polarity,
+            new DateTime(2026, 7, 9, 8, 0, 0),
+            "E81C",
+            "LOT",
+            "CELL-FLAG",
+            "UPPER",
+            "B_DIM",
+            [@"E:\raw1.jpg", @"E:\raw2.jpg", @"E:\raw3.jpg"],
+            DateTimeOffset.Now,
+            DateTimeOffset.Now);
+
+        try
+        {
+            await store.SaveAsync(flag, CancellationToken.None);
+            var service = new FlaggedReviewService(
+                store,
+                new FakeIrsDatasetService(),
+                new FakeMachineRegistry([machine]),
+                new EmptyDailyCsvLocator(),
+                new TestSharePathResolver(storageRoot));
+            var candidates = await service.BuildCandidatesAsync([flag], CancellationToken.None);
+
+            await service.WriteSummaryAsync([flag], candidates, [], [], CancellationToken.None);
+
+            Assert.Empty(await service.LoadAsync(false, CancellationToken.None));
+            Assert.Equal("flag-summary", Assert.Single(await service.LoadAsync(true, CancellationToken.None)).Key);
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot)) Directory.Delete(storageRoot, true);
+        }
+    }
     private sealed class TestSharePathResolver(string root) : ISharePathResolver
     {
         public string GetRoot(WeldingMachine machine, char drive) => root;
@@ -2424,6 +2539,33 @@ public sealed class CoreTests
 
         public WeldingMachine Get(string id) =>
             All.First(machine => machine.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed class FakeIrsDatasetService : IIrsDatasetService
+    {
+        public Task<IReadOnlyList<IrsDatasetItem>> BuildQueueAsync(
+            IReadOnlyList<IrsReviewCandidate> candidates,
+            IReadOnlyList<IrsReviewRecord> reviewRecords,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<IrsDatasetItem>>([]);
+
+        public Task<IReadOnlyDictionary<string, IrsDatasetDecision>> LoadDecisionsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, IrsDatasetDecision>>(
+                new Dictionary<string, IrsDatasetDecision>(StringComparer.OrdinalIgnoreCase));
+
+        public Task SaveDecisionAsync(
+            IrsDatasetItem item,
+            IReadOnlyList<string> finalClasses,
+            bool noNeedToRetrain,
+            CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<IrsSummaryResult> WriteSummaryAsync(
+            IReadOnlyList<IrsReviewCandidate> candidates,
+            IReadOnlyList<IrsReviewRecord> reviewRecords,
+            IReadOnlyList<IrsDatasetItem> datasetItems,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new IrsSummaryResult("", "", []));
     }
 
     private sealed class FakeIrsWorkbookReader(

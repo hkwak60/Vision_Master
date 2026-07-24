@@ -143,6 +143,16 @@ NG/Bypass Monitor stores reviews and reports separately from Kickout Monitor. Lo
 
 The NG/Bypass summary date uses the same production-day window as Kickout: `06:00:00` on the selected date through before `06:00:00` on the next day. Summary generation blocks until all matching report-window items are reviewed.
 
+## Flagged Review Rules
+
+Every image review pane can flag the current cell/side using the upper-right flag button. Flagging only records the current context and does not interrupt the active review. Flags are stored separately from review decisions in `flagged-items.json`.
+
+The `Flagged` dashboard page sits between `NG/Bypass Monitor` and `Settings`. `Load Flagged Queue` loads only unsummarized flags; `Previously Flagged` loads flags that have already been included in a flagged summary. The initial flagged queue displays the three raw, non-overlay images from the flagged side. If a crop-only source did not provide raw paths, the app resolves raw images from the production CSV for that cell/date/side.
+
+The first-stage flagged decision pane uses the IRS decision set: Rulebase, Undetectable, and the configured crop categories. `Generate Dataset` uses the IRS final-class rules and writes intermediate flagged review copies under `FLAGGED_REVIEW`, not `IRS_LEAK`.
+
+`Generate Summary` writes to `Flagged_Summary\Flagged_Summary_<yyyyMMdd_HHmmss>\`. Dataset exports follow the same layout as IRS/DLNG: `Dataset\Classification\미검_오검|과검|정상검출\...` and `Dataset\Segmentation\...`. Rulebase raw folders are exported outside `Dataset` as `Rulebase\<line-polarity>\<2nd-judgment-reason>\<original-folder-name>\`. After a successful summary, included flags are marked summarized and no longer appear in `Load Flagged Queue`.
+
 ## Settings
 
 Settings are stored locally in `E:\KWAK\VisionMaster\settings.json` by default. If the file is missing, VisionMaster creates defaults that match the current hard-coded behavior. If the file is invalid, VisionMaster loads defaults and shows a warning in the Settings page.

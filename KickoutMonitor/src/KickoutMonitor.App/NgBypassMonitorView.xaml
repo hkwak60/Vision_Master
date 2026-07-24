@@ -230,6 +230,13 @@
                                                Foreground="#D9E2EC" FontSize="16"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
+                                    <Button Content="⚑"
+                                            Command="{Binding FlagCommand}"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            Margin="10"
+                                            Padding="8,4"
+                                            ToolTip="Flag this cell for follow-up"/>
                                 </Grid>
                             </ScrollViewer>
                             <Border Grid.Row="1" Background="#18212A" Padding="8">

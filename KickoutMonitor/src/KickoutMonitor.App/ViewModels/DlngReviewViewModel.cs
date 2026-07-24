@@ -115,6 +115,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private readonly IDlngReportService _reports;
     private readonly IPreviewImageLoader<BitmapSource> _images;
     private readonly VisionMasterSettings _settings;
+    private readonly IFlaggedItemStore? _flags;
     private CancellationTokenSource? _previewCancellation;
     private DlngCandidateItem? _selectedCandidate;
     private DateTime? _startDate = DateTime.Today;
@@ -132,7 +133,8 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         IDlngReviewStore reviews,
         IDlngReportService reports,
         IPreviewImageLoader<BitmapSource> images,
-        VisionMasterSettings? settings = null)
+        VisionMasterSettings? settings = null,
+        IFlaggedItemStore? flags = null)
     {
         _machines = machines;
         _queue = queue;
@@ -140,6 +142,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         _reports = reports;
         _images = images;
         _settings = settings ?? VisionMasterSettings.CreateDefault();
+        _flags = flags;
         MachineOptions = new(_machines.All.Select((machine, index) => new MachineOption(machine, index == 0)));
         LoadCommand = new(LoadQueueAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && StartDate is not null && EndDate is not null);
         GenerateReportCommand = new(GenerateReportAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && ReportDate is not null);
@@ -147,6 +150,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         NextCommand = new(Next, CanNext);
         PreviousImageCommand = new(PreviousImageAsync, () => CurrentImageIndex > 0);
         NextImageCommand = new(NextImageAsync, () => CurrentImageIndex >= 0 && CurrentImageIndex < PreviewImages.Count - 1);
+        FlagCommand = new(FlagCurrentAsync, () => SelectedCandidate is not null && _flags is not null);
         CommitCommand = new(CommitSelection, () => !IsBusy && SelectedCandidate is not null && FinalClassOptions.Any(x => x.IsSelected));
     }
 
@@ -162,6 +166,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     public RelayCommand NextCommand { get; }
     public AsyncRelayCommand PreviousImageCommand { get; }
     public AsyncRelayCommand NextImageCommand { get; }
+    public AsyncRelayCommand FlagCommand { get; }
     public RelayCommand CommitCommand { get; }
 
     public DateTime? StartDate
@@ -367,6 +372,34 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         {
             IsBusy = false;
         }
+    }
+
+    private async Task FlagCurrentAsync()
+    {
+        if (_flags is null) return;
+        var item = SelectedCandidate?.Item;
+        if (item is null) return;
+        var rawPaths = item.ModelKind == DlngModelKind.FallbackRaw
+            ? item.Images.Select(x => x.Path).Where(path => !string.IsNullOrWhiteSpace(path)).ToArray()
+            : Array.Empty<string>();
+        var now = DateTimeOffset.Now;
+        await _flags.SaveAsync(new(
+            FlagKey("DLNG", item.MachineId, item.InspectedAt, item.CellId, item.Side),
+            "DLNG",
+            item.MachineId,
+            item.LinePolarity,
+            item.Polarity,
+            item.InspectedAt,
+            item.Model,
+            item.LotId,
+            item.CellId,
+            item.Side,
+            $"{item.JudgeDefect} / {item.CropFolder}",
+            rawPaths,
+            now,
+            now), CancellationToken.None);
+        Status = $"Flagged {item.LinePolarity} {item.CellId} {item.Side}.";
+        AddLog(Status);
     }
 
     private async Task GenerateReportAsync()
@@ -592,6 +625,15 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     }
 
     private void AddLog(string message) => ActivityLog.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+
+    private static string FlagKey(string source, string machineId, DateTime timestamp, string cellId, string side) =>
+        string.Join(
+            "|",
+            source,
+            machineId,
+            timestamp.ToString("O"),
+            cellId.Trim(),
+            side.Trim().ToUpperInvariant());
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {

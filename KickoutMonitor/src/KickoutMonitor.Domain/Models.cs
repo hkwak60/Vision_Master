@@ -255,6 +255,31 @@ public sealed record IrsSummaryResult(
     string SummaryWorkbook,
     IReadOnlyList<string> DetailWorkbooks);
 
+public sealed record FlaggedItem(
+    string Key,
+    string SourceModule,
+    string MachineId,
+    string LinePolarity,
+    Polarity Polarity,
+    DateTime ProducedAt,
+    string Model,
+    string LotId,
+    string CellId,
+    string Side,
+    string SourceContext,
+    IReadOnlyList<string> RawImagePaths,
+    DateTimeOffset FlaggedAt,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? SummarizedAt = null)
+{
+    public bool IsSummarized => SummarizedAt is not null;
+}
+
+public sealed record FlaggedSummaryResult(
+    string OutputFolder,
+    string SummaryWorkbook,
+    int SummarizedCount);
+
 public sealed record DlngImage(
     string Label,
     string Path,

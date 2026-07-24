@@ -144,6 +144,34 @@ public interface IIrsDatasetService
         CancellationToken cancellationToken);
 }
 
+public interface IFlaggedItemStore
+{
+    Task<IReadOnlyDictionary<string, FlaggedItem>> LoadAsync(CancellationToken cancellationToken);
+
+    Task SaveAsync(FlaggedItem item, CancellationToken cancellationToken);
+
+    Task MarkSummarizedAsync(
+        IReadOnlyList<string> keys,
+        DateTimeOffset summarizedAt,
+        CancellationToken cancellationToken);
+}
+
+public interface IFlaggedReviewService
+{
+    Task<IReadOnlyList<FlaggedItem>> LoadAsync(bool summarized, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<IrsReviewCandidate>> BuildCandidatesAsync(
+        IReadOnlyList<FlaggedItem> flags,
+        CancellationToken cancellationToken);
+
+    Task<FlaggedSummaryResult> WriteSummaryAsync(
+        IReadOnlyList<FlaggedItem> flags,
+        IReadOnlyList<IrsReviewCandidate> candidates,
+        IReadOnlyList<IrsReviewRecord> reviewRecords,
+        IReadOnlyList<IrsDatasetItem> datasetItems,
+        CancellationToken cancellationToken);
+}
+
 public interface IDlngCsvReader
 {
     IAsyncEnumerable<DlngReviewItem> ReadAsync(

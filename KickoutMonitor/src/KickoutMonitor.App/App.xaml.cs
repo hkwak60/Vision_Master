@@ -54,6 +54,7 @@ public partial class App : System.Windows.Application
         var reviews = new JsonReviewStore(storage);
         var ngBypassReviews = new JsonNgBypassReviewStore(storage);
         var dlngReviews = new JsonDlngReviewStore(storage);
+        var flaggedItems = new JsonFlaggedItemStore(storage);
         var shares = new SharePathResolver();
         var locator = new DailyCsvLocator(shares, settings);
         var snapshots = new ReadOnlySnapshotService(storage);
@@ -85,7 +86,8 @@ public partial class App : System.Windows.Application
                 reviews,
                 new SummaryReportWriter(storage),
                 settings),
-            storage);
+            storage,
+            flaggedItems);
         var irsViewModel = new IrsReviewViewModel(
             new IrsReviewQueueService(
                 machines,
@@ -95,6 +97,33 @@ public partial class App : System.Windows.Application
             machines,
             new IrsReviewCommitService(storage, locator, shares, settings),
             new IrsDatasetService(storage, settings),
+            settings,
+            flaggedItems);
+        var flaggedCommits = new IrsReviewCommitService(
+            storage,
+            locator,
+            shares,
+            settings,
+            "FLAGGED_REVIEW",
+            storage.FlaggedReviewFile);
+        var flaggedDataset = new IrsDatasetService(
+            storage,
+            settings,
+            storage.FlaggedDatasetDecisionFile,
+            storage.FlaggedSummary,
+            "Flagged_Summary");
+        var flaggedReviewService = new FlaggedReviewService(
+            flaggedItems,
+            flaggedDataset,
+            machines,
+            locator,
+            shares);
+        var flaggedViewModel = new FlaggedReviewViewModel(
+            flaggedReviewService,
+            machines,
+            flaggedCommits,
+            flaggedDataset,
+            imageLoader,
             settings);
         var dlngViewModel = new DlngReviewViewModel(
             machines,
@@ -102,7 +131,8 @@ public partial class App : System.Windows.Application
             dlngReviews,
             new DlngReportGenerator(dlngQueue, dlngReviews, storage),
             imageLoader,
-            settings);
+            settings,
+            flaggedItems);
         var ngBypassViewModel = new NgBypassMonitorViewModel(
             machines,
             ngBypassQueue,
@@ -116,9 +146,10 @@ public partial class App : System.Windows.Application
                 ngBypassReviews,
                 storage,
                 settings),
-            imageLoader);
+            imageLoader,
+            flaggedItems);
         var settingsViewModel = new SettingsViewModel(settingsStore, settings, settingsStore.LastWarning);
-        var window = new MainWindow(kickoutViewModel, irsViewModel, dlngViewModel, ngBypassViewModel, settingsViewModel);
+        var window = new MainWindow(kickoutViewModel, irsViewModel, dlngViewModel, ngBypassViewModel, flaggedViewModel, settingsViewModel);
         MainWindow = window;
         window.Show();
     }

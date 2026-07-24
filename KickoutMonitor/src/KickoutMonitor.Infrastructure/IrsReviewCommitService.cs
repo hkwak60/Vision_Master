@@ -10,17 +10,23 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
     private readonly IDailyCsvLocator _csvs;
     private readonly ISharePathResolver _shares;
     private readonly VisionMasterSettings _settings;
+    private readonly string _workflowFolder;
+    private readonly string _reviewFile;
 
     public IrsReviewCommitService(
         AppStorage storage,
         IDailyCsvLocator csvs,
         ISharePathResolver shares,
-        VisionMasterSettings? settings = null)
+        VisionMasterSettings? settings = null,
+        string workflowFolder = "IRS_LEAK",
+        string? reviewFile = null)
     {
         _storage = storage;
         _csvs = csvs;
         _shares = shares;
         _settings = settings ?? VisionMasterSettings.CreateDefault();
+        _workflowFolder = workflowFolder;
+        _reviewFile = reviewFile ?? Path.Combine(_storage.Root, "irs-reviews.json");
     }
 
     public async Task<IrsReviewCommitResult> CommitAsync(
@@ -28,7 +34,7 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
         CancellationToken cancellationToken)
     {
         var machineRoot = _storage.MachineRoot(request.Machine);
-        var destinationRoot = Path.Combine(machineRoot, "IRS_LEAK");
+        var destinationRoot = Path.Combine(machineRoot, _workflowFolder);
         Directory.CreateDirectory(destinationRoot);
 
         var records = await LoadRecordListAsync(cancellationToken);
@@ -451,8 +457,8 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
             DateTimeOffset.Now,
             savedPaths));
 
-        var path = Path.Combine(_storage.Root, "irs-reviews.json");
-        Directory.CreateDirectory(_storage.Root);
+        var path = _reviewFile;
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await using var write = new FileStream(
             path,
             FileMode.Create,
@@ -472,7 +478,7 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
 
     private async Task<List<IrsReviewRecord>> LoadRecordListAsync(CancellationToken cancellationToken)
     {
-        var path = Path.Combine(_storage.Root, "irs-reviews.json");
+        var path = _reviewFile;
         if (!File.Exists(path)) return [];
         await using var read = new FileStream(
             path,

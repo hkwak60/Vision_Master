@@ -9,6 +9,7 @@ public partial class MainWindow : Window
     private readonly IrsReviewViewModel _irsViewModel;
     private readonly DlngReviewViewModel _dlngViewModel;
     private readonly NgBypassMonitorViewModel _ngBypassViewModel;
+    private readonly FlaggedReviewViewModel _flaggedViewModel;
     private readonly SettingsViewModel _settingsViewModel;
 
     public MainWindow(
@@ -16,6 +17,7 @@ public partial class MainWindow : Window
         IrsReviewViewModel irsViewModel,
         DlngReviewViewModel dlngViewModel,
         NgBypassMonitorViewModel ngBypassViewModel,
+        FlaggedReviewViewModel flaggedViewModel,
         SettingsViewModel settingsViewModel)
     {
         InitializeComponent();
@@ -23,6 +25,7 @@ public partial class MainWindow : Window
         _irsViewModel = irsViewModel;
         _dlngViewModel = dlngViewModel;
         _ngBypassViewModel = ngBypassViewModel;
+        _flaggedViewModel = flaggedViewModel;
         _settingsViewModel = settingsViewModel;
     }
 
@@ -56,6 +59,14 @@ public partial class MainWindow : Window
         view.BackRequested += (_, _) => ReturnToDashboard();
         ModuleHost.Content = view;
         ShowModule("NG/Bypass Monitor", "Measure NG and bypass review");
+    }
+
+    private void FlaggedButton_Click(object sender, RoutedEventArgs e)
+    {
+        var view = new FlaggedReviewView { DataContext = _flaggedViewModel };
+        view.BackRequested += (_, _) => ReturnToDashboard();
+        ModuleHost.Content = view;
+        ShowModule("Flagged", "Flag follow-up review");
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)

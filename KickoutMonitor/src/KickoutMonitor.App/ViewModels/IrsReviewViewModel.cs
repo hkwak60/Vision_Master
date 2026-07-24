@@ -140,6 +140,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     private readonly IIrsReviewCommitService _commits;
     private readonly IIrsDatasetService _dataset;
     private readonly VisionMasterSettings _settings;
+    private readonly IFlaggedItemStore? _flags;
     private readonly Dictionary<string, IReadOnlyList<string>> _committedSelections = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Task> _pendingFirstStageCommits = [];
     private readonly Dictionary<string, IrsDatasetDecision> _datasetDecisions = new(StringComparer.OrdinalIgnoreCase);
@@ -161,7 +162,8 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         IMachineRegistry machines,
         IIrsReviewCommitService commits,
         IIrsDatasetService dataset,
-        VisionMasterSettings? settings = null)
+        VisionMasterSettings? settings = null,
+        IFlaggedItemStore? flags = null)
     {
         _queue = queue;
         _images = images;
@@ -169,6 +171,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         _commits = commits;
         _dataset = dataset;
         _settings = settings ?? VisionMasterSettings.CreateDefault();
+        _flags = flags;
         BrowseCommand = new(Browse);
         LoadCommand = new(LoadAsync, () => !IsBusy && File.Exists(WorkbookPath));
         PreviousCommand = new(Previous, CanPrevious);
@@ -178,6 +181,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             NextImageAsync,
             () => CurrentImageIndex >= 0 && CurrentImageIndex < PreviewImages.Count - 1);
         CommitCommand = new(CommitSelection, CanCommitSelection);
+        FlagCommand = new(FlagCurrentAsync, () => SelectedCandidate is not null && _flags is not null);
         GenerateDatasetCommand = new(GenerateDatasetAsync, () => !IsBusy && Candidates.Count > 0);
         SummaryReportCommand = new(SummaryReportAsync, () => !IsBusy && _datasetMode && Candidates.Count > 0);
         SelectionOptions = _settings.IrsRules.FirstStageSelections
@@ -205,6 +209,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public AsyncRelayCommand PreviousImageCommand { get; }
     public AsyncRelayCommand NextImageCommand { get; }
     public RelayCommand CommitCommand { get; }
+    public AsyncRelayCommand FlagCommand { get; }
     public AsyncRelayCommand GenerateDatasetCommand { get; }
     public AsyncRelayCommand SummaryReportCommand { get; }
     public ObservableCollection<IrsSelectionOption> FinalClassOptions { get; } = [];
@@ -489,6 +494,30 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         return -1;
     }
 
+    private static string SideFromCamera(string cameraLocation) =>
+        cameraLocation.Trim().Equals("BTM", StringComparison.OrdinalIgnoreCase)
+        || cameraLocation.Trim().Equals("BOTTOM", StringComparison.OrdinalIgnoreCase)
+            ? "LOWER"
+            : "UPPER";
+
+    private static bool IsRawPathForSide(string path, string side)
+    {
+        var name = Path.GetFileName(path);
+        if (name.Contains("overlay", StringComparison.OrdinalIgnoreCase)) return false;
+        return side.Equals("LOWER", StringComparison.OrdinalIgnoreCase)
+            ? name.Contains("LOWER", StringComparison.OrdinalIgnoreCase) || name.Contains("_1_", StringComparison.OrdinalIgnoreCase)
+            : name.Contains("UPPER", StringComparison.OrdinalIgnoreCase) || name.Contains("_0_", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FlagKey(string source, string machineId, DateTime timestamp, string cellId, string side) =>
+        string.Join(
+            "|",
+            source,
+            machineId,
+            timestamp.ToString("O"),
+            cellId.Trim(),
+            side.Trim().ToUpperInvariant());
+
     private bool CanPrevious() => DisplayedIndexOf(SelectedCandidate) > 0;
 
     private bool CanNext()
@@ -566,6 +595,45 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
 
         ClearSelections();
         Next();
+    }
+
+    private async Task FlagCurrentAsync()
+    {
+        if (_flags is null) return;
+        var item = SelectedCandidate;
+        if (item is null) return;
+        if (!TryGetMachine(item.Candidate, out var machine))
+        {
+            Status = $"Flag skipped: machine not found for {item.LinePolarity}.";
+            AddLog(Status);
+            return;
+        }
+
+        var side = SideFromCamera(item.Candidate.CameraLocation);
+        var rawPaths = item.DatasetItem is null
+            ? (item.Candidate.RawImagePaths ?? [])
+                .Where(path => IsRawPathForSide(path, side))
+                .Take(3)
+                .ToArray()
+            : Array.Empty<string>();
+        var now = DateTimeOffset.Now;
+        await _flags.SaveAsync(new(
+            FlagKey("IRS", machine.Id, item.Candidate.ProducedAt, item.CellId, side),
+            "IRS",
+            machine.Id,
+            item.LinePolarity,
+            machine.Polarity,
+            item.Candidate.ProducedAt,
+            machine.Model,
+            item.Candidate.LotId,
+            item.CellId,
+            side,
+            string.IsNullOrWhiteSpace(item.SecondReason) ? item.VisionType : item.SecondReason,
+            rawPaths,
+            now,
+            now), CancellationToken.None);
+        Status = $"Flagged {item.LinePolarity} {item.CellId} {side}.";
+        AddLog(Status);
     }
 
     private async Task PreviousImageAsync()

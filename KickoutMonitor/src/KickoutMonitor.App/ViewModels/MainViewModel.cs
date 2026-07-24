@@ -152,6 +152,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IConnectionProbe _connections;
     private readonly IPreviewImageLoader<BitmapSource> _images;
     private readonly SummaryReportService _reports;
+    private readonly IFlaggedItemStore? _flags;
     private CancellationTokenSource? _previewCancellation;
     private CandidateItem? _selectedCandidate;
     private DateTime? _startDate = DateTime.Today;
@@ -172,7 +173,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IConnectionProbe connections,
         IPreviewImageLoader<BitmapSource> images,
         SummaryReportService reports,
-        AppStorage storage)
+        AppStorage storage,
+        IFlaggedItemStore? flags = null)
     {
         _machines = machines;
         _queue = queue;
@@ -182,6 +184,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _connections = connections;
         _images = images;
         _reports = reports;
+        _flags = flags;
         MachineOptions = new(machines.All.Select(
             (machine, index) => new MachineOption(machine, index == 0)));
         StorageRoot = storage.Root;
@@ -208,6 +211,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         NextImageCommand = new(
             NextImageAsync,
             () => CurrentImageIndex >= 0 && CurrentImageIndex < PreviewImages.Count - 1);
+        FlagCommand = new(FlagCurrentAsync, () => SelectedCandidate is not null && _flags is not null);
     }
 
     public ObservableCollection<MachineOption> MachineOptions { get; }
@@ -225,6 +229,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public RelayCommand NextCommand { get; }
     public AsyncRelayCommand PreviousImageCommand { get; }
     public AsyncRelayCommand NextImageCommand { get; }
+    public AsyncRelayCommand FlagCommand { get; }
     public string StorageRoot { get; }
 
     public DateTime? StartDate
@@ -472,8 +477,54 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task FlagCurrentAsync()
+    {
+        if (_flags is null) return;
+        var item = SelectedCandidate;
+        if (item is null) return;
+        var side = CurrentPreview?.Source.Side;
+        if (string.IsNullOrWhiteSpace(side))
+        {
+            side = item.Candidate.NgSide == NgSide.Lower ? "LOWER" : "UPPER";
+        }
+
+        var rawPaths = item.Candidate.PreviewImages
+            .Where(image => !image.IsOverlay && image.Side.Equals(side, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(image => image.Index)
+            .Select(image => image.NetworkPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToArray();
+        var now = DateTimeOffset.Now;
+        await _flags.SaveAsync(new(
+            FlagKey("Kickout", item.Candidate.MachineId, item.Candidate.InspectedAt, item.Candidate.CellId, side),
+            "Kickout",
+            item.Candidate.MachineId,
+            item.LinePolarity,
+            item.Machine.Polarity,
+            item.Candidate.InspectedAt,
+            item.Candidate.Model,
+            item.Candidate.LotId,
+            item.Candidate.CellId,
+            side,
+            item.Candidate.Defect,
+            rawPaths,
+            now,
+            now), CancellationToken.None);
+        Status = $"Flagged {item.LinePolarity} {item.CellId} {side}.";
+        AddConnectionLog(Status);
+    }
+
     private void AddConnectionLog(string message) =>
         ConnectionLog.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+
+    private static string FlagKey(string source, string machineId, DateTime timestamp, string cellId, string side) =>
+        string.Join(
+            "|",
+            source,
+            machineId,
+            timestamp.ToString("O"),
+            cellId.Trim(),
+            side.Trim().ToUpperInvariant());
 
     private async Task GenerateReportAsync()
     {

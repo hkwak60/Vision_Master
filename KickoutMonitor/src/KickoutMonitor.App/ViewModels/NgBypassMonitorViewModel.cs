@@ -106,6 +106,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     private readonly INgBypassClassifiedFolderService _folders;
     private readonly INgBypassReportService _reports;
     private readonly IPreviewImageLoader<BitmapSource> _images;
+    private readonly IFlaggedItemStore? _flags;
     private CancellationTokenSource? _previewCancellation;
     private NgBypassCandidateItem? _selectedCandidate;
     private DateTime? _startDate = DateTime.Today;
@@ -127,7 +128,8 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
         INgBypassReviewStore reviews,
         INgBypassClassifiedFolderService folders,
         INgBypassReportService reports,
-        IPreviewImageLoader<BitmapSource> images)
+        IPreviewImageLoader<BitmapSource> images,
+        IFlaggedItemStore? flags = null)
     {
         _machines = machines;
         _queue = queue;
@@ -135,6 +137,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
         _folders = folders;
         _reports = reports;
         _images = images;
+        _flags = flags;
         MachineOptions = new(_machines.All.Select((machine, index) => new MachineOption(machine, index == 0)));
         LoadCommand = new(LoadQueueAsync, CanLoad);
         GenerateReportCommand = new(GenerateReportAsync, CanGenerateReport);
@@ -144,6 +147,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
         NextCommand = new(Next, CanNext);
         PreviousImageCommand = new(PreviousImageAsync, () => CurrentImageIndex > 0);
         NextImageCommand = new(NextImageAsync, () => CurrentImageIndex >= 0 && CurrentImageIndex < PreviewImages.Count - 1);
+        FlagCommand = new(FlagCurrentAsync, () => SelectedCandidate is not null && _flags is not null);
     }
 
     public ObservableCollection<MachineOption> MachineOptions { get; }
@@ -159,6 +163,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     public RelayCommand NextCommand { get; }
     public AsyncRelayCommand PreviousImageCommand { get; }
     public AsyncRelayCommand NextImageCommand { get; }
+    public AsyncRelayCommand FlagCommand { get; }
 
     public DateTime? StartDate
     {
@@ -424,6 +429,35 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task FlagCurrentAsync()
+    {
+        if (_flags is null) return;
+        var item = SelectedCandidate?.Candidate;
+        if (item is null) return;
+        var rawPaths = item.Images
+            .Select(x => x.Path)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToArray();
+        var now = DateTimeOffset.Now;
+        await _flags.SaveAsync(new(
+            FlagKey("NGBypass", item.MachineId, item.InspectedAt, item.CellId, item.Side),
+            "NG/Bypass",
+            item.MachineId,
+            item.LinePolarity,
+            item.Polarity,
+            item.InspectedAt,
+            item.Model,
+            item.LotId,
+            item.CellId,
+            item.Side,
+            item.Measure,
+            rawPaths,
+            now,
+            now), CancellationToken.None);
+        Status = $"Flagged {item.LinePolarity} {item.CellId} {item.Side}.";
+        AddLog(Status);
+    }
+
     private bool CanReview() => !IsBusy && SelectedCandidate is not null;
 
     private async Task ReviewAsync(ReviewDecision decision)
@@ -569,6 +603,15 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     }
 
     private void AddLog(string message) => ActivityLog.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+
+    private static string FlagKey(string source, string machineId, DateTime timestamp, string cellId, string side) =>
+        string.Join(
+            "|",
+            source,
+            machineId,
+            timestamp.ToString("O"),
+            cellId.Trim(),
+            side.Trim().ToUpperInvariant());
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
