@@ -55,7 +55,7 @@ public sealed class FlaggedReviewService : IFlaggedReviewService
                 flag.ProducedAt,
                 flag.LotId,
                 flag.CellId,
-                CameraFromSide(flag.Side),
+                CameraFromSide(NormalizeSide(flag.Side)),
                 Path.GetFileName(rawPaths.FirstOrDefault() ?? string.Empty),
                 "FLAGGED",
                 flag.SourceContext,
@@ -65,6 +65,12 @@ public sealed class FlaggedReviewService : IFlaggedReviewService
 
         return candidates;
     }
+
+    public Task UnflagAsync(string key, CancellationToken cancellationToken) =>
+        _flags.DeleteAsync([key], cancellationToken);
+
+    public Task ReflagAsync(string key, CancellationToken cancellationToken) =>
+        _flags.MarkActiveAsync([key], DateTimeOffset.Now, cancellationToken);
 
     public async Task<FlaggedSummaryResult> WriteSummaryAsync(
         IReadOnlyList<FlaggedItem> flags,
@@ -140,7 +146,7 @@ public sealed class FlaggedReviewService : IFlaggedReviewService
             var paths = new List<string>(ProductionImageConventions.ImagesPerSide);
             for (var index = 1; index <= ProductionImageConventions.ImagesPerSide; index++)
             {
-                var productionPath = row.Get(ProductionCsvSchema.ImagePath(flag.Side, index));
+                var productionPath = row.Get(ProductionCsvSchema.ImagePath(NormalizeSide(flag.Side), index));
                 if (!string.IsNullOrWhiteSpace(productionPath))
                 {
                     paths.Add(ProductionPathMapper.ToUnc(machine, productionPath, _shares));
@@ -154,11 +160,19 @@ public sealed class FlaggedReviewService : IFlaggedReviewService
     }
 
     private static string CameraFromSide(string side) =>
-        side.Equals("LOWER", StringComparison.OrdinalIgnoreCase)
-        || side.Equals("BTM", StringComparison.OrdinalIgnoreCase)
-        || side.Equals("BOTTOM", StringComparison.OrdinalIgnoreCase)
+        NormalizeSide(side).Equals("LOWER", StringComparison.OrdinalIgnoreCase)
             ? "BTM"
             : "TOP";
+
+    private static string NormalizeSide(string side)
+    {
+        var value = side.Trim();
+        return value.Equals("LOWER", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("BTM", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("BOTTOM", StringComparison.OrdinalIgnoreCase)
+                ? "LOWER"
+                : "UPPER";
+    }
 
     private sealed class CsvRow
     {
@@ -182,3 +196,4 @@ public sealed class FlaggedReviewService : IFlaggedReviewService
         }
     }
 }
+

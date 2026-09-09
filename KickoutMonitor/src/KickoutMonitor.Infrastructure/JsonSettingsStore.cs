@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using KickoutMonitor.Domain;
 
 namespace KickoutMonitor.Infrastructure;
@@ -81,6 +81,27 @@ public sealed class JsonSettingsStore
         {
             settings.DlngRules = defaults.DlngRules;
         }
+
+        EnsureAfter(settings.DlngRules.SegmentationClasses, "Real", "Overkill");
+        foreach (var group in settings.IrsRules.FinalClassGroups.Where(IsSegmentationFinalGroup))
+        {
+            EnsureAfter(group.Classes, "Real", "Overkill");
+        }
+    }
+
+    private static bool IsSegmentationFinalGroup(IrsFinalClassGroupSetting group) =>
+        group.Folder.Equals("Gap_DL", StringComparison.OrdinalIgnoreCase)
+        || group.Folder.Equals("SEPA", StringComparison.OrdinalIgnoreCase)
+        || group.Folder.Equals("SEPA_SHOULDER", StringComparison.OrdinalIgnoreCase)
+        || group.Folder.Equals("HORNMARK", StringComparison.OrdinalIgnoreCase)
+        || group.Folder.Equals("LEADEDGE", StringComparison.OrdinalIgnoreCase)
+        || group.Folder.Equals("SEGMENTATION", StringComparison.OrdinalIgnoreCase);
+
+    private static void EnsureAfter(List<string> values, string after, string value)
+    {
+        if (values.Any(x => x.Equals(value, StringComparison.OrdinalIgnoreCase))) return;
+        var index = values.FindIndex(x => x.Equals(after, StringComparison.OrdinalIgnoreCase));
+        values.Insert(index >= 0 ? index + 1 : values.Count, value);
     }
 
     private static string DefaultRoot()
@@ -91,3 +112,4 @@ public sealed class JsonSettingsStore
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KickoutMonitor");
     }
 }
+

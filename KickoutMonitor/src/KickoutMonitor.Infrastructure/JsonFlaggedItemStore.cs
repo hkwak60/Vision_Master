@@ -52,6 +52,45 @@ public sealed class JsonFlaggedItemStore : IFlaggedItemStore
         }
     }
 
+    public async Task DeleteAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var keySet = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var items = await LoadUnlockedAsync(cancellationToken);
+            var remaining = items.Values
+                .Where(item => !keySet.Contains(item.Key))
+                .ToArray();
+            await SaveUnlockedAsync(remaining, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+    public async Task MarkActiveAsync(
+        IReadOnlyList<string> keys,
+        DateTimeOffset updatedAt,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var keySet = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var items = await LoadUnlockedAsync(cancellationToken);
+            var updated = items.Values
+                .Select(item => keySet.Contains(item.Key)
+                    ? item with { SummarizedAt = null, UpdatedAt = updatedAt }
+                    : item)
+                .ToArray();
+            await SaveUnlockedAsync(updated, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
     public async Task MarkSummarizedAsync(
         IReadOnlyList<string> keys,
         DateTimeOffset summarizedAt,

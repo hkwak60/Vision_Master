@@ -98,9 +98,17 @@ public sealed class NgBypassReportGenerator : INgBypassReportService
                 $"Cannot generate NG/Bypass summary: {missing:N0} item(s) are not reviewed.");
         }
 
-        var rows = BuildRows(windowItems, reviews, totalInspectedByMachine);
+        var countableItems = CountableItems(windowItems);
+        var reworkDuplicates = windowItems.Length - countableItems.Count;
+        if (reworkDuplicates > 0)
+        {
+            progress?.Report($"Excluding {reworkDuplicates:N0} rework duplicate NG/Bypass item(s) from summary counts.");
+        }
+
+        var rows = BuildRows(countableItems, reviews, totalInspectedByMachine);
         var details = BuildDetails(windowItems, reviews);
-        var outputFolder = Path.Combine(_storage.NgBypassSummary, $"NG_Bypass_Summary_{reportDate:yyyyMMdd}");
+        var dateFolder = Path.Combine(_storage.NgBypassSummary, $"NG_Bypass_Summary_{reportDate:yyyyMMdd}");
+        var outputFolder = Path.Combine(dateFolder, SafeName(query.Measure));
         if (Directory.Exists(outputFolder)) Directory.Delete(outputFolder, true);
         Directory.CreateDirectory(outputFolder);
         Directory.CreateDirectory(Path.Combine(outputFolder, "REAL"));
@@ -108,7 +116,31 @@ public sealed class NgBypassReportGenerator : INgBypassReportService
         var workbook = Path.Combine(outputFolder, $"NG_Bypass_Summary_{reportDate:yyyyMMdd}.xlsx");
         WriteWorkbook(workbook, reportDate, windowStart, windowEndExclusive, rows, details);
         CopyReviewedImages(outputFolder, details, cancellationToken);
-        return new(reportDate, windowStart, windowEndExclusive, outputFolder, workbook, rows);
+        return new(reportDate, windowStart, windowEndExclusive, dateFolder, outputFolder, workbook, rows);
+    }
+
+    public async Task<IReadOnlyList<NgBypassReportResult>> GenerateRangeAsync(
+        IReadOnlyList<WeldingMachine> machines,
+        NgBypassQuery query,
+        DateOnly startDate,
+        DateOnly endDate,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (endDate < startDate)
+        {
+            throw new ArgumentException("Report end date must be on or after report start date.", nameof(endDate));
+        }
+
+        var results = new List<NgBypassReportResult>();
+        for (var date = startDate; date <= endDate; date = date.AddDays(1))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Report($"Generating NG/Bypass summary for {date:yyyy-MM-dd}...");
+            results.Add(await GenerateAsync(machines, query, date, progress, cancellationToken));
+        }
+
+        return results;
     }
 
     private async Task<int> CountWindowRowsAsync(
@@ -145,6 +177,15 @@ public sealed class NgBypassReportGenerator : INgBypassReportService
         return count;
     }
 
+    private static IReadOnlyList<NgBypassCandidate> CountableItems(IReadOnlyList<NgBypassCandidate> items) =>
+        items.GroupBy(
+                x => $"{x.MachineId}|{x.LinePolarity}|{x.CellId}|{x.Measure}|{x.Side}",
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderBy(x => x.InspectedAt)
+                .ThenBy(x => x.SourceRow)
+                .First())
+            .ToArray();
     private static IReadOnlyList<NgBypassReportRow> BuildRows(
         IReadOnlyList<NgBypassCandidate> items,
         IReadOnlyDictionary<string, NgBypassReviewRecord> reviews,
@@ -211,7 +252,6 @@ public sealed class NgBypassReportGenerator : INgBypassReportService
                 outputFolder,
                 classification,
                 SafeName(detail.LinePolarity),
-                SafeName(detail.Measure),
                 SafeName(detail.Side));
             Directory.CreateDirectory(destinationParent);
             var destination = Path.Combine(destinationParent, Path.GetFileName(detail.LocalFolder));
@@ -390,3 +430,4 @@ public sealed class NgBypassReportGenerator : INgBypassReportService
         return new string(value.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
     }
 }
+

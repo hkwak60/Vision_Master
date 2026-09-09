@@ -30,7 +30,7 @@
 
         <Grid Margin="12">
             <Grid.RowDefinitions>
-                <RowDefinition Height="84"/>
+                <RowDefinition Height="118"/>
                 <RowDefinition Height="105"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
@@ -39,11 +39,14 @@
                     BorderThickness="1" Padding="8" Margin="0,0,0,10">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="410"/>
+                        <ColumnDefinition Width="300"/>
+                        <ColumnDefinition Width="420"/>
                         <ColumnDefinition Width="150"/>
                         <ColumnDefinition Width="150"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" Margin="0,0,10,0">
@@ -66,21 +69,56 @@
                         </ListBox>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                        <TextBlock Text="Models" FontWeight="SemiBold"/>
+                        <Border BorderBrush="{StaticResource PanelBorder}" BorderThickness="1"
+                                Padding="6" MinHeight="66">
+                            <WrapPanel>
+                                <CheckBox Content="All"
+                                          IsChecked="{Binding AllModelsSelected}"
+                                          FontWeight="SemiBold"
+                                          Margin="7,2" MinWidth="54"/>
+                                <ItemsControl ItemsSource="{Binding ModelOptions}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox IsChecked="{Binding IsSelected}"
+                                                      Content="{Binding Name}"
+                                                      Margin="7,2" MinWidth="72"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </WrapPanel>
+                        </Border>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Margin="0,0,10,0">
                         <TextBlock Text="Start date" FontWeight="SemiBold"/>
                         <DatePicker SelectedDate="{Binding StartDate}" Height="34"/>
                     </StackPanel>
-                    <StackPanel Grid.Column="2" Margin="0,0,10,0">
+                    <StackPanel Grid.Column="3" Margin="0,0,10,0">
                         <TextBlock Text="End date" FontWeight="SemiBold"/>
                         <DatePicker SelectedDate="{Binding EndDate}" Height="34"/>
                     </StackPanel>
-                    <Button Grid.Column="3" Content="Load DLNG Queue"
+                    <Button Grid.Column="4" Content="Load DLNG Queue"
                             Command="{Binding LoadCommand}" VerticalAlignment="Bottom"/>
-                    <StackPanel Grid.Column="4" Margin="16,0,10,0">
-                        <TextBlock Text="Report date" FontWeight="SemiBold"/>
+                    <StackPanel Grid.Column="5" Margin="16,0,10,0">
+                        <TextBlock Text="Report start" FontWeight="SemiBold"/>
                         <DatePicker SelectedDate="{Binding ReportDate}" Height="34"/>
                     </StackPanel>
-                    <Button Grid.Column="5" Content="Generate DLNG Report"
-                            Command="{Binding GenerateReportCommand}" VerticalAlignment="Bottom"/>
+                    <StackPanel Grid.Column="6" Margin="0,0,10,0">
+                        <TextBlock Text="Report end" FontWeight="SemiBold"/>
+                        <DatePicker SelectedDate="{Binding ReportEndDate}" Height="34"/>
+                    </StackPanel>
+                    <Button Grid.Column="7" Content="Generate DLNG Report"
+                            Command="{Binding GenerateReportCommand}"
+                            VerticalAlignment="Bottom"
+                            Margin="0,0,8,0"/>
+                    <Button Grid.Column="8" Content="Generate Dataset"
+                            Command="{Binding GenerateDatasetCommand}"
+                            VerticalAlignment="Bottom"/>
                 </Grid>
             </Border>
 
@@ -177,12 +215,24 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
                         <Border Background="#EEF1F4" Padding="8">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="{Binding CurrentPreview.Label}"
-                                           Foreground="#243B53" FontWeight="SemiBold"/>
-                                <TextBlock Text="  |  " Foreground="#829AB1"/>
-                                <TextBlock Text="{Binding ImagePositionText}" Foreground="#52606D"/>
-                            </StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="{Binding CurrentPreview.Label}"
+                                               Foreground="#243B53" FontWeight="SemiBold"/>
+                                    <TextBlock Text="  |  " Foreground="#829AB1"/>
+                                    <TextBlock Text="{Binding ImagePositionText}" Foreground="#52606D"/>
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Content="&#9873;"
+                                        Command="{Binding FlagCommand}"
+                                        MinWidth="32"
+                                        Padding="8,2"
+                                        ToolTip="Flag this cell for follow-up"/>
+                            </Grid>
                         </Border>
                         <Grid Grid.Row="1">
                             <Grid.RowDefinitions>
@@ -223,13 +273,6 @@
                                                Foreground="#D9E2EC" FontSize="16"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
-                                    <Button Content="⚑"
-                                            Command="{Binding FlagCommand}"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Top"
-                                            Margin="10"
-                                            Padding="8,4"
-                                            ToolTip="Flag this cell for follow-up"/>
                                 </Grid>
                             </ScrollViewer>
                             <Border Grid.Row="1" Background="#18212A" Padding="8">

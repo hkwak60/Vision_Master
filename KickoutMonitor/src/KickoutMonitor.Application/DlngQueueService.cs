@@ -25,7 +25,8 @@ public sealed class DlngQueueService
         WeldingMachine machine,
         DateOnly date,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? cropFolders = null)
     {
         var sources = await _locator.FindAsync(machine, date, cancellationToken);
         if (sources.Count == 0)
@@ -53,7 +54,7 @@ public sealed class DlngQueueService
                     progress?.Report(
                         $"{machine.OutputFolderName} {date:yyyy-MM-dd}: locating crops for {candidateCount:N0} matching row(s)...");
                 }
-                var expanded = await _crops.ExpandAsync(machine, candidate, progress, cancellationToken);
+                var expanded = await _crops.ExpandAsync(machine, candidate, progress, cancellationToken, cropFolders);
                 items.AddRange(expanded);
                 itemCount += expanded.Count;
                 if (itemCount > 0 && itemCount % 100 == 0)

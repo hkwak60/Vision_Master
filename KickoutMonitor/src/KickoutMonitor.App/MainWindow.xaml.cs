@@ -77,6 +77,14 @@ public partial class MainWindow : Window
         ShowModule("Settings", "VisionMaster local configuration");
     }
 
+    private void LogMonitorButton_Click(object sender, RoutedEventArgs e)
+    {
+        var view = new LogMonitorView();
+        view.BackRequested += (_, _) => ReturnToDashboard();
+        ModuleHost.Content = view;
+        ShowModule("LOG Monitor", "Image NG retry analysis");
+    }
+
     private void ReturnToDashboard()
     {
         ModuleHost.Content = null;

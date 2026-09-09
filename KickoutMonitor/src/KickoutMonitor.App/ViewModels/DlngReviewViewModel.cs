@@ -107,6 +107,32 @@ public sealed class DlngClassOption : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
+public sealed class DlngModelOption : INotifyPropertyChanged
+{
+    private bool _isSelected;
+
+    public DlngModelOption(string name, bool isSelected = false)
+    {
+        Name = name;
+        _isSelected = isSelected;
+    }
+
+    public string Name { get; }
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected == value) return;
+            _isSelected = value;
+            PropertyChanged?.Invoke(this, new(nameof(IsSelected)));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+}
+
 public sealed class DlngReviewViewModel : INotifyPropertyChanged
 {
     private readonly IMachineRegistry _machines;
@@ -121,8 +147,13 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private DateTime? _startDate = DateTime.Today;
     private DateTime? _endDate = DateTime.Today;
     private DateTime? _reportDate = DateTime.Today;
+    private DateTime? _reportEndDate = DateTime.Today;
+    private DateOnly? _lastSummaryStart;
+    private DateOnly? _lastSummaryEnd;
     private string _status = "Ready";
     private bool _isBusy;
+    private bool _allModelsSelected;
+    private bool _updatingModelSelections;
     private bool _restoringSelections;
     private int _currentImageIndex = -1;
     private readonly Dictionary<string, DlngReviewRecord> _reviewRecords = new(StringComparer.OrdinalIgnoreCase);
@@ -144,8 +175,11 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         _settings = settings ?? VisionMasterSettings.CreateDefault();
         _flags = flags;
         MachineOptions = new(_machines.All.Select((machine, index) => new MachineOption(machine, index == 0)));
-        LoadCommand = new(LoadQueueAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && StartDate is not null && EndDate is not null);
-        GenerateReportCommand = new(GenerateReportAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && ReportDate is not null);
+        ModelOptions = new(DlngModelNames(_settings).Select(name => new DlngModelOption(name)));
+        foreach (var option in ModelOptions) option.PropertyChanged += ModelOption_PropertyChanged;
+        LoadCommand = new(LoadQueueAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && ModelOptions.Any(x => x.IsSelected) && StartDate is not null && EndDate is not null);
+        GenerateReportCommand = new(GenerateReportAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && ModelOptions.Any(x => x.IsSelected) && ReportDate is not null && ReportEndDate is not null);
+        GenerateDatasetCommand = new(GenerateDatasetAsync, CanGenerateDataset);
         PreviousCommand = new(Previous, CanPrevious);
         NextCommand = new(Next, CanNext);
         PreviousImageCommand = new(PreviousImageAsync, () => CurrentImageIndex > 0);
@@ -155,6 +189,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     }
 
     public ObservableCollection<MachineOption> MachineOptions { get; }
+    public ObservableCollection<DlngModelOption> ModelOptions { get; }
     public ObservableCollection<DlngCandidateItem> Candidates { get; } = [];
     public ObservableCollection<DlngPreviewItem> PreviewImages { get; } = [];
     public ObservableCollection<DlngClassOption> FinalClassOptions { get; } = [];
@@ -162,12 +197,36 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     public ObservableCollection<DlngReportRow> SummaryRows { get; } = [];
     public AsyncRelayCommand LoadCommand { get; }
     public AsyncRelayCommand GenerateReportCommand { get; }
+    public AsyncRelayCommand GenerateDatasetCommand { get; }
     public RelayCommand PreviousCommand { get; }
     public RelayCommand NextCommand { get; }
     public AsyncRelayCommand PreviousImageCommand { get; }
     public AsyncRelayCommand NextImageCommand { get; }
     public AsyncRelayCommand FlagCommand { get; }
     public RelayCommand CommitCommand { get; }
+
+    public bool AllModelsSelected
+    {
+        get => _allModelsSelected;
+        set
+        {
+            if (!Set(ref _allModelsSelected, value)) return;
+            if (_updatingModelSelections) return;
+            _updatingModelSelections = true;
+            try
+            {
+                foreach (var option in ModelOptions)
+                {
+                    option.IsSelected = value;
+                }
+            }
+            finally
+            {
+                _updatingModelSelections = false;
+            }
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
 
     public DateTime? StartDate
     {
@@ -184,7 +243,19 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     public DateTime? ReportDate
     {
         get => _reportDate;
-        set => Set(ref _reportDate, value);
+        set
+        {
+            if (Set(ref _reportDate, value)) CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public DateTime? ReportEndDate
+    {
+        get => _reportEndDate;
+        set
+        {
+            if (Set(ref _reportEndDate, value)) CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     public DlngCandidateItem? SelectedCandidate
@@ -272,6 +343,9 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             case Key.R:
                 SelectByDisplay("Real");
                 return;
+            case Key.O:
+                SelectByDisplay("Overkill");
+                return;
             case Key.N:
                 SelectByDisplay("No Need to Train");
                 return;
@@ -296,6 +370,15 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             case Key.D6 or Key.NumPad6:
                 SelectByPrefix("06");
                 return;
+            case Key.D7 or Key.NumPad7:
+                SelectByPrefix("07");
+                return;
+            case Key.D8 or Key.NumPad8:
+                SelectByPrefix("08");
+                return;
+            case Key.D9 or Key.NumPad9:
+                SelectByPrefix("09");
+                return;
         }
     }
 
@@ -311,6 +394,8 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             return;
         }
 
+        _lastSummaryStart = null;
+        _lastSummaryEnd = null;
         IsBusy = true;
         Candidates.Clear();
         ClearPreviews();
@@ -323,13 +408,14 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             foreach (var pair in saved) _reviewRecords[pair.Key] = pair.Value;
             var progress = new Progress<string>(AddLog);
             var loaded = new List<DlngCandidateItem>();
+            var selectedModels = SelectedModelNames();
             foreach (var machine in selectedMachines)
             {
                 for (var date = start; date <= end; date = date.AddDays(1))
                 {
                     try
                     {
-                        var items = await _queue.LoadAsync(machine, date, progress, CancellationToken.None);
+                        var items = await _queue.LoadAsync(machine, date, progress, CancellationToken.None, selectedModels);
                         foreach (var item in items)
                         {
                             saved.TryGetValue(item.Key, out var review);
@@ -405,16 +491,48 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private async Task GenerateReportAsync()
     {
         var selectedMachines = MachineOptions.Where(x => x.IsSelected).Select(x => x.Machine).ToArray();
-        if (ReportDate is null || selectedMachines.Length == 0) return;
+        if (ReportDate is null || ReportEndDate is null || selectedMachines.Length == 0) return;
+        var reportStart = DateOnly.FromDateTime(ReportDate.Value);
+        var reportEnd = DateOnly.FromDateTime(ReportEndDate.Value);
+        if (reportEnd < reportStart)
+        {
+            Status = "Report end date must be on or after report start date.";
+            return;
+        }
+
         IsBusy = true;
         SummaryRows.Clear();
         try
         {
-            var reportDate = DateOnly.FromDateTime(ReportDate.Value);
             var progress = new Progress<string>(AddLog);
-            var result = await _reports.GenerateAsync(selectedMachines, reportDate, progress, CancellationToken.None);
-            foreach (var row in result.Rows) SummaryRows.Add(row);
-            Status = $"DLNG report saved: {result.SummaryWorkbook}";
+            var queuedItems = Candidates.Select(x => x.Item).ToArray();
+            var results = new List<DlngReportResult>();
+            for (var date = reportStart; date <= reportEnd; date = date.AddDays(1))
+            {
+                try
+                {
+                    var result = await _reports.GenerateFromItemsAsync(queuedItems, date, progress, CancellationToken.None);
+                    results.Add(result);
+                    foreach (var row in result.Rows) SummaryRows.Add(row);
+                    AddLog($"DLNG report saved: {result.SummaryWorkbook}");
+                }
+                catch (InvalidOperationException exception)
+                {
+                    AddLog($"{date:yyyy-MM-dd}: {exception.Message}");
+                }
+            }
+
+            if (results.Count == 0)
+            {
+                throw new InvalidOperationException("Cannot generate DLNG report: no reviewed DLNG crop item(s) were found for the selected date range.");
+            }
+
+            _lastSummaryStart = reportStart;
+            _lastSummaryEnd = reportEnd;
+            CommandManager.InvalidateRequerySuggested();
+            Status = results.Count == 1
+                ? $"DLNG report saved: {results[0].SummaryWorkbook}"
+                : $"DLNG reports saved: {results.Count:N0} day(s).";
             AddLog(Status);
         }
         catch (Exception exception)
@@ -428,6 +546,48 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         }
     }
 
+    private bool CanGenerateDataset()
+    {
+        if (IsBusy || ReportDate is null || ReportEndDate is null || Candidates.Count == 0) return false;
+        var reportStart = DateOnly.FromDateTime(ReportDate.Value);
+        var reportEnd = DateOnly.FromDateTime(ReportEndDate.Value);
+        return _lastSummaryStart == reportStart && _lastSummaryEnd == reportEnd;
+    }
+
+    private async Task GenerateDatasetAsync()
+    {
+        if (ReportDate is null || ReportEndDate is null) return;
+        var reportStart = DateOnly.FromDateTime(ReportDate.Value);
+        var reportEnd = DateOnly.FromDateTime(ReportEndDate.Value);
+        if (reportEnd < reportStart)
+        {
+            Status = "Dataset end date must be on or after dataset start date.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var progress = new Progress<string>(AddLog);
+            var result = await _reports.GenerateDatasetFromItemsAsync(
+                Candidates.Select(x => x.Item).ToArray(),
+                reportStart,
+                reportEnd,
+                progress,
+                CancellationToken.None);
+            Status = $"DLNG dataset generated: {result.CopiedCount:N0} image(s) copied to {result.OutputFolder}.";
+            AddLog(Status);
+        }
+        catch (Exception exception)
+        {
+            Status = exception.Message;
+            AddLog($"DLNG DATASET BLOCKED: {exception.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
     private void ConfigureFinalClasses(DlngCandidateItem? item)
     {
         _restoringSelections = true;
@@ -626,6 +786,33 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
 
     private void AddLog(string message) => ActivityLog.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
 
+    private void ModelOption_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(DlngModelOption.IsSelected) || _updatingModelSelections) return;
+        _updatingModelSelections = true;
+        try
+        {
+            _allModelsSelected = ModelOptions.Count > 0 && ModelOptions.All(x => x.IsSelected);
+            OnPropertyChanged(nameof(AllModelsSelected));
+        }
+        finally
+        {
+            _updatingModelSelections = false;
+        }
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private HashSet<string> SelectedModelNames() =>
+        new(ModelOptions.Where(x => x.IsSelected).Select(x => x.Name), StringComparer.OrdinalIgnoreCase);
+
+    private static IReadOnlyList<string> DlngModelNames(VisionMasterSettings settings) =>
+        settings.DlngRules.DefectMappings
+            .SelectMany(x => x.CropFolders)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
     private static string FlagKey(string source, string machineId, DateTime timestamp, string cellId, string side) =>
         string.Join(
             "|",
@@ -657,3 +844,5 @@ internal static class DlngReviewItemExtensions
     public static string SideTitle(this DlngReviewItem item) =>
         item.Side.Equals("LOWER", StringComparison.OrdinalIgnoreCase) ? "Lower" : "Upper";
 }
+
+

@@ -44,6 +44,7 @@ public sealed class IrsCandidateItem : INotifyPropertyChanged
             datasetItem.ImagePaths);
     }
 
+    public string Date => Candidate.ProducedAt.ToString("yyyy-MM-dd");
     public string Time => Candidate.ProducedAt.ToString("HH:mm:ss");
     public string LinePolarity => Candidate.LinePolarity;
     public string CellId => Candidate.CellId;
@@ -172,7 +173,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         _dataset = dataset;
         _settings = settings ?? VisionMasterSettings.CreateDefault();
         _flags = flags;
-        BrowseCommand = new(Browse);
+        BrowseCommand = new(BrowseAsync, () => !IsBusy);
         LoadCommand = new(LoadAsync, () => !IsBusy && File.Exists(WorkbookPath));
         PreviousCommand = new(Previous, CanPrevious);
         NextCommand = new(Next, CanNext);
@@ -202,7 +203,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public ObservableCollection<IrsCandidateItem> Candidates { get; } = [];
     public ObservableCollection<IrsPreviewItem> PreviewImages { get; } = [];
     public ObservableCollection<string> ActivityLog { get; } = [];
-    public RelayCommand BrowseCommand { get; }
+    public AsyncRelayCommand BrowseCommand { get; }
     public AsyncRelayCommand LoadCommand { get; }
     public RelayCommand PreviousCommand { get; }
     public RelayCommand NextCommand { get; }
@@ -331,6 +332,9 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 case Key.R:
                     SelectFinalByDisplay("Real");
                     break;
+                case Key.O:
+                    SelectFinalByDisplay("Overkill");
+                    break;
                 case Key.N:
                     SelectFinalByDisplay("No Need to Retrain");
                     break;
@@ -355,6 +359,15 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 case Key.D6 or Key.NumPad6:
                     SelectFinalByPrefix("06");
                     break;
+                case Key.D7 or Key.NumPad7:
+                    SelectFinalByPrefix("07");
+                    break;
+                case Key.D8 or Key.NumPad8:
+                    SelectFinalByPrefix("08");
+                    break;
+                case Key.D9 or Key.NumPad9:
+                    SelectFinalByPrefix("09");
+                    break;
             }
 
             return;
@@ -373,7 +386,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 break;
         }
     }
-    private void Browse()
+    private async Task BrowseAsync()
     {
         var dialog = new OpenFileDialog
         {
@@ -385,6 +398,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         if (dialog.ShowDialog() == true)
         {
             WorkbookPath = dialog.FileName;
+            await LoadAsync();
         }
     }
 
@@ -465,7 +479,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 PreviewImages.Add(new($"Raw {index + 1}", paths[index]));
             }
         }
-        CurrentImageIndex = PreviewImages.Count > 0 ? 0 : -1;
+        CurrentImageIndex = PreviewImages.Count == 0 ? -1 : item.DatasetItem is null && PreviewImages.Count > 1 ? 1 : 0;
         await LoadCurrentPreviewAsync(token);
     }
 
@@ -932,6 +946,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         IsBusy = true;
         try
         {
+            AddLog($"Checking IRS dataset decisions for {_datasetItems.Count:N0} item(s).");
             var decisions = await _dataset.LoadDecisionsAsync(CancellationToken.None);
             var missing = _datasetItems.Count(x => !x.IsNeedToSimulate && !decisions.ContainsKey(x.Key));
             if (missing > 0)
@@ -941,7 +956,16 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 return;
             }
 
-            var result = await _dataset.WriteSummaryAsync(_loadedCandidates, _loadedReviewRecords, _datasetItems, CancellationToken.None);
+            AddLog("Starting IRS summary generation.");
+            var progress = new Progress<string>(AddLog);
+            var result = await Task.Run(
+                async () => await _dataset.WriteSummaryAsync(
+                    _loadedCandidates,
+                    _loadedReviewRecords,
+                    _datasetItems,
+                    CancellationToken.None,
+                    progress),
+                CancellationToken.None);
             Status = $"IRS summary generated: {result.OutputFolder}";
             AddLog(Status);
         }
@@ -1087,3 +1111,8 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public event EventHandler? PreviewImageLoaded;
     public event EventHandler? RequestKeyboardFocus;
 }
+
+
+
+
+

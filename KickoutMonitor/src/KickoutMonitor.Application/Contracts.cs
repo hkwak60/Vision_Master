@@ -1,4 +1,4 @@
-﻿using KickoutMonitor.Domain;
+using KickoutMonitor.Domain;
 
 namespace KickoutMonitor.Application;
 
@@ -141,7 +141,8 @@ public interface IIrsDatasetService
         IReadOnlyList<IrsReviewCandidate> candidates,
         IReadOnlyList<IrsReviewRecord> reviewRecords,
         IReadOnlyList<IrsDatasetItem> datasetItems,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        IProgress<string>? progress = null);
 }
 
 public interface IFlaggedItemStore
@@ -149,6 +150,13 @@ public interface IFlaggedItemStore
     Task<IReadOnlyDictionary<string, FlaggedItem>> LoadAsync(CancellationToken cancellationToken);
 
     Task SaveAsync(FlaggedItem item, CancellationToken cancellationToken);
+
+    Task DeleteAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken);
+
+    Task MarkActiveAsync(
+        IReadOnlyList<string> keys,
+        DateTimeOffset updatedAt,
+        CancellationToken cancellationToken);
 
     Task MarkSummarizedAsync(
         IReadOnlyList<string> keys,
@@ -163,6 +171,10 @@ public interface IFlaggedReviewService
     Task<IReadOnlyList<IrsReviewCandidate>> BuildCandidatesAsync(
         IReadOnlyList<FlaggedItem> flags,
         CancellationToken cancellationToken);
+
+    Task UnflagAsync(string key, CancellationToken cancellationToken);
+
+    Task ReflagAsync(string key, CancellationToken cancellationToken);
 
     Task<FlaggedSummaryResult> WriteSummaryAsync(
         IReadOnlyList<FlaggedItem> flags,
@@ -187,7 +199,8 @@ public interface IDlngCropLocator
         WeldingMachine machine,
         DlngReviewItem candidate,
         IProgress<string>? progress,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? cropFolders = null);
 }
 
 public interface IDlngReviewStore
@@ -198,11 +211,25 @@ public interface IDlngReviewStore
 
 public interface IDlngReportService
 {
+    Task<DlngReportResult> GenerateFromItemsAsync(
+        IReadOnlyList<DlngReviewItem> items,
+        DateOnly reportDate,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken);
+
+    Task<DlngDatasetExportResult> GenerateDatasetFromItemsAsync(
+        IReadOnlyList<DlngReviewItem> items,
+        DateOnly startDate,
+        DateOnly endDate,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken);
+
     Task<DlngReportResult> GenerateAsync(
         IReadOnlyList<WeldingMachine> machines,
         DateOnly reportDate,
         IProgress<string>? progress,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? cropFolders = null);
 }
 
 public interface INgBypassCsvReader
@@ -238,4 +265,13 @@ public interface INgBypassReportService
         DateOnly reportDate,
         IProgress<string>? progress,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<NgBypassReportResult>> GenerateRangeAsync(
+        IReadOnlyList<WeldingMachine> machines,
+        NgBypassQuery query,
+        DateOnly startDate,
+        DateOnly endDate,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken);
 }
+

@@ -4,9 +4,22 @@ public static class DlngRules
 {
     public static DlngDefectMappingSetting? FindMapping(
         string? defect,
-        DlngRuleSettings rules) =>
-        rules.DefectMappings.FirstOrDefault(x =>
-            x.Defect.Equals(defect?.Trim(), StringComparison.OrdinalIgnoreCase));
+        DlngRuleSettings rules)
+    {
+        var value = defect?.Trim();
+        var exact = rules.DefectMappings.FirstOrDefault(x =>
+            x.Defect.Equals(value, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null) return exact;
+
+        foreach (var alias in DefectAliases(value))
+        {
+            var mapped = rules.DefectMappings.FirstOrDefault(x =>
+                x.Defect.Equals(alias, StringComparison.OrdinalIgnoreCase));
+            if (mapped is not null) return mapped;
+        }
+
+        return null;
+    }
 
     public static bool IsEligibleJudge(string? judge, DlngRuleSettings rules) =>
         rules.EligibleJudges.Any(x =>
@@ -40,6 +53,12 @@ public static class DlngRules
         return classes;
     }
 
+    private static IEnumerable<string> DefectAliases(string? defect)
+    {
+        if (defect is null) yield break;
+        if (defect.Equals("SEPA_SHOULDER_DL", StringComparison.OrdinalIgnoreCase)) yield return "SEPA_SHOULDER";
+        if (defect.Equals("SEPA_SHOULDER", StringComparison.OrdinalIgnoreCase)) yield return "SEPA_SHOULDER_DL";
+    }
     private static bool CropAClassMatchesSide(string klass, string? side)
     {
         var isUpper = side?.Equals("UPPER", StringComparison.OrdinalIgnoreCase) == true;

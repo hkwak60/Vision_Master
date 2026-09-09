@@ -155,14 +155,17 @@ public sealed class IrsDatasetService : IIrsDatasetService
         IReadOnlyList<IrsReviewCandidate> candidates,
         IReadOnlyList<IrsReviewRecord> reviewRecords,
         IReadOnlyList<IrsDatasetItem> datasetItems,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<string>? progress = null)
     {
+        progress?.Report("Loading IRS dataset decisions.");
         var decisions = await LoadDecisionsAsync(cancellationToken);
         var relevant = datasetItems
             .Where(item => decisions.ContainsKey(item.Key))
             .Select(item => (Item: item, Decision: decisions[item.Key]))
             .Where(x => !x.Decision.NoNeedToRetrain)
             .ToArray();
+        progress?.Report($"Preparing IRS summary for {relevant.Length:N0} reviewed dataset item(s).");
         if (candidates.Count == 0) throw new InvalidOperationException("No loaded IRS rows are available for summary.");
 
         var first = DateOnly.FromDateTime(candidates.Min(x => x.ProducedAt));
@@ -173,7 +176,12 @@ public sealed class IrsDatasetService : IIrsDatasetService
             ? $"{_summaryPrefix}_{first:yyyyMMdd}_{last:yyyyMMdd}"
             : $"{_summaryPrefix}_{DateTime.Now:yyyyMMdd_HHmmss}";
         var folder = Path.Combine(root, folderName);
-        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        if (Directory.Exists(folder))
+        {
+            progress?.Report($"Removing existing IRS summary folder: {folderName}.");
+            Directory.Delete(folder, true);
+        }
+        progress?.Report($"Creating IRS summary folder: {folderName}.");
         Directory.CreateDirectory(folder);
         var datasetRoot = Path.Combine(folder, "Dataset");
         Directory.CreateDirectory(datasetRoot);
@@ -182,12 +190,19 @@ public sealed class IrsDatasetService : IIrsDatasetService
         Directory.CreateDirectory(Path.Combine(datasetRoot, ClassificationFolder, NormalDetectionFolder));
         Directory.CreateDirectory(Path.Combine(datasetRoot, SegmentationFolder));
 
+        progress?.Report("Copying IRS dataset images.");
+        var copiedRows = 0;
         foreach (var row in relevant)
         {
             if (row.Item.IsNeedToSimulate)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 CopyNeedToSimulateDataset(row.Item, datasetRoot, cancellationToken);
+                copiedRows++;
+                if (copiedRows == relevant.Length || copiedRows % 25 == 0)
+                {
+                    progress?.Report($"Copied IRS dataset item {copiedRows:N0}/{relevant.Length:N0}.");
+                }
                 continue;
             }
 
@@ -202,13 +217,23 @@ public sealed class IrsDatasetService : IIrsDatasetService
                     File.Copy(image, target, true);
                 }
             }
+
+            copiedRows++;
+            if (copiedRows == relevant.Length || copiedRows % 25 == 0)
+            {
+                progress?.Report($"Copied IRS dataset item {copiedRows:N0}/{relevant.Length:N0}.");
+            }
         }
 
-        CopyRulebaseFolders(folder, candidates, reviewRecords, cancellationToken);
+        progress?.Report("Copying IRS rulebase folders.");
+        CopyRulebaseFolders(folder, candidates, reviewRecords, cancellationToken, progress);
 
         var summaryPath = Path.Combine(folder, $"{folderName}.xlsx");
+        progress?.Report("Writing IRS summary workbook.");
         WriteSummaryWorkbook(summaryPath, relevant);
+        progress?.Report("Writing IRS detail workbooks.");
         var details = WriteDetailsWorkbooks(folder, candidates, reviewRecords, relevant);
+        progress?.Report("IRS summary files are complete.");
         return new(folder, summaryPath, details);
     }
 
@@ -288,10 +313,15 @@ public sealed class IrsDatasetService : IIrsDatasetService
         string summaryFolder,
         IReadOnlyList<IrsReviewCandidate> candidates,
         IReadOnlyList<IrsReviewRecord> reviewRecords,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<string>? progress = null)
     {
         var candidatesByKey = candidates.ToDictionary(x => x.Key, StringComparer.OrdinalIgnoreCase);
-        foreach (var record in reviewRecords.Where(x => x.Selections.Contains("RULEBASE", StringComparer.OrdinalIgnoreCase)))
+        var rulebaseRecords = reviewRecords
+            .Where(x => x.Selections.Contains("RULEBASE", StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        var copied = 0;
+        foreach (var record in rulebaseRecords)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!candidatesByKey.TryGetValue(record.Key, out var candidate)) continue;
@@ -311,6 +341,12 @@ public sealed class IrsDatasetService : IIrsDatasetService
                     reasonFolder,
                     Path.GetFileName(normalizedPath));
                 CopyDirectoryContents(normalizedPath, destinationFolder, cancellationToken);
+            }
+
+            copied++;
+            if (copied == rulebaseRecords.Length || copied % 25 == 0)
+            {
+                progress?.Report($"Copied IRS rulebase folder {copied:N0}/{rulebaseRecords.Length:N0}.");
             }
         }
     }
@@ -683,3 +719,4 @@ public sealed class IrsDatasetService : IIrsDatasetService
         return builder.ToString();
     }
 }
+

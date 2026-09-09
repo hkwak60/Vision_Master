@@ -40,7 +40,6 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="IRS workbook" FontWeight="SemiBold"/>
@@ -49,11 +48,9 @@
                     </StackPanel>
                     <Button Grid.Column="1" Content="Browse"
                             Command="{Binding BrowseCommand}" VerticalAlignment="Bottom"/>
-                    <Button Grid.Column="2" Content="Load IRS Queue"
-                            Command="{Binding LoadCommand}" VerticalAlignment="Bottom"/>
-                    <Button Grid.Column="3" Content="Generate Dataset"
+                    <Button Grid.Column="2" Content="Generate Dataset"
                             Command="{Binding GenerateDatasetCommand}" VerticalAlignment="Bottom"/>
-                    <Button Grid.Column="4" Content="Summary Report"
+                    <Button Grid.Column="3" Content="Summary Report"
                             Command="{Binding SummaryReportCommand}" VerticalAlignment="Bottom"/>
                 </Grid>
             </Border>
@@ -131,12 +128,36 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
                         <Border Background="#EEF1F4" Padding="8">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="{Binding CurrentPreview.Label}"
-                                           Foreground="#243B53" FontWeight="SemiBold"/>
-                                <TextBlock Text="  |  " Foreground="#829AB1"/>
-                                <TextBlock Text="{Binding ImagePositionText}" Foreground="#52606D"/>
-                            </StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border HorizontalAlignment="Left"
+                                        Padding="8,4"
+                                        Background="#D9E2EC"
+                                        CornerRadius="4"
+                                        MaxWidth="420">
+                                    <TextBlock Text="{Binding ReasonOverlay}"
+                                               Foreground="#243B53"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Border>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="{Binding CurrentPreview.Label}"
+                                               Foreground="#243B53" FontWeight="SemiBold"/>
+                                    <TextBlock Text="  |  " Foreground="#829AB1"/>
+                                    <TextBlock Text="{Binding ImagePositionText}" Foreground="#52606D"/>
+                                </StackPanel>
+                                <Button Grid.Column="2"
+                                        Content="&#9873;"
+                                        Command="{Binding FlagCommand}"
+                                        MinWidth="32"
+                                        Padding="8,2"
+                                        HorizontalAlignment="Right"
+                                        ToolTip="Flag this cell for follow-up"/>
+                            </Grid>
                         </Border>
                         <Grid Grid.Row="1">
                             <Grid.RowDefinitions>
@@ -166,24 +187,11 @@
                                             <ScaleTransform x:Name="ImageScale" ScaleX="1" ScaleY="1"/>
                                         </Image.LayoutTransform>
                                     </Image>
-                                    <Border HorizontalAlignment="Left" VerticalAlignment="Top"
-                                            Margin="10" Padding="8,5" Background="#CC111820"
-                                            CornerRadius="4">
-                                        <TextBlock Text="{Binding ReasonOverlay}" Foreground="White"
-                                                   FontWeight="SemiBold" TextWrapping="Wrap"
-                                                   MaxWidth="420"/>
-                                    </Border>
+
                                     <TextBlock Text="{Binding CurrentPreview.State}"
                                                Foreground="#D9E2EC" FontSize="16"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
-                                    <Button Content="⚑"
-                                            Command="{Binding FlagCommand}"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Top"
-                                            Margin="10"
-                                            Padding="8,4"
-                                            ToolTip="Flag this cell for follow-up"/>
                                 </Grid>
                             </ScrollViewer>
                             <Border Grid.Row="1" Background="#18212A" Padding="8">
@@ -410,3 +418,6 @@
         </Grid>
     </DockPanel>
 </UserControl>
+
+
+

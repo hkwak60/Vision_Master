@@ -14,6 +14,7 @@ public sealed class NgBypassCandidateItem : INotifyPropertyChanged
 {
     private ReviewDecision _decision;
     private CopyState _copyState;
+    private bool _isReworkDuplicate;
 
     public NgBypassCandidateItem(NgBypassCandidate candidate, NgBypassReviewRecord? review)
     {
@@ -29,6 +30,17 @@ public sealed class NgBypassCandidateItem : INotifyPropertyChanged
     public string Measure => Candidate.Measure;
     public string Side => Candidate.Side;
     public string TargetValue => Candidate.TargetValue;
+    public bool IsReworkDuplicate
+    {
+        get => _isReworkDuplicate;
+        set
+        {
+            if (_isReworkDuplicate == value) return;
+            _isReworkDuplicate = value;
+            PropertyChanged?.Invoke(this, new(nameof(IsReworkDuplicate)));
+        }
+    }
+
     public string ReviewLabel => Decision switch
     {
         ReviewDecision.RealNg => "Real",
@@ -112,6 +124,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     private DateTime? _startDate = DateTime.Today;
     private DateTime? _endDate = DateTime.Today;
     private DateTime? _reportDate = DateTime.Today;
+    private DateTime? _reportEndDate = DateTime.Today;
     private string _measure = string.Empty;
     private bool _includeUpper = true;
     private bool _includeLower;
@@ -180,7 +193,21 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     public DateTime? ReportDate
     {
         get => _reportDate;
-        set => Set(ref _reportDate, value);
+        set
+        {
+            if (!Set(ref _reportDate, value)) return;
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public DateTime? ReportEndDate
+    {
+        get => _reportEndDate;
+        set
+        {
+            if (!Set(ref _reportEndDate, value)) return;
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     public string Measure
@@ -322,7 +349,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
         && !string.IsNullOrWhiteSpace(Measure)
         && (IncludeUpper || IncludeLower);
 
-    private bool CanGenerateReport() => CanLoad() && ReportDate is not null;
+    private bool CanGenerateReport() => CanLoad() && ReportDate is not null && ReportEndDate is not null;
 
     private NgBypassQuery Query() => new(Measure.Trim(), IncludeUpper, IncludeLower, Bypassed, Bypassed && SkipNg);
 
@@ -379,6 +406,13 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
                 }
             }
 
+            MarkReworkDuplicates(loaded);
+            var reworkCount = loaded.Count(x => x.IsReworkDuplicate);
+            if (reworkCount > 0)
+            {
+                AddLog($"Marked {reworkCount:N0} rework duplicate NG/Bypass item(s) in the queue.");
+            }
+
             foreach (var item in loaded
                          .OrderBy(IsUnclassified)
                          .ThenBy(x => x.Candidate.InspectedAt)
@@ -405,17 +439,26 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
 
     private async Task GenerateReportAsync()
     {
-        if (ReportDate is null) return;
+        if (ReportDate is null || ReportEndDate is null) return;
+        var reportStart = DateOnly.FromDateTime(ReportDate.Value);
+        var reportEnd = DateOnly.FromDateTime(ReportEndDate.Value);
+        if (reportEnd < reportStart)
+        {
+            Status = "Report end date must be on or after report start date.";
+            return;
+        }
+
         var selectedMachines = MachineOptions.Where(x => x.IsSelected).Select(x => x.Machine).ToArray();
         IsBusy = true;
         SummaryRows.Clear();
         try
         {
-            var reportDate = DateOnly.FromDateTime(ReportDate.Value);
             var progress = new Progress<string>(AddLog);
-            var result = await _reports.GenerateAsync(selectedMachines, Query(), reportDate, progress, CancellationToken.None);
-            foreach (var row in result.Rows) SummaryRows.Add(row);
-            Status = $"NG/Bypass summary saved: {result.SummaryWorkbook}";
+            var results = await _reports.GenerateRangeAsync(selectedMachines, Query(), reportStart, reportEnd, progress, CancellationToken.None);
+            foreach (var row in results.SelectMany(x => x.Rows)) SummaryRows.Add(row);
+            Status = results.Count == 1
+                ? $"NG/Bypass summary saved: {results[0].SummaryWorkbook}"
+                : $"NG/Bypass summaries saved: {results.Count:N0} day(s), {results.First().DateFolder} through {results.Last().DateFolder}";
             AddLog(Status);
         }
         catch (Exception exception)
@@ -543,6 +586,31 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     private static bool IsUnclassified(NgBypassCandidateItem item) =>
         item.Decision == ReviewDecision.Pending;
 
+    private static void MarkReworkDuplicates(IReadOnlyList<NgBypassCandidateItem> items)
+    {
+        foreach (var item in items)
+        {
+            item.IsReworkDuplicate = false;
+        }
+
+        foreach (var group in items.GroupBy(
+                     x => $"{x.Candidate.MachineId}|{x.LinePolarity}|{x.CellId}|{x.Measure}|{x.Side}",
+                     StringComparer.OrdinalIgnoreCase))
+        {
+            var first = true;
+            foreach (var item in group.OrderBy(x => x.Candidate.InspectedAt).ThenBy(x => x.Candidate.SourceRow))
+            {
+                if (first)
+                {
+                    first = false;
+                    continue;
+                }
+
+                item.IsReworkDuplicate = true;
+            }
+        }
+    }
+
     private IReadOnlyList<NgBypassCandidateItem> DisplayedCandidates()
     {
         var view = CollectionViewSource.GetDefaultView(Candidates);
@@ -629,3 +697,4 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     public event EventHandler? RequestKeyboardFocus;
     public event PropertyChangedEventHandler? PropertyChanged;
 }
+

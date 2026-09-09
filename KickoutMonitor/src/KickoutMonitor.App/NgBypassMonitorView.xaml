@@ -30,7 +30,7 @@
 
         <Grid Margin="12">
             <Grid.RowDefinitions>
-                <RowDefinition Height="92"/>
+                <RowDefinition Height="96"/>
                 <RowDefinition Height="105"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
@@ -45,6 +45,7 @@
                         <ColumnDefinition Width="140"/>
                         <ColumnDefinition Width="190"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="140"/>
                         <ColumnDefinition Width="140"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
@@ -91,10 +92,14 @@
                     <Button Grid.Column="5" Content="Load Queue"
                             Command="{Binding LoadCommand}" VerticalAlignment="Bottom"/>
                     <StackPanel Grid.Column="6" Margin="16,0,10,0">
-                        <TextBlock Text="Report date" FontWeight="SemiBold"/>
+                        <TextBlock Text="Report start" FontWeight="SemiBold"/>
                         <DatePicker SelectedDate="{Binding ReportDate}" Height="34"/>
                     </StackPanel>
-                    <Button Grid.Column="7" Content="Generate Summary"
+                    <StackPanel Grid.Column="7" Margin="0,0,10,0">
+                        <TextBlock Text="Report end" FontWeight="SemiBold"/>
+                        <DatePicker SelectedDate="{Binding ReportEndDate}" Height="34"/>
+                    </StackPanel>
+                    <Button Grid.Column="8" Content="Generate Summary"
                             Command="{Binding GenerateReportCommand}" VerticalAlignment="Bottom"/>
                 </Grid>
             </Border>
@@ -162,6 +167,9 @@
                                 <Style TargetType="DataGridRow">
                                     <Setter Property="Background" Value="White"/>
                                     <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsReworkDuplicate}" Value="True">
+                                            <Setter Property="Background" Value="#FFF7D6"/>
+                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding Decision}" Value="RealNg">
                                             <Setter Property="Background" Value="#D9EAD3"/>
                                         </DataTrigger>
@@ -191,12 +199,24 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
                         <Border Background="#EEF1F4" Padding="8">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="{Binding CurrentPreview.Label}"
-                                           Foreground="#243B53" FontWeight="SemiBold"/>
-                                <TextBlock Text="  |  " Foreground="#829AB1"/>
-                                <TextBlock Text="{Binding ImagePositionText}" Foreground="#52606D"/>
-                            </StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="{Binding CurrentPreview.Label}"
+                                               Foreground="#243B53" FontWeight="SemiBold"/>
+                                    <TextBlock Text="  |  " Foreground="#829AB1"/>
+                                    <TextBlock Text="{Binding ImagePositionText}" Foreground="#52606D"/>
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Content="&#9873;"
+                                        Command="{Binding FlagCommand}"
+                                        MinWidth="32"
+                                        Padding="8,2"
+                                        ToolTip="Flag this cell for follow-up"/>
+                            </Grid>
                         </Border>
                         <Grid Grid.Row="1">
                             <Grid.RowDefinitions>
@@ -230,13 +250,6 @@
                                                Foreground="#D9E2EC" FontSize="16"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
-                                    <Button Content="⚑"
-                                            Command="{Binding FlagCommand}"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Top"
-                                            Margin="10"
-                                            Padding="8,4"
-                                            ToolTip="Flag this cell for follow-up"/>
                                 </Grid>
                             </ScrollViewer>
                             <Border Grid.Row="1" Background="#18212A" Padding="8">
@@ -293,3 +306,4 @@
         </Grid>
     </DockPanel>
 </UserControl>
+

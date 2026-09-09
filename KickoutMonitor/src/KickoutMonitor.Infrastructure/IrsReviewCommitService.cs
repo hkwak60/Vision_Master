@@ -306,9 +306,12 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
     {
         var side = cameraLocation.Trim().Equals("BTM", StringComparison.OrdinalIgnoreCase)
             || cameraLocation.Trim().Equals("BOTTOM", StringComparison.OrdinalIgnoreCase)
+            || cameraLocation.Trim().Equals("LOWER", StringComparison.OrdinalIgnoreCase)
             ? "LOWER"
             : "UPPER";
-        return fileName.Contains(side, StringComparison.OrdinalIgnoreCase);
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        return name.Split(['_', ' ', '-'], StringSplitOptions.RemoveEmptyEntries)
+            .Any(token => token.Equals(side, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool MatchesCropToken(string fileName, IrsReviewSelection selection)
@@ -317,6 +320,10 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
         if (selection.Id is "GAP" or "SEPA") return true;
         if (selection.Id is "TABSIDE_L") return MatchesLooseSideToken(fileName, "L");
         if (selection.Id is "TABSIDE_R") return MatchesLooseSideToken(fileName, "R");
+        if (selection.Id is "HORNMARK_L") return MatchesHornmarkToken(fileName, "L");
+        if (selection.Id is "HORNMARK_R") return MatchesHornmarkToken(fileName, "R");
+        if (selection.Id is "LEADEDGE_L") return MatchesLeadEdgeToken(fileName, "L");
+        if (selection.Id is "LEADEDGE_R") return MatchesLeadEdgeToken(fileName, "R");
         return fileName.Contains(selection.Token, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -326,6 +333,25 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
         var tokens = name.Split(['_', ' ', '-'], StringSplitOptions.RemoveEmptyEntries);
         return tokens.Any(token => token.Equals(side, StringComparison.OrdinalIgnoreCase));
     }
+
+    private static bool MatchesHornmarkToken(string fileName, string side) =>
+        SideTokenAliases(side).Any(alias =>
+            fileName.Contains($"HORN MARK {alias}", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains($"HORNMARK {alias}", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains($"HORNMARK_{alias}", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains($"HORN {alias}", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains($"HORN_{alias}", StringComparison.OrdinalIgnoreCase));
+
+    private static bool MatchesLeadEdgeToken(string fileName, string side) =>
+        SideTokenAliases(side).Any(alias =>
+            fileName.Contains($"LEAD EDGE {alias}", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains($"LEAD_EDGE_{alias}", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains($"LEADEDGE {alias}", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains($"LEADEDGE_{alias}", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains($"LEAD {alias}", StringComparison.OrdinalIgnoreCase));
+
+    private static IReadOnlyList<string> SideTokenAliases(string side) =>
+        side.Equals("L", StringComparison.OrdinalIgnoreCase) ? ["L", "LEFT"] : ["R", "RIGHT"];
 
     private static bool IsUsefulCropFile(string fileName) =>
         fileName.Contains("SourceMap", StringComparison.OrdinalIgnoreCase)
@@ -559,3 +585,4 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
             _values.TryGetValue(name, out var value) ? value : null;
     }
 }
+

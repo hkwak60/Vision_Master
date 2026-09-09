@@ -27,10 +27,14 @@ public sealed class DlngReportGenerator : IDlngReportService
         IReadOnlyList<WeldingMachine> machines,
         DateOnly reportDate,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? cropFolders = null)
     {
         var windowStart = reportDate.ToDateTime(new TimeOnly(6, 0));
         var windowEnd = reportDate.AddDays(1).ToDateTime(new TimeOnly(6, 0));
+        var cropFilter = cropFolders is { Count: > 0 }
+            ? new HashSet<string>(cropFolders.Where(x => !string.IsNullOrWhiteSpace(x)), StringComparer.OrdinalIgnoreCase)
+            : null;
         var items = new List<DlngReviewItem>();
         foreach (var machine in machines)
         {
@@ -39,7 +43,7 @@ public sealed class DlngReportGenerator : IDlngReportService
                 try
                 {
                     progress?.Report($"Loading DLNG queue for {machine.OutputFolderName} {date:yyyy-MM-dd}...");
-                    items.AddRange(await _queue.LoadAsync(machine, date, progress, cancellationToken));
+                    items.AddRange(await _queue.LoadAsync(machine, date, progress, cancellationToken, cropFilter));
                 }
                 catch (FileNotFoundException)
                 {
@@ -54,21 +58,108 @@ public sealed class DlngReportGenerator : IDlngReportService
             .Select(x => x.First())
             .OrderBy(x => x.InspectedAt)
             .ToArray();
-        var decisions = await _reviews.LoadAsync(cancellationToken);
-        var missing = windowItems.Count(x => !decisions.ContainsKey(x.Key));
-        if (missing > 0)
+        return await GenerateReviewedReportAsync(windowItems, reportDate, progress, cancellationToken);
+    }
+
+    public Task<DlngReportResult> GenerateFromItemsAsync(
+        IReadOnlyList<DlngReviewItem> items,
+        DateOnly reportDate,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var windowStart = reportDate.ToDateTime(new TimeOnly(6, 0));
+        var windowEnd = reportDate.AddDays(1).ToDateTime(new TimeOnly(6, 0));
+        var windowItems = items
+            .Where(x => x.InspectedAt >= windowStart && x.InspectedAt < windowEnd)
+            .GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.First())
+            .OrderBy(x => x.InspectedAt)
+            .ToArray();
+        return GenerateReviewedReportAsync(windowItems, reportDate, progress, cancellationToken);
+    }
+
+    public async Task<DlngDatasetExportResult> GenerateDatasetFromItemsAsync(
+        IReadOnlyList<DlngReviewItem> items,
+        DateOnly startDate,
+        DateOnly endDate,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (endDate < startDate)
         {
-            throw new InvalidOperationException(
-                $"Cannot generate DLNG report: {missing:N0} DLNG crop item(s) are not classified.");
+            throw new InvalidOperationException("Dataset end date must be on or after dataset start date.");
         }
 
-        var outputFolder = Path.Combine(_storage.DlngReport, $"DLNG_REPORT_{reportDate:yyyyMMdd}");
-        if (Directory.Exists(outputFolder)) Directory.Delete(outputFolder, true);
+        var windowStart = startDate.ToDateTime(new TimeOnly(6, 0));
+        var windowEnd = endDate.AddDays(1).ToDateTime(new TimeOnly(6, 0));
+        var decisions = await _reviews.LoadAsync(cancellationToken);
+        var rows = items
+            .Where(x => x.InspectedAt >= windowStart && x.InspectedAt < windowEnd)
+            .GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.First())
+            .Where(x => decisions.ContainsKey(x.Key))
+            .Select(item => (Item: item, Decision: decisions[item.Key]))
+            .Where(x => !x.Decision.IsFallbackRaw && x.Item.ModelKind != DlngModelKind.FallbackRaw)
+            .Where(x => !ShouldSkipDatasetExport(x.Item, x.Decision))
+            .OrderBy(x => x.Item.CropFolder, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Decision.FinalClass, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Item.InspectedAt)
+            .ToArray();
+
+        if (rows.Length == 0)
+        {
+            throw new InvalidOperationException("Cannot generate DLNG dataset: no reviewed cropped DLNG item(s) were found for the selected date range.");
+        }
+
+        var datasetRoot = Path.Combine(_storage.DlngReport, "DATASET");
+        var dateRange = DateRangeFolder(startDate, endDate);
+        var copied = 0;
+        foreach (var row in rows)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            copied += CopyFlatDataset(row.Item, row.Decision, datasetRoot, dateRange, cancellationToken);
+        }
+
+        progress?.Report($"DLNG dataset generated: {copied:N0} image(s) copied.");
+        return new(startDate, endDate, datasetRoot, copied);
+    }
+    private async Task<DlngReportResult> GenerateReviewedReportAsync(
+        IReadOnlyList<DlngReviewItem> windowItems,
+        DateOnly reportDate,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var decisions = await _reviews.LoadAsync(cancellationToken);
+        var reviewedRows = windowItems
+            .Where(x => decisions.ContainsKey(x.Key))
+            .Select(item => (Item: item, Decision: decisions[item.Key]))
+            .ToArray();
+        var missing = windowItems.Count - reviewedRows.Length;
+        if (missing > 0)
+        {
+            progress?.Report($"Skipped {missing:N0} unclassified DLNG crop item(s).");
+        }
+
+        var rows = reviewedRows
+            .Where(x => !ShouldSkipDatasetExport(x.Item, x.Decision))
+            .ToArray();
+        var skippedNoNeed = reviewedRows.Length - rows.Length;
+        if (skippedNoNeed > 0)
+        {
+            progress?.Report($"Skipped {skippedNoNeed:N0} segmentation No Need item(s); no dataset export is required.");
+        }
+
+        if (rows.Length == 0)
+        {
+            throw new InvalidOperationException("Cannot generate DLNG report: no reviewed DLNG crop item(s) were found for the selected model/date window.");
+        }
+
+        var modelSuffix = ModelSuffix(rows.Select(x => x.Item.CropFolder));
+        var outputFolder = Path.Combine(_storage.DlngReport, "REPORT", $"DLNG_REPORT_{reportDate:yyyyMMdd}");
         Directory.CreateDirectory(outputFolder);
         var datasetRoot = Path.Combine(outputFolder, "Dataset");
         Directory.CreateDirectory(datasetRoot);
 
-        var rows = windowItems.Select(item => (Item: item, Decision: decisions[item.Key])).ToArray();
         foreach (var row in rows)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -103,7 +194,8 @@ public sealed class DlngReportGenerator : IDlngReportService
             .ThenBy(x => x.FinalClass)
             .ToArray();
 
-        var workbook = Path.Combine(outputFolder, $"DLNG_REPORT_{reportDate:yyyyMMdd}.xlsx");
+        var workbook = Path.Combine(outputFolder, $"DLNG_REPORT_{reportDate:yyyyMMdd}_{modelSuffix}.xlsx");
+        if (File.Exists(workbook)) File.Delete(workbook);
         WriteWorkbook(workbook, summaryRows, rows);
         return new(reportDate, outputFolder, workbook, summaryRows);
     }
@@ -130,11 +222,35 @@ public sealed class DlngReportGenerator : IDlngReportService
         foreach (var image in images)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var target = Path.Combine(destinationFolder, Path.GetFileName(image));
+            var target = Path.Combine(destinationFolder, ModelSuffixedFileName(image, item.CropFolder));
             File.Copy(image, target, true);
         }
     }
 
+    private static int CopyFlatDataset(
+        DlngReviewItem item,
+        DlngReviewRecord decision,
+        string datasetRoot,
+        string dateRange,
+        CancellationToken cancellationToken)
+    {
+        var destinationFolder = Path.Combine(
+            datasetRoot,
+            SafeName(item.CropFolder),
+            dateRange,
+            SafeName(FlatDatasetClassFolder(item, decision)));
+        Directory.CreateDirectory(destinationFolder);
+        var copied = 0;
+        foreach (var image in decision.ImagePaths.Where(File.Exists))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var target = UniqueTargetPath(destinationFolder, Path.GetFileName(image));
+            File.Copy(image, target, false);
+            copied++;
+        }
+
+        return copied;
+    }
     private static string DatasetDestinationFolder(
         DlngReviewItem item,
         DlngReviewRecord decision,
@@ -205,11 +321,35 @@ public sealed class DlngReportGenerator : IDlngReportService
         return value.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string DatasetClassFolder(DlngReviewItem item, DlngReviewRecord decision) =>
-        item.ModelKind == DlngModelKind.Segmentation
-        && decision.FinalClass.Equals("No Need to Train", StringComparison.OrdinalIgnoreCase)
-            ? "OVERKILL"
-            : decision.FinalClass;
+    private static string DatasetClassFolder(DlngReviewItem item, DlngReviewRecord decision) => decision.FinalClass;
+
+    private static string FlatDatasetClassFolder(DlngReviewItem item, DlngReviewRecord decision) => decision.FinalClass;
+
+    private static bool ShouldSkipDatasetExport(DlngReviewItem item, DlngReviewRecord decision) =>
+        (item.ModelKind is DlngModelKind.Segmentation or DlngModelKind.FallbackRaw || decision.IsFallbackRaw)
+        && IsNoNeedToTrain(decision.FinalClass);
+
+    private static bool IsNoNeedToTrain(string finalClass) =>
+        finalClass.Equals("No Need to Train", StringComparison.OrdinalIgnoreCase)
+        || finalClass.Equals("No Need to Retrain", StringComparison.OrdinalIgnoreCase);
+
+    private static string DateRangeFolder(DateOnly startDate, DateOnly endDate) =>
+        startDate == endDate
+            ? startDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture)
+            : $"{startDate:yyyyMMdd}-{endDate:yyyyMMdd}";
+
+    private static string UniqueTargetPath(string destinationFolder, string fileName)
+    {
+        var target = Path.Combine(destinationFolder, fileName);
+        if (!File.Exists(target)) return target;
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        for (var index = 2; ; index++)
+        {
+            target = Path.Combine(destinationFolder, $"{stem}_{index}{extension}");
+            if (!File.Exists(target)) return target;
+        }
+    }
 
     private static void WriteWorkbook(
         string path,
@@ -341,6 +481,29 @@ public sealed class DlngReportGenerator : IDlngReportService
             || extension.Equals(".bmp", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static string ModelSuffixedFileName(string path, string cropFolder)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(path);
+        var extension = Path.GetExtension(path);
+        return $"{fileName}_{SafeName(cropFolder)}{extension}";
+    }
+
+    private static string ModelSuffix(IEnumerable<string> cropFolders)
+    {
+        var models = cropFolders
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .Select(SafeName)
+            .ToArray();
+        return models.Length switch
+        {
+            0 => "DLNG",
+            1 => models[0],
+            _ => "MULTI"
+        };
+    }
+
     private static string SafeName(string value)
     {
         var invalid = Path.GetInvalidFileNameChars();
@@ -349,3 +512,5 @@ public sealed class DlngReportGenerator : IDlngReportService
         return builder.ToString();
     }
 }
+
+

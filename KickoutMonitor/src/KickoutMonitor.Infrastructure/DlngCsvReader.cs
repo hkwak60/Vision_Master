@@ -111,6 +111,11 @@ public sealed class DlngCsvReader : IDlngCsvReader
     {
         if (judge.Equals("NG", StringComparison.OrdinalIgnoreCase))
         {
+            var defectSides = SideList(
+                IsDefectNg(row, "UPPER", defect),
+                IsDefectNg(row, "LOWER", defect));
+            if (defectSides.Count > 0) return defectSides;
+
             return SideList(
                 row.Get(ProductionCsvSchema.UpperJudge).Equals("NG", StringComparison.OrdinalIgnoreCase),
                 row.Get(ProductionCsvSchema.LowerJudge).Equals("NG", StringComparison.OrdinalIgnoreCase));
@@ -121,17 +126,41 @@ public sealed class DlngCsvReader : IDlngCsvReader
             IsBypassNg(row, "LOWER", defect));
     }
 
+    private static bool IsDefectNg(CsvRow row, string side, string defect) =>
+        SideJudgeColumns(side, defect).Any(column =>
+            row.Get(column).Equals("NG", StringComparison.OrdinalIgnoreCase)
+            || row.Get(column).Equals("BYPASS_NG", StringComparison.OrdinalIgnoreCase));
+
     private static bool IsBypassNg(CsvRow row, string side, string defect) =>
         SideJudgeColumns(side, defect).Any(column =>
             row.Get(column).Equals("BYPASS_NG", StringComparison.OrdinalIgnoreCase));
 
     private static IEnumerable<string> SideJudgeColumns(string side, string defect)
     {
-        yield return $"{side}_{defect}-JUDGE";
+        foreach (var alias in DefectColumnAliases(defect))
+        {
+            yield return $"{side}_{alias}-JUDGE";
+            yield return $"{side}_{alias}-OK/NG";
+        }
         if (defect.Equals("SEPA_SHOULDER", StringComparison.OrdinalIgnoreCase))
         {
             yield return $"{side}_SEPA_SHOULDER_DL-JUDGE";
+            yield return $"{side}_SEPA_SHOULDER_DL-OK/NG";
         }
+        if (defect.Equals("SEPA_SHOULDER_DL", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return $"{side}_SEPA_SHOULDER-JUDGE";
+            yield return $"{side}_SEPA_SHOULDER-OK/NG";
+        }
+    }
+
+    private static IEnumerable<string> DefectColumnAliases(string defect)
+    {
+        yield return defect;
+        if (defect.Equals("GAP", StringComparison.OrdinalIgnoreCase)) yield return "GAP_DL";
+        if (defect.Equals("GAP_DL", StringComparison.OrdinalIgnoreCase)) yield return "GAP";
+        if (defect.Equals("SEPA_SHOULDER", StringComparison.OrdinalIgnoreCase)) yield return "SEPA_SHOULDER_DL";
+        if (defect.Equals("SEPA_SHOULDER_DL", StringComparison.OrdinalIgnoreCase)) yield return "SEPA_SHOULDER";
     }
 
     private static IReadOnlyList<string> SideList(bool upper, bool lower) =>

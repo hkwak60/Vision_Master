@@ -338,6 +338,12 @@ public sealed record DlngReportResult(
     string SummaryWorkbook,
     IReadOnlyList<DlngReportRow> Rows);
 
+public sealed record DlngDatasetExportResult(
+    DateOnly StartDate,
+    DateOnly EndDate,
+    string OutputFolder,
+    int CopiedCount);
+
 public sealed record NgBypassCandidate(
     string Key,
     string MachineId,
@@ -419,6 +425,7 @@ public sealed record NgBypassReportResult(
     DateOnly ReportDate,
     DateTime WindowStart,
     DateTime WindowEndExclusive,
+    string DateFolder,
     string OutputFolder,
     string SummaryWorkbook,
     IReadOnlyList<NgBypassReportRow> Rows);

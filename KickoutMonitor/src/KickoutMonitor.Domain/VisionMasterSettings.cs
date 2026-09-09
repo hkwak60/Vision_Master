@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace KickoutMonitor.Domain;
@@ -153,9 +153,12 @@ public sealed class IrsRuleSettings
             Final("Crop_B", Polarity.Cathode, ["01_OK_CATHODE", "02_NG_TORN", "03_NG_PTCL", "04_NG_FOLDED", "No Need to Retrain"]),
             Final("Crop_micro", null, ["01_OK_TAB", "02_OK_BTM", "03_OK_QNG_DENT", "04_NG_TORN_DENT", "05_NG_TORN_CRACK", "06_NG_TORN_VERTICAL_CRACK", "No Need to Retrain"]),
             Final("Crop_micro_tabside", null, ["01_OK_TAB_SIDE", "02_OK_NG_MARK", "03_QNG_WRINKLE", "04_NG_SIDE_TORN", "05_NG_SIDE_PTCL", "No Need to Retrain"]),
-            Final("Gap_DL", null, ["Real", "No Need to Retrain"]),
-            Final("SEPA", null, ["Real", "No Need to Retrain"]),
-            Final("SEPA_SHOULDER", null, ["Real", "No Need to Retrain"])
+            Final("Gap_DL", null, ["Real", "Overkill", "No Need to Retrain"]),
+            Final("SEPA", null, ["Real", "Overkill", "No Need to Retrain"]),
+            Final("SEPA_SHOULDER", null, ["Real", "Overkill", "No Need to Retrain"]),
+            Final("HORNMARK", null, ["Real", "Overkill", "No Need to Retrain"]),
+            Final("LEADEDGE", null, ["Real", "Overkill", "No Need to Retrain"]),
+            Final("SEGMENTATION", null, ["Real", "Overkill", "No Need to Retrain"])
         ]
     };
 
@@ -209,7 +212,7 @@ public sealed class DlngRuleSettings
     public static DlngRuleSettings CreateDefault() => new()
     {
         EligibleJudges = ["DLNG", "C-NG", "QNG", "NG"],
-        SegmentationClasses = ["Real", "No Need to Train"],
+        SegmentationClasses = ["Real", "Overkill", "No Need to Train"],
         DefectMappings =
         [
             Map("A_L", DlngModelKind.Classification, ["Crop_A"], "A_L"),
@@ -223,6 +226,7 @@ public sealed class DlngRuleSettings
             Map("SEPA_LEFT", DlngModelKind.Segmentation, ["SEPA"], "SEPA"),
             Map("SEPA_RIGHT", DlngModelKind.Segmentation, ["SEPA"], "SEPA"),
             Map("SEPA_SHOULDER", DlngModelKind.Segmentation, ["SEPA_SHOULDER"], "SEPA SHOULDER"),
+            Map("SEPA_SHOULDER_DL", DlngModelKind.Segmentation, ["SEPA_SHOULDER"], "SEPA SHOULDER"),
             Map("Micro_LL", DlngModelKind.Classification, ["Crop_micro"], "Micro_LL"),
             Map("Micro_LM", DlngModelKind.Classification, ["Crop_micro"], "Micro_LM"),
             Map("Micro_MM", DlngModelKind.Classification, ["Crop_micro"], "Micro_MM"),
@@ -265,4 +269,5 @@ public sealed class DlngDefectMappingSetting
     public List<string> CropFolders { get; set; } = [];
     public string? Token { get; set; }
 }
+
 

@@ -20,7 +20,8 @@ public sealed class DlngCropLocator : IDlngCropLocator
         WeldingMachine machine,
         DlngReviewItem candidate,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? cropFolders = null)
     {
         return Task.Run<IReadOnlyList<DlngReviewItem>>(() =>
         {
@@ -28,7 +29,8 @@ public sealed class DlngCropLocator : IDlngCropLocator
             if (mapping is null) return [];
 
             var results = new List<DlngReviewItem>();
-            foreach (var folder in mapping.CropFolders)
+            foreach (var folder in mapping.CropFolders.Where(folder =>
+                         cropFolders is null || cropFolders.Contains(folder)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var pairs = mapping.ModelKind == DlngModelKind.Classification

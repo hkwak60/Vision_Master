@@ -57,7 +57,8 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
         NextCommand = new(Next, CanNext);
         PreviousImageCommand = new(PreviousImageAsync, () => CurrentImageIndex > 0);
         NextImageCommand = new(NextImageAsync, () => CurrentImageIndex >= 0 && CurrentImageIndex < PreviewImages.Count - 1);
-        SelectionOptions = _settings.IrsRules.FirstStageSelections.Select(Option).ToArray();
+        UnflagCommand = new(UnflagOrReflagCurrentAsync, () => !IsBusy && !_datasetMode && SelectedCandidate is not null);
+        SelectionOptions = _settings.IrsRules.FirstStageSelections.Select(Option).Concat(FlaggedOnlyOptions()).ToArray();
         foreach (var option in SelectionOptions) option.PropertyChanged += SelectionOption_PropertyChanged;
     }
 
@@ -74,9 +75,14 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
     public IReadOnlyList<IrsSelectionOption> GapSelections => SelectionOptions.Where(x => x.Id == "GAP").ToArray();
     public IReadOnlyList<IrsSelectionOption> SepaSelections => SelectionOptions.Where(x => x.Id == "SEPA").ToArray();
     public IReadOnlyList<IrsSelectionOption> SepaShoulderSelections => SelectionOptions.Where(x => x.Id.StartsWith("SEPA_SHOULDER_", StringComparison.Ordinal)).ToArray();
+    public IReadOnlyList<IrsSelectionOption> HornmarkSelections => SelectionOptions.Where(x => x.Id.StartsWith("HORNMARK_", StringComparison.Ordinal)).ToArray();
+    public IReadOnlyList<IrsSelectionOption> LeadEdgeSelections => SelectionOptions.Where(x => x.Id.StartsWith("LEADEDGE_", StringComparison.Ordinal)).ToArray();
+    public IReadOnlyList<IrsSelectionOption> BeadSelections => SelectionOptions.Where(x => x.Id == "BEAD").ToArray();
     public Visibility FirstStageSelectionVisibility => _datasetMode ? Visibility.Collapsed : Visibility.Visible;
     public Visibility FinalClassVisibility => _datasetMode ? Visibility.Visible : Visibility.Collapsed;
     public string SelectionPanelTitle => _datasetMode ? "Final Class" : "Flag Decision";
+    public string FlagActionText => _previousMode ? "Re-flag" : "Unflag";
+    public string FlagActionToolTip => _previousMode ? "Move this item back to the active flagged queue" : "Unflag this item";
     public AsyncRelayCommand LoadFlaggedCommand { get; }
     public AsyncRelayCommand LoadPreviousCommand { get; }
     public AsyncRelayCommand GenerateDatasetCommand { get; }
@@ -86,6 +92,7 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
     public RelayCommand NextCommand { get; }
     public AsyncRelayCommand PreviousImageCommand { get; }
     public AsyncRelayCommand NextImageCommand { get; }
+    public AsyncRelayCommand UnflagCommand { get; }
 
     public IrsCandidateItem? SelectedCandidate
     {
@@ -95,6 +102,7 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
             if (!Set(ref _selectedCandidate, value)) return;
             _ = LoadPreviewsAsync(value);
             ConfigureFinalClassOptions(value);
+            ConfigureFirstStageOptions(value);
             OnPropertyChanged(nameof(SelectedIndex));
             OnPropertyChanged(nameof(PositionText));
             OnPropertyChanged(nameof(ReasonOverlay));
@@ -172,6 +180,9 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
         {
             switch (key)
             {
+                case Key.O:
+                    SelectFinalByDisplay("Overkill");
+                    return;
                 case Key.N:
                     SelectFinalByDisplay("No Need to Retrain");
                     return;
@@ -193,6 +204,15 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
                 case Key.D6 or Key.NumPad6:
                     SelectFinalByPrefix("06");
                     return;
+                case Key.D7 or Key.NumPad7:
+                    SelectFinalByPrefix("07");
+                    return;
+                case Key.D8 or Key.NumPad8:
+                    SelectFinalByPrefix("08");
+                    return;
+                case Key.D9 or Key.NumPad9:
+                    SelectFinalByPrefix("09");
+                    return;
             }
         }
         else
@@ -203,6 +223,7 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
                     SelectExclusive("RULEBASE");
                     return;
                 case Key.U:
+                case Key.N:
                     SelectExclusive("UNDETECTABLE");
                     return;
             }
@@ -225,6 +246,7 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
             _loadedFlags = await _flags.LoadAsync(summarized, CancellationToken.None);
             _loadedCandidates = await _flags.BuildCandidatesAsync(_loadedFlags, CancellationToken.None);
             var records = await _commits.LoadRecordsAsync(CancellationToken.None);
+            _loadedReviewRecords = records;
             foreach (var candidate in _loadedCandidates)
             {
                 var item = new IrsCandidateItem(candidate)
@@ -299,6 +321,50 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
         Next();
     }
 
+    private async Task UnflagOrReflagCurrentAsync()
+    {
+        if (_datasetMode || SelectedCandidate is null) return;
+        var item = SelectedCandidate;
+        IsBusy = true;
+        try
+        {
+            if (_previousMode)
+            {
+                await _flags.ReflagAsync(item.Candidate.Key, CancellationToken.None);
+                Status = $"Re-flagged {item.LinePolarity} {item.CellId}; loading active flagged queue.";
+                AddLog(Status);
+                await LoadAsync(false);
+                return;
+            }
+
+            await _flags.UnflagAsync(item.Candidate.Key, CancellationToken.None);
+            var displayed = DisplayedCandidates();
+            var displayedIndex = DisplayedIndexOf(item, displayed);
+            Candidates.Remove(item);
+            _loadedFlags = _loadedFlags
+                .Where(flag => !flag.Key.Equals(item.Candidate.Key, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            _loadedCandidates = _loadedCandidates
+                .Where(candidate => !candidate.Key.Equals(item.Candidate.Key, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            ClearPreviews();
+            var remainingDisplayed = DisplayedCandidates();
+            SelectedCandidate = remainingDisplayed.Count == 0
+                ? null
+                : remainingDisplayed[Math.Min(Math.Max(displayedIndex, 0), remainingDisplayed.Count - 1)];
+            Status = $"Unflagged {item.LinePolarity} {item.CellId}.";
+            AddLog(Status);
+        }
+        catch (Exception exception)
+        {
+            Status = exception.Message;
+            AddLog($"{FlagActionText} failed: {exception.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
     private async Task GenerateDatasetAsync()
     {
         if (_loadedCandidates.Count == 0 || _previousMode) return;
@@ -429,6 +495,27 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
         PreviewImageLoaded?.Invoke(this, EventArgs.Empty);
     }
 
+    private void ConfigureFirstStageOptions(IrsCandidateItem? item)
+    {
+        if (_datasetMode) return;
+        _restoringSelections = true;
+        try
+        {
+            foreach (var option in SelectionOptions) option.IsSelected = false;
+            if (item is null) return;
+            var record = _loadedReviewRecords.LastOrDefault(x => x.Key.Equals(item.Candidate.Key, StringComparison.OrdinalIgnoreCase));
+            if (record is null) return;
+            var selected = record.Selections.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var option in SelectionOptions)
+            {
+                option.IsSelected = selected.Contains(option.Id);
+            }
+        }
+        finally
+        {
+            _restoringSelections = false;
+        }
+    }
     private bool CanCommitSelection() =>
         !_previousMode
         && SelectedCandidate is not null
@@ -701,6 +788,14 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
             option.Kind,
             option.MavinFolder,
             option.Token));
+    private static IReadOnlyList<IrsSelectionOption> FlaggedOnlyOptions() =>
+    [
+        new(new("HORNMARK_L", "Hornmark L", "HORNMARK", IrsSelectionKind.Crop, "HORNMARK", "L")),
+        new(new("HORNMARK_R", "Hornmark R", "HORNMARK", IrsSelectionKind.Crop, "HORNMARK", "R")),
+        new(new("LEADEDGE_L", "LeadEdge L", "LEADEDGE", IrsSelectionKind.Crop, "LEADEDGE", "L")),
+        new(new("LEADEDGE_R", "LeadEdge R", "LEADEDGE", IrsSelectionKind.Crop, "LEADEDGE", "R")),
+        new(new("BEAD", "Bead", "SEGMENTATION", IrsSelectionKind.Crop, "SEGMENTATION", null))
+    ];
 
     private void AddLog(string message) => ActivityLog.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
 
@@ -726,3 +821,5 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
     public event EventHandler? PreviewImageChanging;
     public event EventHandler? PreviewImageLoaded;
 }
+
+

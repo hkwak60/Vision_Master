@@ -32,8 +32,8 @@
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2.1*"/>
-                <ColumnDefinition Width="3*"/>
+                <ColumnDefinition Width="1.35*"/>
+                <ColumnDefinition Width="4*"/>
                 <ColumnDefinition Width="1.45*"/>
             </Grid.ColumnDefinitions>
 
@@ -51,13 +51,30 @@
                               SelectionMode="Single"
                               HeadersVisibility="Column"
                               CanUserSortColumns="True">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="Background" Value="White"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ReviewStatus}" Value="Saved">
+                                        <Setter Property="Background" Value="#D9EAD3"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ReviewStatus}" Value="Saved with missing">
+                                        <Setter Property="Background" Value="#D9EAD3"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ReviewStatus}" Value="Copy failed">
+                                        <Setter Property="Background" Value="#F4CCCC"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="70"/>
+                            <DataGridTextColumn Header="Date" Binding="{Binding Date}" Width="82"/>
+                            <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="62"/>
                             <DataGridTextColumn Header="Line" Binding="{Binding LinePolarity}" Width="80"/>
-                            <DataGridTextColumn Header="Cell" Binding="{Binding CellId}" Width="150"/>
+                            <DataGridTextColumn Header="Cell" Binding="{Binding CellId}" Width="125"/>
                             <DataGridTextColumn Header="Side" Binding="{Binding Camera}" Width="60"/>
-                            <DataGridTextColumn Header="Reason" Binding="{Binding SecondReason}" Width="*"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding ReviewStatus}" Width="100"/>
+                            <DataGridTextColumn Header="Reason" Binding="{Binding SecondReason}" Width="110"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding ReviewStatus}" Width="85"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
@@ -71,11 +88,19 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <Border Background="#EEF1F4" Padding="8">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <TextBlock Text="{Binding CurrentPreview.Label}" Foreground="#243B53" FontWeight="SemiBold"/>
-                            <TextBlock Text="  |  " Foreground="#829AB1"/>
-                            <TextBlock Text="{Binding ImagePositionText}" Foreground="#52606D"/>
-                        </StackPanel>
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding CurrentPreview.Label}" Foreground="#243B53" FontWeight="SemiBold"/>
+                                <TextBlock Text="  |  " Foreground="#829AB1"/>
+                                <TextBlock Text="{Binding ImagePositionText}" Foreground="#52606D"/>
+                            </StackPanel>
+                            <Button Content="{Binding FlagActionText}"
+                                    Command="{Binding UnflagCommand}"
+                                    HorizontalAlignment="Right"
+                                    Padding="8,2"
+                                    MinWidth="62"
+                                    ToolTip="{Binding FlagActionToolTip}"/>
+                        </Grid>
                     </Border>
                     <Grid Grid.Row="1">
                         <Grid.RowDefinitions>
@@ -191,6 +216,20 @@
                                 <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate><DataTemplate><ToggleButton Content="{Binding DisplayName}" IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/></DataTemplate></ItemsControl.ItemTemplate>
                             </ItemsControl>
+                            <TextBlock Text="Hornmark" Foreground="#52606D" FontWeight="SemiBold" Margin="2,8,0,0"/>
+                            <ItemsControl ItemsSource="{Binding HornmarkSelections}">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate><DataTemplate><ToggleButton Content="{Binding DisplayName}" IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/></DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="LeadEdge" Foreground="#52606D" FontWeight="SemiBold" Margin="2,8,0,0"/>
+                            <ItemsControl ItemsSource="{Binding LeadEdgeSelections}">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate><DataTemplate><ToggleButton Content="{Binding DisplayName}" IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/></DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="Bead" Foreground="#52606D" FontWeight="SemiBold" Margin="2,8,0,0"/>
+                            <ItemsControl ItemsSource="{Binding BeadSelections}">
+                                <ItemsControl.ItemTemplate><DataTemplate><ToggleButton Content="{Binding DisplayName}" IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/></DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                         <Button Content="Enter: Commit Selection" Command="{Binding CommitCommand}" Margin="2,8,2,8"/>
                         <Separator Margin="0,6"/>
@@ -214,3 +253,4 @@
         </Border>
     </Grid>
 </UserControl>
+
