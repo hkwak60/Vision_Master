@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -70,11 +69,18 @@ public partial class LogMonitorView : UserControl
 
     private void ExportButton_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SaveFileDialog { Title = "Export retry results", Filter = "CSV file (*.csv)|*.csv", FileName = $"Image_NG_Retry_{DateTime.Now:yyyyMMdd_HHmmss}.csv" };
+        var dialog = new SaveFileDialog { Title = "Export retry summary", Filter = "Excel workbook (*.xlsx)|*.xlsx", FileName = $"Image_NG_Retry_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx" };
         if (dialog.ShowDialog() != true) return;
-        var csv = new StringBuilder("Date,Time,Electrode,Retry Count,Duration Seconds,Log File,Full Path\r\n");
-        foreach (var item in Results) csv.AppendLine(string.Join(',', Csv(item.DateText), Csv(item.TimeText), Csv(item.Side), item.MaximumCount, item.Duration.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture), Csv(item.FileName), Csv(item.FullPath)));
-        File.WriteAllText(dialog.FileName, csv.ToString(), new UTF8Encoding(true)); StatusText.Text = $"Exported {Results.Count:N0} result(s) to {dialog.FileName}";
+        try
+        {
+            ExcelRetryReportWriter.Write(dialog.FileName, Results);
+            StatusText.Text = $"Exported {Results.Count:N0} result(s) with daily summary charts to {dialog.FileName}";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = $"Excel export failed: {exception.Message}";
+            MessageBox.Show(exception.Message, "LOG Monitor", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     internal static List<LogRetryResult> AnalyzeFile(string path)
@@ -103,8 +109,6 @@ public partial class LogMonitorView : UserControl
         if (group is not null) output.Add(group.ToResult(path));
         return output;
     }
-
-    private static string Csv(string value) => $"\"{value.Replace("\"", "\"\"")}\"";
 
     private sealed class RetryGroup
     {
