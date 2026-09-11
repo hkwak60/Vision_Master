@@ -61,6 +61,82 @@ public partial class LogMonitorView : UserControl
         catch (Exception exception) { StatusText.Text = $"Log analysis failed: {exception.Message}"; MessageBox.Show(exception.Message, "LOG Monitor", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
 
+    private async void UpdateSummaryButton_Click(object sender, RoutedEventArgs e)
+    {
+        var summaryDialog = new OpenFileDialog
+        {
+            Title = "Select the existing retry summary",
+            Filter = "Excel workbooks (*.xlsx;*.xlsm)|*.xlsx;*.xlsm",
+            Multiselect = false
+        };
+        if (summaryDialog.ShowDialog() != true) return;
+
+        var logDialog = new OpenFileDialog
+        {
+            Title = "Select only the new log files",
+            Filter = "Log files (*.log)|*.log|All files (*.*)|*.*",
+            Multiselect = true,
+            InitialDirectory = Path.GetDirectoryName(summaryDialog.FileName)
+        };
+        if (logDialog.ShowDialog() != true) return;
+
+        Results.Clear(); ActivityLog.Clear(); ExportButton.IsEnabled = false;
+        StatusText.Text = $"Loading existing summary and reviewing {logDialog.FileNames.Length:N0} new file(s)...";
+        try
+        {
+            var existing = await Task.Run(() => ExcelRetryReportWriter.Read(summaryDialog.FileName));
+            var added = new List<LogRetryResult>();
+            foreach (var path in logDialog.FileNames)
+            {
+                AddActivity($"Reviewing {Path.GetFileName(path)}");
+                var found = await Task.Run(() => AnalyzeFile(path));
+                added.AddRange(found);
+                AddActivity($"Reviewed {Path.GetFileName(path)} — {found.Count:N0} retry instance(s)");
+            }
+
+            var combined = existing.Concat(added)
+                .GroupBy(x => $"{x.Started:O}|{x.Side}|{x.MaximumCount}|{Math.Round(x.Duration.TotalMilliseconds)}")
+                .Select(x => x.First()).OrderBy(x => x.Started).ToList();
+            foreach (var item in combined) Results.Add(item);
+            UpdateSummaryCounts();
+
+            var outputDialog = new SaveFileDialog
+            {
+                Title = "Save updated retry summary",
+                Filter = "Excel workbook (*.xlsx)|*.xlsx",
+                InitialDirectory = Path.GetDirectoryName(summaryDialog.FileName),
+                FileName = $"{Path.GetFileNameWithoutExtension(summaryDialog.FileName)}_updated_{DateTime.Now:yyyyMMdd}.xlsx"
+            };
+            if (outputDialog.ShowDialog() != true)
+            {
+                StatusText.Text = "Update prepared but not saved.";
+                ExportButton.IsEnabled = Results.Count > 0;
+                return;
+            }
+
+            await Task.Run(() => ExcelRetryReportWriter.Write(outputDialog.FileName, combined));
+            var duplicates = existing.Count + added.Count - combined.Count;
+            FilesText.Text = $"{existing.Count:N0} existing + {added.Count:N0} new; {duplicates:N0} duplicate(s) removed";
+            ExportButton.IsEnabled = Results.Count > 0;
+            StatusText.Text = combined.Count == 0
+                ? "Updated summary saved; no retry instances were found."
+                : $"Updated summary saved with {combined.Count:N0} retry instance(s) through {combined.Max(x => x.Date):yyyy-MM-dd}.";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = $"Summary update failed: {exception.Message}";
+            MessageBox.Show(exception.Message, "LOG Monitor", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void UpdateSummaryCounts()
+    {
+        InstanceCountText.Text = Results.Count.ToString("N0");
+        AnodeCountText.Text = Results.Count(x => x.Side == "Anode").ToString("N0");
+        CathodeCountText.Text = Results.Count(x => x.Side == "Cathode").ToString("N0");
+        ReachedFourCountText.Text = Results.Count(x => x.ReachedFour).ToString("N0");
+    }
+
     private void AddActivity(string message)
     {
         ActivityLog.Add($"[{DateTime.Now:HH:mm:ss}] {message}");

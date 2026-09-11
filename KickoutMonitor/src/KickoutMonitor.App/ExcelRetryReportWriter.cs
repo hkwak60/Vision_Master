@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using A = DocumentFormat.OpenXml.Drawing;
@@ -72,6 +73,30 @@ public static class ExcelRetryReportWriter
         var sheets = workbookPart.Workbook.AppendChild(new S.Sheets());
         sheets.Append(new S.Sheet { Id = workbookPart.GetIdOfPart(worksheetPart), SheetId = 1U, Name = SheetName });
         workbookPart.Workbook.Save();
+    }
+
+    public static List<LogRetryResult> Read(string path)
+    {
+        using var document = SpreadsheetDocument.Open(path, false);
+        var workbookPart = document.WorkbookPart ?? throw new InvalidDataException("The workbook has no workbook data.");
+        var sheet = workbookPart.Workbook.Sheets?.Elements<S.Sheet>().FirstOrDefault() ?? throw new InvalidDataException("The workbook has no worksheets.");
+        var worksheetPart = (WorksheetPart)workbookPart.GetPartById(sheet.Id!);
+        var shared = workbookPart.SharedStringTablePart?.SharedStringTable;
+        var output = new List<LogRetryResult>();
+
+        foreach (var row in worksheetPart.Worksheet.GetFirstChild<S.SheetData>()?.Elements<S.Row>().Skip(1) ?? [])
+        {
+            var cells = row.Elements<S.Cell>().ToDictionary(x => ColumnFromReference(x.CellReference?.Value), x => x);
+            if (!TryNumber(cells.GetValueOrDefault("A"), shared, out var dateValue) ||
+                !TryNumber(cells.GetValueOrDefault("B"), shared, out var timeValue) ||
+                !TryNumber(cells.GetValueOrDefault("D"), shared, out var countValue) ||
+                !TryNumber(cells.GetValueOrDefault("E"), shared, out var durationValue)) continue;
+
+            var side = CellText(cells.GetValueOrDefault("C"), shared);
+            var started = DateTime.FromOADate(dateValue).Date.AddDays(timeValue);
+            output.Add(new LogRetryResult(Path.GetFileName(path), path, started, started.AddSeconds(durationValue), (int)Math.Round(countValue), 5, side));
+        }
+        return output;
     }
 
     private static void AddCharts(WorksheetPart worksheetPart, int lastDailyRow)
@@ -164,5 +189,16 @@ public static class ExcelRetryReportWriter
         var name = string.Empty;
         while (column > 0) { column--; name = (char)('A' + column % 26) + name; column /= 26; }
         return name;
+    }
+    private static string ColumnFromReference(string? reference) => new((reference ?? string.Empty).TakeWhile(char.IsLetter).ToArray());
+    private static bool TryNumber(S.Cell? cell, S.SharedStringTable? shared, out double value) =>
+        double.TryParse(CellText(cell, shared), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+    private static string CellText(S.Cell? cell, S.SharedStringTable? shared)
+    {
+        if (cell is null) return string.Empty;
+        if (cell.DataType?.Value == S.CellValues.SharedString && int.TryParse(cell.CellValue?.Text, out var index))
+            return shared?.Elements<S.SharedStringItem>().ElementAtOrDefault(index)?.InnerText ?? string.Empty;
+        if (cell.DataType?.Value == S.CellValues.InlineString) return cell.InlineString?.InnerText ?? string.Empty;
+        return cell.CellValue?.Text ?? cell.InnerText;
     }
 }
