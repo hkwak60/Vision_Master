@@ -36,3 +36,6 @@ __pycache__/
 venv/
 .env
 .agents/
+
+# Local archived publish bundles
+KickoutMonitor/publish_archives/
