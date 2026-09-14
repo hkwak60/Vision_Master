@@ -150,6 +150,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     private string _workbookPath = string.Empty;
     private string _status = "Ready";
     private bool _isBusy;
+    private bool _autoAdvanceAfterReview = true;
     private bool _restoringSelections;
     private bool _datasetMode;
     private IReadOnlyList<IrsReviewCandidate> _loadedCandidates = [];
@@ -226,6 +227,12 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public string SelectionPanelTitle => _datasetMode ? "Final Class" : "IRS Selection";
     public Visibility FirstStageSelectionVisibility => _datasetMode ? Visibility.Collapsed : Visibility.Visible;
     public Visibility FinalClassVisibility => _datasetMode ? Visibility.Visible : Visibility.Collapsed;
+
+    public bool AutoAdvanceAfterReview
+    {
+        get => _autoAdvanceAfterReview;
+        set => Set(ref _autoAdvanceAfterReview, value);
+    }
 
     public string WorkbookPath
     {
@@ -707,9 +714,9 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             if (_restoringSelections || e.PropertyName != nameof(IrsSelectionOption.IsSelected)) return;
             if (sender is IrsSelectionOption datasetOption && datasetOption.IsSelected)
             {
-                if (SelectedCandidate?.DatasetItem?.IsNeedToSimulate != true)
+                foreach (var other in FinalClassOptions.Where(x => !ReferenceEquals(x, datasetOption))) other.IsSelected = false;
+                if (AutoAdvanceAfterReview && CommitCommand.CanExecute(null))
                 {
-                    foreach (var other in FinalClassOptions.Where(x => !ReferenceEquals(x, datasetOption))) other.IsSelected = false;
                     CommitDatasetSelection();
                 }
             }
@@ -1111,6 +1118,8 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public event EventHandler? PreviewImageLoaded;
     public event EventHandler? RequestKeyboardFocus;
 }
+
+
 
 
 

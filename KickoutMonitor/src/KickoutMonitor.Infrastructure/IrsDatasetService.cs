@@ -26,6 +26,8 @@ public sealed class IrsDatasetService : IIrsDatasetService
     private readonly string _decisionFile;
     private readonly string _summaryRoot;
     private readonly string _summaryPrefix;
+    private List<IrsDatasetDecision>? _decisionCache;
+    private DateTime _decisionCacheWriteTimeUtc;
 
     public IrsDatasetService(
         AppStorage storage,
@@ -428,16 +430,40 @@ public sealed class IrsDatasetService : IIrsDatasetService
     private async Task<List<IrsDatasetDecision>> LoadDecisionListAsync(CancellationToken cancellationToken)
     {
         var path = DecisionPath();
-        if (!File.Exists(path)) return [];
+        if (!File.Exists(path))
+        {
+            _decisionCache ??= [];
+            _decisionCacheWriteTimeUtc = DateTime.MinValue;
+            return _decisionCache.ToList();
+        }
+
+        var writeTime = File.GetLastWriteTimeUtc(path);
+        if (_decisionCache is not null && writeTime == _decisionCacheWriteTimeUtc)
+        {
+            return _decisionCache.ToList();
+        }
+
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
-        return await JsonSerializer.DeserializeAsync<List<IrsDatasetDecision>>(stream, cancellationToken: cancellationToken) ?? [];
+        _decisionCache = await JsonSerializer.DeserializeAsync<List<IrsDatasetDecision>>(stream, cancellationToken: cancellationToken) ?? [];
+        _decisionCacheWriteTimeUtc = writeTime;
+        return _decisionCache.ToList();
     }
 
     private async Task SaveDecisionListAsync(IReadOnlyList<IrsDatasetDecision> records, CancellationToken cancellationToken)
     {
+        var orderedRecords = records.OrderBy(x => x.ProducedAt).ToArray();
         Directory.CreateDirectory(_storage.Root);
-        await using var stream = new FileStream(DecisionPath(), FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.Asynchronous);
-        await JsonSerializer.SerializeAsync(stream, records, new JsonSerializerOptions { WriteIndented = true }, cancellationToken);
+        var path = DecisionPath();
+        var temporary = path + ".writing";
+        await using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.Asynchronous))
+        {
+            await JsonSerializer.SerializeAsync(stream, orderedRecords, new JsonSerializerOptions { WriteIndented = true }, cancellationToken);
+            await stream.FlushAsync(cancellationToken);
+        }
+
+        File.Move(temporary, path, true);
+        _decisionCache = orderedRecords.ToList();
+        _decisionCacheWriteTimeUtc = File.GetLastWriteTimeUtc(path);
     }
 
     private string DecisionPath() => _decisionFile;
@@ -719,4 +745,5 @@ public sealed class IrsDatasetService : IIrsDatasetService
         return builder.ToString();
     }
 }
+
 

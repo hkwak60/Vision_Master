@@ -270,6 +270,7 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
                             <TextBlock Text="Classification" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <CheckBox Content="Auto advance" IsChecked="{Binding AutoAdvanceAfterReview}" Margin="2,0,0,8"/>
                             <Button Content="Real  [R]" Command="{Binding RealCommand}" Background="#D9EAD3"/>
                             <Button Content="Overkill  [O]" Command="{Binding OverkillCommand}" Background="#FCE5CD"/>
                             <Separator Margin="0,10,0,0"/>
@@ -306,4 +307,5 @@
         </Grid>
     </DockPanel>
 </UserControl>
+
 

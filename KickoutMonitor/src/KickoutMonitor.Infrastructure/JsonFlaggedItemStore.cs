@@ -8,6 +8,8 @@ public sealed class JsonFlaggedItemStore : IFlaggedItemStore
 {
     private readonly AppStorage _storage;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private Dictionary<string, FlaggedItem>? _cache;
+    private DateTime _cacheWriteTimeUtc;
 
     public JsonFlaggedItemStore(AppStorage storage)
     {
@@ -19,7 +21,9 @@ public sealed class JsonFlaggedItemStore : IFlaggedItemStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            return await LoadUnlockedAsync(cancellationToken);
+            return new Dictionary<string, FlaggedItem>(
+                await LoadUnlockedAsync(cancellationToken),
+                StringComparer.OrdinalIgnoreCase);
         }
         finally
         {
@@ -32,8 +36,7 @@ public sealed class JsonFlaggedItemStore : IFlaggedItemStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var items = await LoadUnlockedAsync(cancellationToken);
-            var mutable = new Dictionary<string, FlaggedItem>(items, StringComparer.OrdinalIgnoreCase);
+            var mutable = await LoadUnlockedAsync(cancellationToken);
             if (mutable.TryGetValue(item.Key, out var existing))
             {
                 item = item with
@@ -59,16 +62,19 @@ public sealed class JsonFlaggedItemStore : IFlaggedItemStore
         {
             var keySet = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var items = await LoadUnlockedAsync(cancellationToken);
-            var remaining = items.Values
-                .Where(item => !keySet.Contains(item.Key))
-                .ToArray();
-            await SaveUnlockedAsync(remaining, cancellationToken);
+            foreach (var key in keySet)
+            {
+                items.Remove(key);
+            }
+
+            await SaveUnlockedAsync(items.Values, cancellationToken);
         }
         finally
         {
             _gate.Release();
         }
     }
+
     public async Task MarkActiveAsync(
         IReadOnlyList<string> keys,
         DateTimeOffset updatedAt,
@@ -79,18 +85,22 @@ public sealed class JsonFlaggedItemStore : IFlaggedItemStore
         {
             var keySet = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var items = await LoadUnlockedAsync(cancellationToken);
-            var updated = items.Values
-                .Select(item => keySet.Contains(item.Key)
-                    ? item with { SummarizedAt = null, UpdatedAt = updatedAt }
-                    : item)
-                .ToArray();
-            await SaveUnlockedAsync(updated, cancellationToken);
+            foreach (var key in keySet)
+            {
+                if (items.TryGetValue(key, out var item))
+                {
+                    items[key] = item with { SummarizedAt = null, UpdatedAt = updatedAt };
+                }
+            }
+
+            await SaveUnlockedAsync(items.Values, cancellationToken);
         }
         finally
         {
             _gate.Release();
         }
     }
+
     public async Task MarkSummarizedAsync(
         IReadOnlyList<string> keys,
         DateTimeOffset summarizedAt,
@@ -101,12 +111,15 @@ public sealed class JsonFlaggedItemStore : IFlaggedItemStore
         {
             var keySet = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var items = await LoadUnlockedAsync(cancellationToken);
-            var updated = items.Values
-                .Select(item => keySet.Contains(item.Key)
-                    ? item with { SummarizedAt = summarizedAt, UpdatedAt = summarizedAt }
-                    : item)
-                .ToArray();
-            await SaveUnlockedAsync(updated, cancellationToken);
+            foreach (var key in keySet)
+            {
+                if (items.TryGetValue(key, out var item))
+                {
+                    items[key] = item with { SummarizedAt = summarizedAt, UpdatedAt = summarizedAt };
+                }
+            }
+
+            await SaveUnlockedAsync(items.Values, cancellationToken);
         }
         finally
         {
@@ -114,11 +127,19 @@ public sealed class JsonFlaggedItemStore : IFlaggedItemStore
         }
     }
 
-    private async Task<IReadOnlyDictionary<string, FlaggedItem>> LoadUnlockedAsync(CancellationToken cancellationToken)
+    private async Task<Dictionary<string, FlaggedItem>> LoadUnlockedAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_storage.FlaggedItemFile))
         {
-            return new Dictionary<string, FlaggedItem>(StringComparer.OrdinalIgnoreCase);
+            _cache ??= new Dictionary<string, FlaggedItem>(StringComparer.OrdinalIgnoreCase);
+            _cacheWriteTimeUtc = DateTime.MinValue;
+            return _cache;
+        }
+
+        var writeTime = File.GetLastWriteTimeUtc(_storage.FlaggedItemFile);
+        if (_cache is not null && writeTime == _cacheWriteTimeUtc)
+        {
+            return _cache;
         }
 
         await using var stream = new FileStream(
@@ -131,7 +152,9 @@ public sealed class JsonFlaggedItemStore : IFlaggedItemStore
         var records = await JsonSerializer.DeserializeAsync<List<FlaggedItem>>(
             stream,
             cancellationToken: cancellationToken) ?? [];
-        return records.ToDictionary(x => x.Key, StringComparer.OrdinalIgnoreCase);
+        _cache = records.ToDictionary(x => x.Key, StringComparer.OrdinalIgnoreCase);
+        _cacheWriteTimeUtc = writeTime;
+        return _cache;
     }
 
     private async Task SaveUnlockedAsync(IEnumerable<FlaggedItem> items, CancellationToken cancellationToken)
@@ -154,5 +177,6 @@ public sealed class JsonFlaggedItemStore : IFlaggedItemStore
         }
 
         File.Move(temporary, _storage.FlaggedItemFile, true);
+        _cacheWriteTimeUtc = File.GetLastWriteTimeUtc(_storage.FlaggedItemFile);
     }
 }

@@ -152,6 +152,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private DateOnly? _lastSummaryEnd;
     private string _status = "Ready";
     private bool _isBusy;
+    private bool _autoAdvanceAfterReview = true;
     private bool _allModelsSelected;
     private bool _updatingModelSelections;
     private bool _restoringSelections;
@@ -204,6 +205,12 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     public AsyncRelayCommand NextImageCommand { get; }
     public AsyncRelayCommand FlagCommand { get; }
     public RelayCommand CommitCommand { get; }
+
+    public bool AutoAdvanceAfterReview
+    {
+        get => _autoAdvanceAfterReview;
+        set => Set(ref _autoAdvanceAfterReview, value);
+    }
 
     public bool AllModelsSelected
     {
@@ -626,6 +633,11 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             {
                 other.IsSelected = false;
             }
+
+            if (AutoAdvanceAfterReview && CommitCommand.CanExecute(null))
+            {
+                CommitCommand.Execute(null);
+            }
         }
         CommandManager.InvalidateRequerySuggested();
     }
@@ -844,5 +856,7 @@ internal static class DlngReviewItemExtensions
     public static string SideTitle(this DlngReviewItem item) =>
         item.Side.Equals("LOWER", StringComparison.OrdinalIgnoreCase) ? "Lower" : "Upper";
 }
+
+
 
 

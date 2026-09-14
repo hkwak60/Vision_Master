@@ -155,12 +155,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IFlaggedItemStore? _flags;
     private CancellationTokenSource? _previewCancellation;
     private CandidateItem? _selectedCandidate;
-    private DateTime? _startDate = DateTime.Today;
+    private DateTime? _startDate = DateTime.Today.AddDays(-1);
     private DateTime? _endDate = DateTime.Today;
-    private DateTime? _reportDate = DateTime.Today;
+    private DateTime? _reportDate = DateTime.Today.AddDays(-1);
     private string _comment = string.Empty;
     private string _status = "Ready";
     private bool _isBusy;
+    private bool _autoAdvanceAfterReview = true;
     private int _currentImageIndex = -1;
     private bool _reviewCompletionLogged;
 
@@ -231,6 +232,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public AsyncRelayCommand NextImageCommand { get; }
     public AsyncRelayCommand FlagCommand { get; }
     public string StorageRoot { get; }
+
+    public bool AutoAdvanceAfterReview
+    {
+        get => _autoAdvanceAfterReview;
+        set => Set(ref _autoAdvanceAfterReview, value);
+    }
 
     public DateTime? StartDate
     {
@@ -665,7 +672,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             Status = $"{decision}: {copy.Message}";
             LogReviewCompletionIfDone();
-            Next();
+            if (AutoAdvanceAfterReview) Next();
         }
         catch (Exception exception)
         {
@@ -771,3 +778,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public event EventHandler? PreviewImageChanging;
     public event EventHandler? PreviewImageLoaded;
 }
+
+
+

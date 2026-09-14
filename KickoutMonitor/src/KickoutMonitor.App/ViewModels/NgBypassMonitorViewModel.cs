@@ -132,6 +132,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     private bool _skipNg;
     private string _status = "Ready";
     private bool _isBusy;
+    private bool _autoAdvanceAfterReview = true;
     private int _currentImageIndex = -1;
     private bool _lastLoadHadHeaderWarnings;
 
@@ -177,6 +178,12 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     public AsyncRelayCommand PreviousImageCommand { get; }
     public AsyncRelayCommand NextImageCommand { get; }
     public AsyncRelayCommand FlagCommand { get; }
+
+    public bool AutoAdvanceAfterReview
+    {
+        get => _autoAdvanceAfterReview;
+        set => Set(ref _autoAdvanceAfterReview, value);
+    }
 
     public DateTime? StartDate
     {
@@ -529,7 +536,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
             item.Decision = decision;
             item.CopyState = copy.State;
             Status = $"{item.CellId}: {item.ReviewLabel} - {copy.Message}";
-            Next();
+            if (AutoAdvanceAfterReview) Next();
             RequestKeyboardFocus?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception exception)
@@ -697,4 +704,6 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
     public event EventHandler? RequestKeyboardFocus;
     public event PropertyChangedEventHandler? PropertyChanged;
 }
+
+
 

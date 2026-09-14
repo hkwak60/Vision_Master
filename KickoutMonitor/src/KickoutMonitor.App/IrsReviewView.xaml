@@ -250,6 +250,7 @@
                         </StackPanel.Resources>
                         <TextBlock Text="{Binding SelectionPanelTitle}" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
                         <StackPanel Visibility="{Binding FinalClassVisibility}">
+                            <CheckBox Content="Auto advance" IsChecked="{Binding AutoAdvanceAfterReview}" Margin="2,0,0,8"/>
                             <ItemsControl ItemsSource="{Binding FinalClassOptions}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -418,6 +419,7 @@
         </Grid>
     </DockPanel>
 </UserControl>
+
 
 
 

@@ -12,6 +12,8 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
     private readonly VisionMasterSettings _settings;
     private readonly string _workflowFolder;
     private readonly string _reviewFile;
+    private List<IrsReviewRecord>? _recordCache;
+    private DateTime _recordCacheWriteTimeUtc;
 
     public IrsReviewCommitService(
         AppStorage storage,
@@ -483,20 +485,27 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
             DateTimeOffset.Now,
             savedPaths));
 
+        var orderedRecords = records.OrderBy(x => x.ProducedAt).ToArray();
         var path = _reviewFile;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await using var write = new FileStream(
+        await using (var write = new FileStream(
             path,
             FileMode.Create,
             FileAccess.Write,
             FileShare.None,
             64 * 1024,
-            FileOptions.Asynchronous);
-        await JsonSerializer.SerializeAsync(
-            write,
-            records.OrderBy(x => x.ProducedAt).ToArray(),
-            new JsonSerializerOptions { WriteIndented = true },
-            cancellationToken);
+            FileOptions.Asynchronous))
+        {
+            await JsonSerializer.SerializeAsync(
+                write,
+                orderedRecords,
+                new JsonSerializerOptions { WriteIndented = true },
+                cancellationToken);
+            await write.FlushAsync(cancellationToken);
+        }
+
+        _recordCache = orderedRecords.ToList();
+        _recordCacheWriteTimeUtc = File.GetLastWriteTimeUtc(path);
     }
 
     public async Task<IReadOnlyList<IrsReviewRecord>> LoadRecordsAsync(CancellationToken cancellationToken) =>
@@ -505,7 +514,19 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
     private async Task<List<IrsReviewRecord>> LoadRecordListAsync(CancellationToken cancellationToken)
     {
         var path = _reviewFile;
-        if (!File.Exists(path)) return [];
+        if (!File.Exists(path))
+        {
+            _recordCache ??= [];
+            _recordCacheWriteTimeUtc = DateTime.MinValue;
+            return _recordCache.ToList();
+        }
+
+        var writeTime = File.GetLastWriteTimeUtc(path);
+        if (_recordCache is not null && writeTime == _recordCacheWriteTimeUtc)
+        {
+            return _recordCache.ToList();
+        }
+
         await using var read = new FileStream(
             path,
             FileMode.Open,
@@ -513,9 +534,11 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
             FileShare.Read,
             64 * 1024,
             FileOptions.Asynchronous);
-        return await JsonSerializer.DeserializeAsync<List<IrsReviewRecord>>(
+        _recordCache = await JsonSerializer.DeserializeAsync<List<IrsReviewRecord>>(
             read,
             cancellationToken: cancellationToken) ?? [];
+        _recordCacheWriteTimeUtc = writeTime;
+        return _recordCache.ToList();
     }
 
     private static void DeleteSavedPaths(IReadOnlyList<string>? paths)
@@ -585,4 +608,6 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
             _values.TryGetValue(name, out var value) ? value : null;
     }
 }
+
+
 

@@ -42,6 +42,7 @@ public partial class FlaggedReviewView : UserControl
         {
             oldViewModel.PreviewImageChanging -= ViewModel_PreviewImageChanging;
             oldViewModel.PreviewImageLoaded -= ViewModel_PreviewImageLoaded;
+            oldViewModel.RequestKeyboardFocus -= ViewModel_RequestKeyboardFocus;
         }
 
         var viewModel = e.NewValue as FlaggedReviewViewModel;
@@ -52,12 +53,16 @@ public partial class FlaggedReviewView : UserControl
         {
             viewModel.PreviewImageChanging += ViewModel_PreviewImageChanging;
             viewModel.PreviewImageLoaded += ViewModel_PreviewImageLoaded;
+            viewModel.RequestKeyboardFocus += ViewModel_RequestKeyboardFocus;
         }
     }
 
     private void ViewModel_PreviewImageChanging(object? sender, EventArgs e)
     {
     }
+
+    private void ViewModel_RequestKeyboardFocus(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, Focus);
 
     private void ViewModel_PreviewImageLoaded(object? sender, EventArgs e) =>
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => SetZoom(DefaultZoom));
@@ -141,5 +146,7 @@ public partial class FlaggedReviewView : UserControl
         ZoomText.Text = $"{value:P0}";
     }
 }
+
+
 
 

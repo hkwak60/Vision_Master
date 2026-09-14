@@ -9,6 +9,8 @@ public sealed class JsonNgBypassReviewStore : INgBypassReviewStore
 {
     private readonly AppStorage _storage;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private Dictionary<string, NgBypassReviewRecord>? _cache;
+    private DateTime _cacheWriteTimeUtc;
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
@@ -25,23 +27,9 @@ public sealed class JsonNgBypassReviewStore : INgBypassReviewStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (!File.Exists(_storage.NgBypassReviewFile))
-            {
-                return new Dictionary<string, NgBypassReviewRecord>(StringComparer.OrdinalIgnoreCase);
-            }
-
-            await using var stream = new FileStream(
-                _storage.NgBypassReviewFile,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                64 * 1024,
-                FileOptions.Asynchronous);
-            var records = await JsonSerializer.DeserializeAsync<List<NgBypassReviewRecord>>(
-                stream,
-                _json,
-                cancellationToken) ?? [];
-            return records.ToDictionary(x => x.CandidateKey, StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, NgBypassReviewRecord>(
+                await LoadUnlockedAsync(cancellationToken),
+                StringComparer.OrdinalIgnoreCase);
         }
         finally
         {
@@ -54,23 +42,7 @@ public sealed class JsonNgBypassReviewStore : INgBypassReviewStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var records = new Dictionary<string, NgBypassReviewRecord>(StringComparer.OrdinalIgnoreCase);
-            if (File.Exists(_storage.NgBypassReviewFile))
-            {
-                await using var source = new FileStream(
-                    _storage.NgBypassReviewFile,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read,
-                    64 * 1024,
-                    FileOptions.Asynchronous);
-                var existing = await JsonSerializer.DeserializeAsync<List<NgBypassReviewRecord>>(
-                    source,
-                    _json,
-                    cancellationToken) ?? [];
-                foreach (var item in existing) records[item.CandidateKey] = item;
-            }
-
+            var records = await LoadUnlockedAsync(cancellationToken);
             records[record.CandidateKey] = record;
             Directory.CreateDirectory(Path.GetDirectoryName(_storage.NgBypassReviewFile)!);
             var temporary = _storage.NgBypassReviewFile + ".writing";
@@ -90,10 +62,42 @@ public sealed class JsonNgBypassReviewStore : INgBypassReviewStore
                 await destination.FlushAsync(cancellationToken);
             }
             File.Move(temporary, _storage.NgBypassReviewFile, true);
+            _cacheWriteTimeUtc = File.GetLastWriteTimeUtc(_storage.NgBypassReviewFile);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private async Task<Dictionary<string, NgBypassReviewRecord>> LoadUnlockedAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(_storage.NgBypassReviewFile))
+        {
+            _cache ??= new Dictionary<string, NgBypassReviewRecord>(StringComparer.OrdinalIgnoreCase);
+            _cacheWriteTimeUtc = DateTime.MinValue;
+            return _cache;
+        }
+
+        var writeTime = File.GetLastWriteTimeUtc(_storage.NgBypassReviewFile);
+        if (_cache is not null && writeTime == _cacheWriteTimeUtc)
+        {
+            return _cache;
+        }
+
+        await using var stream = new FileStream(
+            _storage.NgBypassReviewFile,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            64 * 1024,
+            FileOptions.Asynchronous);
+        var records = await JsonSerializer.DeserializeAsync<List<NgBypassReviewRecord>>(
+            stream,
+            _json,
+            cancellationToken) ?? [];
+        _cache = records.ToDictionary(x => x.CandidateKey, StringComparer.OrdinalIgnoreCase);
+        _cacheWriteTimeUtc = writeTime;
+        return _cache;
     }
 }

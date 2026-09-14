@@ -304,6 +304,7 @@
 
                             <Separator Margin="0,10,0,0"/>
                             <TextBlock Text="Classification" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                            <CheckBox Content="Auto advance" IsChecked="{Binding AutoAdvanceAfterReview}" Margin="2,0,0,8"/>
                             <Button Content="Real NG  [R]" Command="{Binding RealNgCommand}"
                                     Background="#D9EAD3"/>
                             <Button Content="Overkill  [O]" Command="{Binding OverkillCommand}"
@@ -327,3 +328,4 @@
         </Grid>
     </DockPanel>
 </UserControl>
+

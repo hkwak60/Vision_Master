@@ -29,6 +29,7 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
     private IReadOnlyList<IrsDatasetItem> _datasetItems = [];
     private string _status = "Ready";
     private bool _isBusy;
+    private bool _autoAdvanceAfterReview = true;
     private bool _datasetMode;
     private bool _previousMode;
     private bool _restoringSelections;
@@ -93,6 +94,12 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
     public AsyncRelayCommand PreviousImageCommand { get; }
     public AsyncRelayCommand NextImageCommand { get; }
     public AsyncRelayCommand UnflagCommand { get; }
+
+    public bool AutoAdvanceAfterReview
+    {
+        get => _autoAdvanceAfterReview;
+        set => Set(ref _autoAdvanceAfterReview, value);
+    }
 
     public IrsCandidateItem? SelectedCandidate
     {
@@ -180,6 +187,9 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
         {
             switch (key)
             {
+                case Key.R:
+                    SelectFinalByDisplay("Real");
+                    return;
                 case Key.O:
                     SelectFinalByDisplay("Overkill");
                     return;
@@ -319,6 +329,7 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
         TrackFirstStageCommit(copyTask);
         ClearSelections();
         Next();
+        RequestKeyboardFocus?.Invoke(this, EventArgs.Empty);
     }
 
     private async Task UnflagOrReflagCurrentAsync()
@@ -588,7 +599,8 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
             }
         });
         ClearFinalSelections();
-        Next();
+        if (AutoAdvanceAfterReview) Next();
+        RequestKeyboardFocus?.Invoke(this, EventArgs.Empty);
     }
 
     private void SelectionOption_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -598,9 +610,9 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
         {
             if (sender is IrsSelectionOption option && option.IsSelected)
             {
-                if (SelectedCandidate?.DatasetItem?.IsNeedToSimulate != true)
+                foreach (var other in FinalClassOptions.Where(x => !ReferenceEquals(x, option))) other.IsSelected = false;
+                if (AutoAdvanceAfterReview && CommitCommand.CanExecute(null))
                 {
-                    foreach (var other in FinalClassOptions.Where(x => !ReferenceEquals(x, option))) other.IsSelected = false;
                     CommitDatasetSelection();
                 }
             }
@@ -820,6 +832,11 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler? PreviewImageChanging;
     public event EventHandler? PreviewImageLoaded;
+    public event EventHandler? RequestKeyboardFocus;
 }
+
+
+
+
 
 

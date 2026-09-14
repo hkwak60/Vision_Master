@@ -8,6 +8,8 @@ public sealed class JsonDlngReviewStore : IDlngReviewStore
 {
     private readonly AppStorage _storage;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private Dictionary<string, DlngReviewRecord>? _cache;
+    private DateTime _cacheWriteTimeUtc;
 
     public JsonDlngReviewStore(AppStorage storage)
     {
@@ -16,22 +18,17 @@ public sealed class JsonDlngReviewStore : IDlngReviewStore
 
     public async Task<IReadOnlyDictionary<string, DlngReviewRecord>> LoadAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_storage.DlngReviewFile))
+        await _gate.WaitAsync(cancellationToken);
+        try
         {
-            return new Dictionary<string, DlngReviewRecord>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, DlngReviewRecord>(
+                await LoadUnlockedAsync(cancellationToken),
+                StringComparer.OrdinalIgnoreCase);
         }
-
-        await using var stream = new FileStream(
-            _storage.DlngReviewFile,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            64 * 1024,
-            FileOptions.Asynchronous);
-        var records = await JsonSerializer.DeserializeAsync<List<DlngReviewRecord>>(
-            stream,
-            cancellationToken: cancellationToken) ?? [];
-        return records.ToDictionary(x => x.ItemKey, StringComparer.OrdinalIgnoreCase);
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async Task SaveAsync(DlngReviewRecord record, CancellationToken cancellationToken)
@@ -39,22 +36,7 @@ public sealed class JsonDlngReviewStore : IDlngReviewStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var records = new Dictionary<string, DlngReviewRecord>(StringComparer.OrdinalIgnoreCase);
-            if (File.Exists(_storage.DlngReviewFile))
-            {
-                await using var read = new FileStream(
-                    _storage.DlngReviewFile,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read,
-                    64 * 1024,
-                    FileOptions.Asynchronous);
-                var existing = await JsonSerializer.DeserializeAsync<List<DlngReviewRecord>>(
-                    read,
-                    cancellationToken: cancellationToken) ?? [];
-                foreach (var entry in existing) records[entry.ItemKey] = entry;
-            }
-
+            var records = await LoadUnlockedAsync(cancellationToken);
             records[record.ItemKey] = record;
             Directory.CreateDirectory(Path.GetDirectoryName(_storage.DlngReviewFile)!);
             var temporary = _storage.DlngReviewFile + ".writing";
@@ -74,10 +56,41 @@ public sealed class JsonDlngReviewStore : IDlngReviewStore
             }
 
             File.Move(temporary, _storage.DlngReviewFile, true);
+            _cacheWriteTimeUtc = File.GetLastWriteTimeUtc(_storage.DlngReviewFile);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private async Task<Dictionary<string, DlngReviewRecord>> LoadUnlockedAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(_storage.DlngReviewFile))
+        {
+            _cache ??= new Dictionary<string, DlngReviewRecord>(StringComparer.OrdinalIgnoreCase);
+            _cacheWriteTimeUtc = DateTime.MinValue;
+            return _cache;
+        }
+
+        var writeTime = File.GetLastWriteTimeUtc(_storage.DlngReviewFile);
+        if (_cache is not null && writeTime == _cacheWriteTimeUtc)
+        {
+            return _cache;
+        }
+
+        await using var stream = new FileStream(
+            _storage.DlngReviewFile,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            64 * 1024,
+            FileOptions.Asynchronous);
+        var records = await JsonSerializer.DeserializeAsync<List<DlngReviewRecord>>(
+            stream,
+            cancellationToken: cancellationToken) ?? [];
+        _cache = records.ToDictionary(x => x.ItemKey, StringComparer.OrdinalIgnoreCase);
+        _cacheWriteTimeUtc = writeTime;
+        return _cache;
     }
 }
