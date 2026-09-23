@@ -76,6 +76,7 @@ public sealed class AppStorage
             Temp,
             machine.OutputFolderName,
             candidate.InspectedAt.ToString("yyyyMMdd"),
+            InspectionIdentity.Hash(candidate.Key),
             sourceName);
     }
 

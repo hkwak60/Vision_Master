@@ -34,6 +34,8 @@ public sealed class SummaryReportWriter : ISummaryReportWriter
 
         await WriteDetailsAsync(reportFolder, details, cancellationToken);
         CopyReviewedImages(reportFolder, details, cancellationToken);
+        var snapshot = new KickoutHistorySnapshot(reportDate, windowStart, windowEndExclusive, rows, details, summaryPath);
+        await OverkillHistoryService.SaveSnapshotAsync(_storage, snapshot, cancellationToken);
         return summaryPath;
     }
 
@@ -177,7 +179,7 @@ public sealed class SummaryReportWriter : ISummaryReportWriter
                 SafeName(detail.LinePolarity),
                 defect);
             Directory.CreateDirectory(destinationParent);
-            var destination = Path.Combine(destinationParent, Path.GetFileName(detail.LocalFolder));
+            var destination = Path.Combine(destinationParent, InspectionIdentity.Hash(detail.LocalFolder), Path.GetFileName(detail.LocalFolder));
             if (Directory.Exists(destination)) Directory.Delete(destination, true);
             CopyDirectory(detail.LocalFolder, destination, cancellationToken);
         }

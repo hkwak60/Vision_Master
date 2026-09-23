@@ -28,6 +28,9 @@ public partial class DlngReviewView : UserControl
     private double _savedCenterX = 0.5;
     private double _savedCenterY = 0.5;
 
+    private void ReworkGrid_Sorting(object sender, System.Windows.Controls.DataGridSortingEventArgs e)
+        => Services.ReworkGrid.Sort(sender, e);
+
     public DlngReviewView()
     {
         InitializeComponent();
@@ -102,13 +105,13 @@ public partial class DlngReviewView : UserControl
     private void DlngReviewView_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (Keyboard.Modifiers is not ModifierKeys.None) return;
-        if (Keyboard.FocusedElement is TextBoxBase or ComboBox) return;
+        if (KickoutMonitor.App.Services.ReviewKeyboard.IsEditor(Keyboard.FocusedElement)) { if (e.Key == Key.Enter) e.Handled = true; return; }
         if (DataContext is not DlngReviewViewModel viewModel) return;
         if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.R or Key.O or Key.N or Key.Enter
             or Key.D1 or Key.D2 or Key.D3 or Key.D4 or Key.D5 or Key.D6 or Key.D7 or Key.D8 or Key.D9
             or Key.NumPad1 or Key.NumPad2 or Key.NumPad3 or Key.NumPad4 or Key.NumPad5 or Key.NumPad6 or Key.NumPad7 or Key.NumPad8 or Key.NumPad9)
         {
-            viewModel.HandleHotkey(e.Key);
+            if (KickoutMonitor.App.Services.ReviewKeyboard.ShouldDispatch(e.IsRepeat, Keyboard.Modifiers)) viewModel.HandleHotkey(e.Key);
             e.Handled = true;
         }
     }

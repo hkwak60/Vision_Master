@@ -27,6 +27,7 @@ public static class ProductionImageConventions
     public static int SideIndex(string cameraLocation) =>
         cameraLocation.Trim().Equals("BTM", StringComparison.OrdinalIgnoreCase)
             || cameraLocation.Trim().Equals("BOTTOM", StringComparison.OrdinalIgnoreCase)
+            || cameraLocation.Trim().Equals("LOWER", StringComparison.OrdinalIgnoreCase)
             ? 1
             : 0;
 

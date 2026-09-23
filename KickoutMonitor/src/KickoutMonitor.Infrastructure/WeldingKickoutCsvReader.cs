@@ -66,6 +66,8 @@ public sealed class WeldingKickoutCsvReader : IKickoutCsvReader
                 lotId,
                 cellId);
 
+            var inspection = InspectionPaths.Create(machine, row.Get, inspectedAt, snapshot.SourcePath, rowNumber, _shares);
+            if (inspection.Issue is not null) { images = []; sourceFolder = ""; }
             yield return new(
                 key,
                 machine.Id,
@@ -78,7 +80,8 @@ public sealed class WeldingKickoutCsvReader : IKickoutCsvReader
                 images,
                 sourceFolder,
                 snapshot.SourcePath,
-                rowNumber);
+                rowNumber,
+                InspectionPaths.Create(machine, row.Get, inspectedAt, snapshot.SourcePath, rowNumber, _shares));
         }
     }
 

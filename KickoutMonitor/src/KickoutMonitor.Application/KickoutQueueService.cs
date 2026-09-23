@@ -22,8 +22,10 @@ public sealed class KickoutQueueService
         WeldingMachine machine,
         DateOnly date,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        QueueTimeRange? timeRange = null)
     {
+        if (timeRange is { IsValid: false }) throw new ArgumentException("Invalid queue timeframe.", nameof(timeRange));
         var sources = await _locator.FindAsync(machine, date, cancellationToken);
         if (sources.Count == 0)
         {
@@ -42,14 +44,19 @@ public sealed class KickoutQueueService
                 cancellationToken);
             await foreach (var candidate in _reader.ReadAsync(machine, snapshot, cancellationToken))
             {
-                results.Add(candidate);
+                if (timeRange is null || timeRange.Contains(candidate.InspectedAt)) results.Add(candidate);
             }
         }
 
-        return results
-            .GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+        var unique = results
+            .SeparateCollisions(x => x.Key, x => InspectionIdentity.Fingerprint(x.Inspection?.ImagePaths ?? x.PreviewImages.Select(i => i.NetworkPath).ToArray()), (x, key) => x with { Key = key })
+                .GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
             .Select(x => x.First())
             .OrderBy(x => x.InspectedAt)
             .ToArray();
+        return InspectionIdentity.GroupQueue(unique,
+            x => InspectionIdentity.Group(x.MachineId, x.LotId, x.CellId, x.Inspection?.Identity ?? x.Key),
+            x => x.InspectedAt);
+
     }
 }

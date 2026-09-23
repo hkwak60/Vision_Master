@@ -26,4 +26,5 @@
     <ProjectReference Include="..\..\src\KickoutMonitor.Infrastructure\KickoutMonitor.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup><None Update="Fixtures\*" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
 </Project>

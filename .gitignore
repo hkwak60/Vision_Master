@@ -39,3 +39,7 @@ venv/
 
 # Local archived publish bundles
 KickoutMonitor/publish_archives/
+
+.codex-work/
+
+KickoutMonitor/DataSample/

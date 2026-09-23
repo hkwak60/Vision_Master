@@ -40,9 +40,10 @@ public sealed class ClassifiedFolderService : IClassifiedFolderService
             ? Path.Combine(machineRoot, "OVERKILL", defect)
             : Path.Combine(machineRoot, "NG", defect);
         Directory.CreateDirectory(destinationParent);
-        var destination = Path.Combine(destinationParent, originalFolderName);
+        var destination = Path.Combine(destinationParent, InspectionIdentity.Hash(candidate.Key), originalFolderName);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
 
-        var existing = FindExistingLocalFolder(machineRoot, originalFolderName);
+        var existing = FindExistingLocalFolder(machineRoot, originalFolderName, InspectionIdentity.Hash(candidate.Key));
         if (existing is not null)
         {
             if (existing.Equals(destination, StringComparison.OrdinalIgnoreCase))
@@ -198,12 +199,13 @@ public sealed class ClassifiedFolderService : IClassifiedFolderService
         return stream.ReadByte() == 0xFF && stream.ReadByte() == 0xD9;
     }
 
-    private static string? FindExistingLocalFolder(string machineRoot, string folderName)
+    private static string? FindExistingLocalFolder(string machineRoot, string folderName, string owner)
     {
         try
         {
-            return Directory.EnumerateDirectories(machineRoot, folderName, SearchOption.AllDirectories)
-                .FirstOrDefault(path => !path.Contains(".copying-", StringComparison.OrdinalIgnoreCase));
+            return new[] { Path.Combine(machineRoot, "NG"), Path.Combine(machineRoot, "OVERKILL") }
+                .Where(Directory.Exists).SelectMany(root => Directory.EnumerateDirectories(root, folderName, SearchOption.AllDirectories))
+                .FirstOrDefault(path => Directory.GetParent(path)?.Name == owner && !path.Contains(".copying-", StringComparison.OrdinalIgnoreCase));
         }
         catch (IOException)
         {

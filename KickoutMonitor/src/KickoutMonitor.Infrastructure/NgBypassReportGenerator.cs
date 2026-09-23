@@ -179,7 +179,7 @@ public sealed class NgBypassReportGenerator : INgBypassReportService
 
     private static IReadOnlyList<NgBypassCandidate> CountableItems(IReadOnlyList<NgBypassCandidate> items) =>
         items.GroupBy(
-                x => $"{x.MachineId}|{x.LinePolarity}|{x.CellId}|{x.Measure}|{x.Side}",
+                x => $"{x.MachineId}|{x.LinePolarity}|{(string.IsNullOrWhiteSpace(x.LotId) ? x.Key : x.LotId)}|{x.CellId}|{x.Measure}|{x.Side}",
                 StringComparer.OrdinalIgnoreCase)
             .Select(group => group
                 .OrderBy(x => x.InspectedAt)
@@ -254,7 +254,7 @@ public sealed class NgBypassReportGenerator : INgBypassReportService
                 SafeName(detail.LinePolarity),
                 SafeName(detail.Side));
             Directory.CreateDirectory(destinationParent);
-            var destination = Path.Combine(destinationParent, Path.GetFileName(detail.LocalFolder));
+            var destination = Path.Combine(destinationParent, InspectionIdentity.Hash(detail.LocalFolder), Path.GetFileName(detail.LocalFolder));
             if (Directory.Exists(destination)) Directory.Delete(destination, true);
             CopyDirectory(detail.LocalFolder, destination, cancellationToken);
         }

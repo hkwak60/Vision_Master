@@ -27,6 +27,9 @@ public partial class KickoutMonitorView : UserControl
     private double _savedCenterX = 0.5;
     private double _savedCenterY = 0.5;
 
+    private void ReworkGrid_Sorting(object sender, System.Windows.Controls.DataGridSortingEventArgs e)
+        => Services.ReworkGrid.Sort(sender, e);
+
     public KickoutMonitorView()
     {
         InitializeComponent();
@@ -104,11 +107,11 @@ public partial class KickoutMonitorView : UserControl
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (Keyboard.FocusedElement is TextBoxBase or ComboBox or DatePicker) return;
+        if (KickoutMonitor.App.Services.ReviewKeyboard.IsEditor(Keyboard.FocusedElement)) { if (e.Key == Key.Enter) e.Handled = true; return; }
         if (DataContext is not MainViewModel viewModel) return;
-        if (e.Key is Key.R or Key.O or Key.M or Key.I or Key.Left or Key.Right or Key.Up or Key.Down)
+        if (e.Key is Key.Enter or Key.R or Key.O or Key.M or Key.I or Key.Left or Key.Right or Key.Up or Key.Down)
         {
-            viewModel.HandleHotkey(e.Key);
+            if (KickoutMonitor.App.Services.ReviewKeyboard.ShouldDispatch(e.IsRepeat, Keyboard.Modifiers)) viewModel.HandleHotkey(e.Key);
             e.Handled = true;
         }
     }

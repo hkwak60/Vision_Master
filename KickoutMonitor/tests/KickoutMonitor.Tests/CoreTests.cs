@@ -161,7 +161,7 @@ public sealed class CoreTests
 
             Assert.Equal(CopyState.Copied, result.State);
             Assert.Contains(
-                Path.Combine("OVERKILL", "B_DIM", Path.GetFileName(source)),
+                Path.Combine("OVERKILL", "B_DIM", InspectionIdentity.Hash(candidate.Key), Path.GetFileName(source)),
                 result.Destination!,
                 StringComparison.OrdinalIgnoreCase);
         }
@@ -198,7 +198,7 @@ public sealed class CoreTests
 
             Assert.Equal(CopyState.Copied, result.State);
             Assert.Contains(
-                Path.Combine("NG", "MULTI-NG", Path.GetFileName(source)),
+                Path.Combine("NG", "MULTI-NG", InspectionIdentity.Hash(candidate.Key), Path.GetFileName(source)),
                 result.Destination!,
                 StringComparison.OrdinalIgnoreCase);
         }
@@ -668,6 +668,7 @@ public sealed class CoreTests
         {
             var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "unused", ['E']);
             var item = DlngItem(machine, "B_DIM_L", "UPPER", "CELL-HORN");
+            item = item with { Inspection = item.Inspection! with { ImageAt = new DateTime(2026, 6, 23, 0, 7, 24) } };
             var expanded = await new DlngCropLocator(new FakeShareResolver(root))
                 .ExpandAsync(machine, item, null, CancellationToken.None);
 
@@ -733,7 +734,7 @@ public sealed class CoreTests
         var values = new[]
         {
             "20260623", "07:00:00", "E81C", "LOT", "CELL-RPT", "DLNG", "A_L",
-            "OK", "OK", "BYPASS_NG", "OK", "", "", ""
+            "OK", "OK", "BYPASS_NG", "OK", @"E:\Files\Image\20260623_070000_LOT_CELL-RPT_EXT_0_0.jpg", "", ""
         };
         await File.WriteAllLinesAsync(csv, [string.Join(",", headers), string.Join(",", values)]);
 
@@ -766,6 +767,8 @@ public sealed class CoreTests
                 item.Images.Select(x => x.Path).ToArray(),
                 DateTimeOffset.Now), CancellationToken.None);
 
+            await CollectFixtureReviewsAsync(storage, reviews);
+
             var result = await new DlngReportGenerator(queue, reviews, storage)
                 .GenerateAsync([machine], new DateOnly(2026, 6, 23), null, CancellationToken.None);
 
@@ -773,8 +776,8 @@ public sealed class CoreTests
             Assert.Equal(Path.Combine(storage.DlngReport, "REPORT", "DLNG_REPORT_20260623"), result.OutputFolder);
             var destination = Path.Combine(result.OutputFolder, "Dataset", "Classification", "미검_오검", "Crop_A", "1-1(-)", "04_NG_PTCL");
             Assert.True(Directory.Exists(destination));
-            Assert.True(File.Exists(Path.Combine(destination, ModelSuffixedFileName(source, "Crop_A"))));
-            Assert.True(File.Exists(Path.Combine(destination, ModelSuffixedFileName(active, "Crop_A"))));
+            Assert.True(ExportExists(Path.Combine(destination, ModelSuffixedFileName(source, "Crop_A"))));
+            Assert.True(ExportExists(Path.Combine(destination, ModelSuffixedFileName(active, "Crop_A"))));
             Assert.False(File.Exists(Path.Combine(destination, Path.GetFileName(source))));
             Assert.False(File.Exists(Path.Combine(destination, Path.GetFileName(active))));
             Assert.False(File.Exists(Path.Combine(destination, $"1-1(-)_CELL-RPT_A_L_{Path.GetFileName(source)}")));
@@ -818,12 +821,12 @@ public sealed class CoreTests
         var reviewedValues = new[]
         {
             "20260623", "07:00:00", "E81C", "LOT", "CELL-REVIEWED", "DLNG", "A_L",
-            "OK", "OK", "BYPASS_NG", "OK", "OK", "OK", "", "", ""
+            "OK", "OK", "BYPASS_NG", "OK", "OK", "OK", @"E:\Files\Image\20260623_070000_LOT_CELL-REVIEWED_EXT_0_0.jpg", "", ""
         };
         var pendingValues = new[]
         {
             "20260623", "07:10:00", "E81C", "LOT", "CELL-PENDING", "DLNG", "B_L",
-            "OK", "OK", "OK", "OK", "BYPASS_NG", "OK", "", "", ""
+            "OK", "OK", "OK", "OK", "BYPASS_NG", "OK", @"E:\Files\Image\20260623_071000_LOT_CELL-PENDING_EXT_0_0.jpg", "", ""
         };
         await File.WriteAllLinesAsync(csv, [
             string.Join(",", headers),
@@ -860,6 +863,8 @@ public sealed class CoreTests
                 false,
                 reviewed.Images.Select(x => x.Path).ToArray(),
                 DateTimeOffset.Now), CancellationToken.None);
+
+            await CollectFixtureReviewsAsync(storage, reviews);
 
             var result = await new DlngReportGenerator(queue, reviews, storage)
                 .GenerateAsync([machine], new DateOnly(2026, 6, 23), null, CancellationToken.None);
@@ -928,6 +933,8 @@ public sealed class CoreTests
                     DateTimeOffset.Now), CancellationToken.None);
             }
 
+            await CollectFixtureReviewsAsync(storage, reviews);
+
             var report = await new DlngReportGenerator(
                     new DlngQueueService(new FakeLocator(), new FakeSnapshotService(), new DlngCsvReader(new FakeShareResolver(root)), new DlngCropLocator(new FakeShareResolver(root))),
                     reviews,
@@ -991,6 +998,7 @@ public sealed class CoreTests
             await SaveDlngReviewAsync(reviews, item, "04_NG_PTCL", false);
             await SaveDlngReviewAsync(reviews, segmentation, "Overkill", false);
             await SaveDlngReviewAsync(reviews, noNeed, "No Need to Train", false);
+            await CollectFixtureReviewsAsync(storage, reviews);
             var generator = new DlngReportGenerator(
                 new DlngQueueService(new FakeLocator(), new FakeSnapshotService(), new DlngCsvReader(new FakeShareResolver(root)), new DlngCropLocator(new FakeShareResolver(root))),
                 reviews,
@@ -1005,10 +1013,10 @@ public sealed class CoreTests
 
             var destination = Path.Combine(storage.DlngReport, "DATASET", "Crop_A", "20260623-20260624", "04_NG_PTCL");
             Assert.Equal(Path.Combine(storage.DlngReport, "DATASET"), result.OutputFolder);
-            Assert.Equal(2, result.CopiedCount);
-            Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(sourceImage))));
+            Assert.Equal(4, result.CopiedCount);
+            Assert.True(ExportExists(Path.Combine(destination, Path.GetFileName(sourceImage))));
             Assert.False(File.Exists(Path.Combine(destination, ModelSuffixedFileName(sourceImage, "Crop_A"))));
-            Assert.True(File.Exists(Path.Combine(storage.DlngReport, "DATASET", "SEGMENTATION", "20260623-20260624", "Overkill", Path.GetFileName(segmentationImage))));
+            Assert.True(ExportExists(Path.Combine(storage.DlngReport, "DATASET", "SEGMENTATION", "20260623-20260624", "Overkill", Path.GetFileName(segmentationImage))));
             Assert.False(File.Exists(Path.Combine(storage.DlngReport, "DATASET", "SEGMENTATION", "20260623-20260624", "No Need to Train", Path.GetFileName(noNeedImage))));
         }
         finally
@@ -1052,6 +1060,7 @@ public sealed class CoreTests
             };
             await SaveDlngReviewAsync(reviews, cropA, "04_NG_PTCL", false);
             await SaveDlngReviewAsync(reviews, gap, "Real", false);
+            await CollectFixtureReviewsAsync(storage, reviews);
             var reportGenerator = new DlngReportGenerator(
                 new DlngQueueService(new FakeLocator(), new FakeSnapshotService(), new DlngCsvReader(new FakeShareResolver(root)), new DlngCropLocator(new FakeShareResolver(root))),
                 reviews,
@@ -1060,14 +1069,14 @@ public sealed class CoreTests
             var cropAReport = await reportGenerator.GenerateFromItemsAsync([cropA], new DateOnly(2026, 6, 23), null, CancellationToken.None);
             var cropAWorkbook = cropAReport.SummaryWorkbook;
             var cropADataset = Path.Combine(cropAReport.OutputFolder, "Dataset", "Classification", cropAReport.Rows.Single().DatasetSection.Split('/')[1], "Crop_A", "1-1(-)", "04_NG_PTCL");
-            Assert.True(File.Exists(Path.Combine(cropADataset, ModelSuffixedFileName(cropAImage, "Crop_A"))));
+            Assert.True(ExportExists(Path.Combine(cropADataset, ModelSuffixedFileName(cropAImage, "Crop_A"))));
 
             var gapReport = await reportGenerator.GenerateFromItemsAsync([gap], new DateOnly(2026, 6, 23), null, CancellationToken.None);
 
             Assert.True(File.Exists(cropAWorkbook));
-            Assert.True(File.Exists(Path.Combine(cropADataset, ModelSuffixedFileName(cropAImage, "Crop_A"))));
+            Assert.True(ExportExists(Path.Combine(cropADataset, ModelSuffixedFileName(cropAImage, "Crop_A"))));
             Assert.True(File.Exists(gapReport.SummaryWorkbook));
-            Assert.True(File.Exists(Path.Combine(gapReport.OutputFolder, "Dataset", "Segmentation", "Gap_DL", "Real", ModelSuffixedFileName(gapImage, "Gap_DL"))));
+            Assert.True(ExportExists(Path.Combine(gapReport.OutputFolder, "Dataset", "Segmentation", "Gap_DL", "Real", ModelSuffixedFileName(gapImage, "Gap_DL"))));
             Assert.NotEqual(cropAReport.SummaryWorkbook, gapReport.SummaryWorkbook);
         }
         finally
@@ -1095,7 +1104,7 @@ public sealed class CoreTests
         var values = new[]
         {
             "20260623", "07:00:00", "E81C", "LOT", "CELL-SEG", "DLNG", "GAP_DL",
-            "OK", "OK", "BYPASS_NG", "OK", "", "", ""
+            "OK", "OK", "BYPASS_NG", "OK", @"E:\Files\Image\20260623_070000_LOT_CELL-SEG_EXT_0_0.jpg", "", ""
         };
         await File.WriteAllLinesAsync(csv, [string.Join(",", headers), string.Join(",", values)]);
 
@@ -1127,6 +1136,8 @@ public sealed class CoreTests
                 item.Images.Select(x => x.Path).ToArray(),
                 DateTimeOffset.Now), CancellationToken.None);
 
+            await CollectFixtureReviewsAsync(storage, reviews);
+
             var result = await new DlngReportGenerator(queue, reviews, storage)
                 .GenerateAsync([machine], new DateOnly(2026, 6, 23), null, CancellationToken.None);
 
@@ -1140,7 +1151,7 @@ public sealed class CoreTests
     }
 
     [Fact]
-    public async Task DlngReport_CopiesFallbackRawWholeSourceFolder()
+    public async Task DlngReport_ReportsFallbackRawWithoutCollectingIt()
     {
         var root = Path.Combine(Path.GetTempPath(), "DlngFallbackReportTests", Guid.NewGuid().ToString("N"));
         var csv = Path.Combine(root, "result.csv");
@@ -1202,8 +1213,8 @@ public sealed class CoreTests
                 .GenerateAsync([machine], new DateOnly(2026, 6, 23), null, CancellationToken.None);
 
             var destination = Path.Combine(result.OutputFolder, "Dataset", "Segmentation", "NEED_TO_SIMULATE", "Gap_DL", "CELL-RAW");
-            Assert.True(Directory.Exists(destination));
-            Assert.Equal(12, Directory.EnumerateFiles(destination, "*.jpg").Count());
+            Assert.False(Directory.Exists(destination));
+            Assert.Single(result.Rows);
         }
         finally
         {
@@ -1559,8 +1570,8 @@ public sealed class CoreTests
             Assert.Equal(1, summary.InitialMatched);
             Assert.Equal(1, summary.Real);
             Assert.Equal(0, summary.Overkill);
-            Assert.True(Directory.Exists(Path.Combine(result.OutputFolder, "REAL", "1-1(-)", "UPPER", "CELL-REWORK-RUN1")));
-            Assert.True(Directory.Exists(Path.Combine(result.OutputFolder, "OVERKILL", "1-1(-)", "UPPER", "CELL-REWORK-RUN2")));
+            Assert.Single(Directory.EnumerateDirectories(Path.Combine(result.OutputFolder, "REAL", "1-1(-)", "UPPER"), "CELL-REWORK-RUN1", SearchOption.AllDirectories));
+            Assert.Single(Directory.EnumerateDirectories(Path.Combine(result.OutputFolder, "OVERKILL", "1-1(-)", "UPPER"), "CELL-REWORK-RUN2", SearchOption.AllDirectories));
         }
         finally
         {
@@ -2000,6 +2011,7 @@ public sealed class CoreTests
                 "OVERKILL",
                 "1-1(-)",
                 "B_DIM",
+                InspectionIdentity.Hash(overkillSource),
                 "overkill-cell",
                 "raw.jpg")));
             Assert.True(File.Exists(Path.Combine(
@@ -2007,6 +2019,7 @@ public sealed class CoreTests
                 "NG",
                 "1-1(-)",
                 "MULTI-NG",
+                InspectionIdentity.Hash(multiSource),
                 "multi-cell",
                 "raw.jpg")));
             Assert.True(File.Exists(Path.Combine(
@@ -2014,6 +2027,7 @@ public sealed class CoreTests
                 "NG",
                 "1-1(-)",
                 "C_DIM",
+                InspectionIdentity.Hash(realSource),
                 "real-cell",
                 "raw.jpg")));
             Assert.False(File.Exists(Path.Combine(reportFolder, "NG", "1-1(-)", "B_DIM", "overkill-cell", "raw.jpg")));
@@ -2084,7 +2098,7 @@ public sealed class CoreTests
     }
 
     [Fact]
-    public async Task IrsRawImageLocator_FindsTopRawImagesInModelDateHourFolder()
+    public async Task IrsRawImageLocator_DoesNotGuessFromSameCellInHourFolder()
     {
         var root = Path.Combine(Path.GetTempPath(), "IrsImageLocatorTests", Guid.NewGuid().ToString("N"));
         var hourRoot = Path.Combine(root, "Files", "Image", "E81C", "2026", "06", "01", "08", "OK");
@@ -2118,7 +2132,8 @@ public sealed class CoreTests
             var result = await new IrsRawImageLocator(new TestSharePathResolver(root), new EmptyDailyCsvLocator())
                 .FindAsync(machine, candidate, CancellationToken.None);
 
-            Assert.Equal([top0, top1, top2], result.NetworkPaths);
+            Assert.Empty(result.NetworkPaths);
+            Assert.Contains("Missing", result.Message);
         }
         finally
         {
@@ -2156,7 +2171,7 @@ public sealed class CoreTests
     }
 
     [Fact]
-    public async Task IrsRawImageLocator_UsesE69BForLineTwoTwo()
+    public async Task IrsRawImageLocator_DoesNotGuessFromModelFolderWithoutInspectionEvidence()
     {
         var root = Path.Combine(Path.GetTempPath(), "IrsImageLocatorTests", Guid.NewGuid().ToString("N"));
         var hourRoot = Path.Combine(root, "Files", "Image", "E69B", "2026", "06", "01", "08");
@@ -2183,7 +2198,8 @@ public sealed class CoreTests
             var result = await new IrsRawImageLocator(new TestSharePathResolver(root), new EmptyDailyCsvLocator())
                 .FindAsync(machine, candidate, CancellationToken.None);
 
-            Assert.Equal([image], result.NetworkPaths);
+            Assert.Empty(result.NetworkPaths);
+            Assert.Contains("Missing", result.Message);
         }
         finally
         {
@@ -2201,8 +2217,8 @@ public sealed class CoreTests
             csv,
             string.Join(
                 Environment.NewLine,
-                "DATE,TIME,CELL-ID,UPPER_IMAGE-PATH-1,UPPER_IMAGE-PATH-2,UPPER_IMAGE-PATH-3,LOWER_IMAGE-PATH-1,LOWER_IMAGE-PATH-2,LOWER_IMAGE-PATH-3",
-                @"20260601,08:09:25,CELL-CSV,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_0.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_1.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_2.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_1_0.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_1_1.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_1_2.jpg"));
+                "DATE,TIME,LOT-ID,CELL-ID,UPPER_IMAGE-PATH-1,UPPER_IMAGE-PATH-2,UPPER_IMAGE-PATH-3,LOWER_IMAGE-PATH-1,LOWER_IMAGE-PATH-2,LOWER_IMAGE-PATH-3",
+                @"20260601,08:09:25,LOT,CELL-CSV,E:\Files\Image\E81C\2026\06\01\08\OK\20260601_080925_LOT_CELL-CSV_EXT_0_0.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\20260601_080925_LOT_CELL-CSV_EXT_0_1.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\20260601_080925_LOT_CELL-CSV_EXT_0_2.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\20260601_080925_LOT_CELL-CSV_EXT_1_0.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\20260601_080925_LOT_CELL-CSV_EXT_1_1.jpg,E:\Files\Image\E81C\2026\06\01\08\OK\20260601_080925_LOT_CELL-CSV_EXT_1_2.jpg"));
         var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "127.0.0.1", ['E']);
         var candidate = new IrsReviewCandidate(
             "key",
@@ -2213,7 +2229,7 @@ public sealed class CoreTests
             "LOT",
             "CELL-CSV",
             "TOP",
-            "irs-file.jpg",
+            "",
             "OK",
             "SECOND_REASON",
             3);
@@ -2227,9 +2243,9 @@ public sealed class CoreTests
 
             Assert.Equal(
                 [
-                    Path.Combine(root, @"Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_0.jpg"),
-                    Path.Combine(root, @"Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_1.jpg"),
-                    Path.Combine(root, @"Files\Image\E81C\2026\06\01\08\OK\CELL-CSV_0_2.jpg")
+                    Path.Combine(root, @"Files\Image\E81C\2026\06\01\08\OK\20260601_080925_LOT_CELL-CSV_EXT_0_0.jpg"),
+                    Path.Combine(root, @"Files\Image\E81C\2026\06\01\08\OK\20260601_080925_LOT_CELL-CSV_EXT_0_1.jpg"),
+                    Path.Combine(root, @"Files\Image\E81C\2026\06\01\08\OK\20260601_080925_LOT_CELL-CSV_EXT_0_2.jpg")
                 ],
                 result.NetworkPaths);
             Assert.Contains("production CSV", result.Message, StringComparison.OrdinalIgnoreCase);
@@ -2264,7 +2280,7 @@ public sealed class CoreTests
             {
                 foreach (var kind in new[] { "Raw", "Overlay" })
                 {
-                    var file = Path.Combine(originalFolder, $"{side}_{index}_{kind}.jpg");
+                    var file = Path.Combine(originalFolder, $"20260601_080925_LOT_CELL-IRS_EXT_{(side == "UPPER" ? 0 : 1)}_{index - 1}{(kind == "Overlay" ? "_overlay" : "")}.jpg");
                     await File.WriteAllTextAsync(file, "image");
                     File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddMinutes(-10));
                     originalPaths.Add(file);
@@ -2295,12 +2311,13 @@ public sealed class CoreTests
             csv,
             string.Join(
                 Environment.NewLine,
-                "DATE,TIME,CELL-ID,UPPER_IMAGE-PATH-1,UPPER_OVERLAY-IMAGE-PATH-1,UPPER_IMAGE-PATH-2,UPPER_OVERLAY-IMAGE-PATH-2,UPPER_IMAGE-PATH-3,UPPER_OVERLAY-IMAGE-PATH-3,LOWER_IMAGE-PATH-1,LOWER_OVERLAY-IMAGE-PATH-1,LOWER_IMAGE-PATH-2,LOWER_OVERLAY-IMAGE-PATH-2,LOWER_IMAGE-PATH-3,LOWER_OVERLAY-IMAGE-PATH-3",
+                "DATE,TIME,LOT-ID,CELL-ID,UPPER_IMAGE-PATH-1,UPPER_OVERLAY-IMAGE-PATH-1,UPPER_IMAGE-PATH-2,UPPER_OVERLAY-IMAGE-PATH-2,UPPER_IMAGE-PATH-3,UPPER_OVERLAY-IMAGE-PATH-3,LOWER_IMAGE-PATH-1,LOWER_OVERLAY-IMAGE-PATH-1,LOWER_IMAGE-PATH-2,LOWER_OVERLAY-IMAGE-PATH-2,LOWER_IMAGE-PATH-3,LOWER_OVERLAY-IMAGE-PATH-3",
                 string.Join(
                     ",",
                     [
                         "20260601",
                         "08:09:25",
+                        "LOT",
                         "CELL-IRS",
                         .. originalPaths.Select(path => path.Replace(shareRoot, "E:"))
                     ])));
@@ -2314,7 +2331,7 @@ public sealed class CoreTests
             "LOT",
             "CELL-IRS",
             "TOP",
-            "raw.jpg",
+            "",
             "NG",
             "Tab Folded",
             4);
@@ -2345,13 +2362,13 @@ public sealed class CoreTests
             Assert.True(Directory.Exists(Path.Combine(
                 storageRoot,
                 "1-1(+)",
-                "IRS_LEAK",
+                "IRS_LEAK", InspectionIdentity.Hash(candidate.Key),
                 "ORIGINAL",
                 "CELL-IRS-FOLDER")));
             Assert.True(File.Exists(Path.Combine(
                 storageRoot,
                 "1-1(+)",
-                "IRS_LEAK",
+                "IRS_LEAK", InspectionIdentity.Hash(candidate.Key),
                 "Crop_micro",
                 Path.GetFileName(crop))));
             Assert.True(File.Exists(Path.Combine(storageRoot, "irs-reviews.json")));
@@ -2376,13 +2393,13 @@ public sealed class CoreTests
             Assert.False(File.Exists(Path.Combine(
                 storageRoot,
                 "1-1(+)",
-                "IRS_LEAK",
+                "IRS_LEAK", InspectionIdentity.Hash(candidate.Key),
                 "Crop_micro",
                 Path.GetFileName(crop))));
             Assert.True(Directory.Exists(Path.Combine(
                 storageRoot,
                 "1-1(+)",
-                "IRS_LEAK",
+                "IRS_LEAK", InspectionIdentity.Hash(candidate.Key),
                 "RULEBASE",
                 "CELL-IRS-FOLDER")));
 
@@ -2406,13 +2423,13 @@ public sealed class CoreTests
             Assert.True(Directory.Exists(Path.Combine(
                 storageRoot,
                 "1-1(+)",
-                "IRS_LEAK",
+                "IRS_LEAK", InspectionIdentity.Hash(candidate.Key),
                 "ORIGINAL",
                 "CELL-IRS-FOLDER")));
             Assert.True(Directory.Exists(Path.Combine(
                 storageRoot,
                 "1-1(+)",
-                "IRS_LEAK",
+                "IRS_LEAK", InspectionIdentity.Hash(candidate.Key),
                 "NEED_TO_SIMULATE",
                 "Crop_A",
                 "CELL-IRS-FOLDER")));
@@ -2431,7 +2448,7 @@ public sealed class CoreTests
         var storageRoot = Path.Combine(Path.GetTempPath(), "IrsTabsideStorage", Guid.NewGuid().ToString("N"));
         var originalFolder = Path.Combine(shareRoot, "Files", "Image", "E81C", "2026", "06", "01", "08", "OK", "CELL-TAB-FOLDER");
         Directory.CreateDirectory(originalFolder);
-        var original = Path.Combine(originalFolder, "CELL-TAB_UPPER_1_Raw.jpg");
+        var original = Path.Combine(originalFolder, "20260601_080925_LOT_CELL-TAB_EXT_0_0.jpg");
         await File.WriteAllTextAsync(original, "image");
         File.SetLastWriteTimeUtc(original, DateTime.UtcNow.AddMinutes(-10));
         var cropFolder = Path.Combine(shareRoot, "Files", "Image", "E81C", "2026", "06", "01", "Mavin", "Crop_micro_tabside", "01_OK_TAB_SIDE");
@@ -2444,15 +2461,15 @@ public sealed class CoreTests
             File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddMinutes(-10));
         }
         var csv = Path.Combine(shareRoot, "#1-1 WELDING VISION(+)_JF2_20260601.csv");
-        await File.WriteAllTextAsync(csv, $"DATE,TIME,CELL-ID,UPPER_IMAGE-PATH-1{Environment.NewLine}20260601,08:09:25,CELL-TAB,{original.Replace(shareRoot, "E:")}");
+        await File.WriteAllTextAsync(csv, $"DATE,TIME,LOT-ID,CELL-ID,UPPER_IMAGE-PATH-1{Environment.NewLine}20260601,08:09:25,LOT,CELL-TAB,{original.Replace(shareRoot, "E:")}");
         var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "127.0.0.1", ['E']);
-        var candidate = new IrsReviewCandidate("tab-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-TAB", "TOP", "raw.jpg", "NG", "reason", 4);
+        var candidate = new IrsReviewCandidate("tab-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-TAB", "TOP", "", "NG", "reason", 4);
         var service = new IrsReviewCommitService(new AppStorage(storageRoot), new StaticDailyCsvLocator([csv]), new TestSharePathResolver(shareRoot));
 
         try
         {
             await service.CommitAsync(new(machine, candidate, [new("TABSIDE_R", "Tabside R", "Crop_micro_tabside", IrsSelectionKind.Crop, "Crop_micro_tabside", "_R")]), CancellationToken.None);
-            var destination = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "Crop_micro_tabside");
+            var destination = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", InspectionIdentity.Hash(candidate.Key), "Crop_micro_tabside");
             Assert.False(File.Exists(Path.Combine(destination, Path.GetFileName(left))));
             Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(right))));
         }
@@ -2470,7 +2487,7 @@ public sealed class CoreTests
         var storageRoot = Path.Combine(Path.GetTempPath(), "IrsHornmarkSideStorage", Guid.NewGuid().ToString("N"));
         var originalFolder = Path.Combine(shareRoot, "Files", "Image", "E81C", "2026", "06", "01", "08", "OK", "CELL-HORN-FOLDER");
         Directory.CreateDirectory(originalFolder);
-        var original = Path.Combine(originalFolder, "CELL-HORN_UPPER_1_Raw.jpg");
+        var original = Path.Combine(originalFolder, "20260601_080925_LOT_CELL-HORN_EXT_0_0.jpg");
         await File.WriteAllTextAsync(original, "image");
         File.SetLastWriteTimeUtc(original, DateTime.UtcNow.AddMinutes(-10));
 
@@ -2485,15 +2502,15 @@ public sealed class CoreTests
         }
 
         var csv = Path.Combine(shareRoot, "#1-1 WELDING VISION(+)_JF2_20260601.csv");
-        await File.WriteAllTextAsync(csv, $"DATE,TIME,CELL-ID,UPPER_IMAGE-PATH-1{Environment.NewLine}20260601,08:09:25,CELL-HORN,{original.Replace(shareRoot, "E:")}");
+        await File.WriteAllTextAsync(csv, $"DATE,TIME,LOT-ID,CELL-ID,UPPER_IMAGE-PATH-1{Environment.NewLine}20260601,08:09:25,LOT,CELL-HORN,{original.Replace(shareRoot, "E:")}");
         var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "127.0.0.1", ['E']);
-        var candidate = new IrsReviewCandidate("horn-key", "Flagged", "Flagged", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-HORN", "TOP", "raw.jpg", "FLAGGED", "Hornmark L", 0, [original.Replace(shareRoot, "E:")]);
+        var candidate = new IrsReviewCandidate("horn-key", "Flagged", "Flagged", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-HORN", "TOP", "", "FLAGGED", "Hornmark L", 0, [original.Replace(shareRoot, "E:")]);
         var service = new IrsReviewCommitService(new AppStorage(storageRoot), new StaticDailyCsvLocator([csv]), new TestSharePathResolver(shareRoot));
 
         try
         {
             await service.CommitAsync(new(machine, candidate, [new("HORNMARK_L", "Hornmark L", "HORNMARK", IrsSelectionKind.Crop, "HORNMARK", "L")]), CancellationToken.None);
-            var destination = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "HORNMARK");
+            var destination = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", InspectionIdentity.Hash(candidate.Key), "HORNMARK");
             Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(upper))));
             Assert.False(File.Exists(Path.Combine(destination, Path.GetFileName(lower))));
         }
@@ -2518,6 +2535,7 @@ public sealed class CoreTests
 
         var candidate = new IrsReviewCandidate("sim-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-SIM", "TOP", "raw.jpg", "NG", "reason", 4);
         var record = new IrsReviewRecord("sim-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-SIM", "TOP", "NG", "reason", ["A_L"], 3, 0, 0, storageRoot, DateTimeOffset.Now, [rawFolder]);
+        candidate = ResolvedFixture(candidate, record);
 
         try
         {
@@ -2549,6 +2567,7 @@ public sealed class CoreTests
 
         var candidate = new IrsReviewCandidate("btm-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-BTM", "BTM", "raw.jpg", "NG", "reason", 4);
         var record = new IrsReviewRecord("btm-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-BTM", "BTM", "NG", "reason", ["A_L"], 3, 0, 0, storageRoot, DateTimeOffset.Now, [rawFolder]);
+        candidate = ResolvedFixture(candidate, record);
 
         try
         {
@@ -2585,6 +2604,7 @@ public sealed class CoreTests
 
         var candidate = new IrsReviewCandidate("sepa-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 15, 9, 59, 23), "LOT", "CELL-SEPA", "TOP", "raw.jpg", "NG", "reason", 4);
         var record = new IrsReviewRecord("sepa-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-SEPA", "TOP", "NG", "reason", ["SEPA"], 6, 0, 0, storageRoot, DateTimeOffset.Now, [rawFolder]);
+        candidate = ResolvedFixture(candidate, record);
         var service = new IrsDatasetService(new AppStorage(storageRoot));
 
         try
@@ -2595,11 +2615,11 @@ public sealed class CoreTests
             await service.SaveDecisionAsync(item, ["Real"], false, CancellationToken.None);
 
             var result = await service.WriteSummaryAsync([candidate], [record], items, CancellationToken.None);
-            var destination = Path.Combine(result.OutputFolder, "Dataset", "Segmentation", "NEED_TO_SIMULATE", "SEPA", "CELL-SEPA-FOLDER");
+            var destination = Path.Combine(result.OutputFolder, "Dataset", "Segmentation", "NEED_TO_SIMULATE", "SEPA", InspectionIdentity.Hash(candidate.Key), "CELL-SEPA-FOLDER");
             Assert.True(Directory.Exists(destination));
             foreach (var file in files)
             {
-                Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(file))));
+                Assert.True(ExportExists(Path.Combine(destination, Path.GetFileName(file))));
             }
             Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "SEPA", "Real")));
         }
@@ -2621,6 +2641,7 @@ public sealed class CoreTests
 
         var candidate = new IrsReviewCandidate("sepa-unclassified-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 15, 9, 59, 23), "LOT", "CELL-SEPA", "TOP", "raw.jpg", "NG", "reason", 4);
         var record = new IrsReviewRecord("sepa-unclassified-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-SEPA", "TOP", "NG", "reason", ["SEPA"], 3, 0, 0, storageRoot, DateTimeOffset.Now, [rawFolder]);
+        candidate = ResolvedFixture(candidate, record);
         var service = new IrsDatasetService(new AppStorage(storageRoot));
 
         try
@@ -2646,14 +2667,15 @@ public sealed class CoreTests
         Directory.CreateDirectory(folder);
         var files = new[]
         {
-            Path.Combine(folder, "CELL-PAIR_UPPER_1_A_L_CL01_OK_SourceMap.jpg"),
-            Path.Combine(folder, "CELL-PAIR_UPPER_1_A_R_CL01_OK_SourceMap.jpg"),
-            Path.Combine(folder, "CELL-PAIR_UPPER_1_A_L_CL01_OK_ActiveMap.jpg"),
-            Path.Combine(folder, "CELL-PAIR_UPPER_1_A_R_CL01_OK_ActiveMap.jpg")
+            Path.Combine(folder, "CELL-PAIR_01-1_CA_080925_UPPER_1_A_L_CL01_OK_SourceMap.jpg"),
+            Path.Combine(folder, "CELL-PAIR_01-1_CA_080925_UPPER_1_A_R_CL01_OK_SourceMap.jpg"),
+            Path.Combine(folder, "CELL-PAIR_01-1_CA_080925_UPPER_1_A_L_CL01_OK_ActiveMap.jpg"),
+            Path.Combine(folder, "CELL-PAIR_01-1_CA_080925_UPPER_1_A_R_CL01_OK_ActiveMap.jpg")
         };
         foreach (var file in files) await File.WriteAllTextAsync(file, "image");
         var candidate = new IrsReviewCandidate("pair-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-PAIR", "TOP", "raw.jpg", "NG", "reason", 4);
         var record = new IrsReviewRecord("pair-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-PAIR", "TOP", "NG", "reason", ["A_L", "A_R"], 0, 4, 0, storageRoot, DateTimeOffset.Now, files);
+        candidate = ResolvedFixture(candidate, record);
 
         try
         {
@@ -2682,12 +2704,13 @@ public sealed class CoreTests
         Directory.CreateDirectory(folder);
         var files = new[]
         {
-            Path.Combine(folder, "CELL-NAME_UPPER_1_A_L_CL01_OK_SourceMap.jpg"),
-            Path.Combine(folder, "CELL-NAME_UPPER_1_A_L_CL01_OK_ActiveMap.jpg")
+            Path.Combine(folder, "CELL-NAME_01-1_CA_080925_UPPER_1_A_L_CL01_OK_SourceMap.jpg"),
+            Path.Combine(folder, "CELL-NAME_01-1_CA_080925_UPPER_1_A_L_CL01_OK_ActiveMap.jpg")
         };
         foreach (var file in files) await File.WriteAllTextAsync(file, "image");
         var candidate = new IrsReviewCandidate("name-key", "PACKAGE #1-1", "Welding Plus", "1-1(+)", new DateTime(2026, 6, 1, 8, 9, 25), "LOT", "CELL-NAME", "TOP", "raw.jpg", "NG", "reason", 4);
         var record = new IrsReviewRecord("name-key", "1-1-ca", "1-1(+)", candidate.ProducedAt, "CELL-NAME", "TOP", "NG", "reason", ["A_L"], 0, 2, 0, storageRoot, DateTimeOffset.Now, files);
+        candidate = ResolvedFixture(candidate, record);
         var service = new IrsDatasetService(new AppStorage(storageRoot));
 
         try
@@ -2700,7 +2723,7 @@ public sealed class CoreTests
 
             foreach (var file in files)
             {
-                Assert.True(File.Exists(Path.Combine(destination, Path.GetFileName(file))));
+                Assert.True(ExportExists(Path.Combine(destination, Path.GetFileName(file))));
                 Assert.False(File.Exists(Path.Combine(destination, $"CELL-NAME_{Path.GetFileName(file)}")));
             }
             Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "01_OK_TOP_CATHODE")));
@@ -2724,8 +2747,8 @@ public sealed class CoreTests
         Directory.CreateDirectory(unrelatedRulebaseFolder);
         var cropFiles = new[]
         {
-            Path.Combine(cropFolder, "CELL-CAT_UPPER_1_B_L_CL01_OK_SourceMap.jpg"),
-            Path.Combine(cropFolder, "CELL-CAT_UPPER_1_B_L_CL01_OK_ActiveMap.jpg")
+            Path.Combine(cropFolder, "CELL-CAT_01-1_CA_080000_UPPER_1_B_L_CL01_OK_SourceMap.jpg"),
+            Path.Combine(cropFolder, "CELL-CAT_01-1_CA_080000_UPPER_1_B_L_CL01_OK_ActiveMap.jpg")
         };
         foreach (var file in cropFiles) await File.WriteAllTextAsync(file, "crop");
         var rulebaseImage = Path.Combine(rulebaseFolder, "CELL-RULE_UPPER_1.jpg");
@@ -2738,6 +2761,8 @@ public sealed class CoreTests
         var cropRecord = new IrsReviewRecord("cat-key", "1-1-ca", "1-1(+)", cropCandidate.ProducedAt, "CELL-CAT", "TOP", "NG", "Burr", ["B_L"], 0, 2, 0, storageRoot, DateTimeOffset.Now, cropFiles);
         var rulebaseRecord = new IrsReviewRecord("rule-key", "1-1-ca", "1-1(+)", rulebaseCandidate.ProducedAt, "CELL-RULE", "TOP", "NG", "Tab Folded", ["RULEBASE"], 1, 0, 0, storageRoot, DateTimeOffset.Now, [rulebaseFolder]);
         var unrelatedRulebaseRecord = new IrsReviewRecord("old-rule-key", "1-1-an", "1-1(-)", new DateTime(2026, 7, 1, 8, 1, 0), "CELL-OLD", "TOP", "NG", "Foreign body on leadfilm", ["RULEBASE"], 1, 0, 0, storageRoot, DateTimeOffset.Now, [unrelatedRulebaseFolder]);
+        cropCandidate = ResolvedFixture(cropCandidate, cropRecord);
+        rulebaseCandidate = ResolvedFixture(rulebaseCandidate, rulebaseRecord);
         var service = new IrsDatasetService(new AppStorage(storageRoot));
 
         try
@@ -2756,11 +2781,11 @@ public sealed class CoreTests
             Assert.True(Directory.Exists(classification));
             foreach (var file in cropFiles)
             {
-                Assert.True(File.Exists(Path.Combine(classification, Path.GetFileName(file))));
+                Assert.True(ExportExists(Path.Combine(classification, Path.GetFileName(file))));
             }
 
-            var rulebase = Path.Combine(result.OutputFolder, "Rulebase", "1-1(+)", "Tab Folded", "CELL-RULE-FOLDER");
-            Assert.True(File.Exists(Path.Combine(rulebase, Path.GetFileName(rulebaseImage))));
+            var rulebase = Path.Combine(result.OutputFolder, "Rulebase", "1-1(+)", "Tab Folded", InspectionIdentity.Hash(rulebaseCandidate.Key), "CELL-RULE-FOLDER");
+            Assert.True(ExportExists(Path.Combine(rulebase, Path.GetFileName(rulebaseImage))));
             Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Rulebase", "1-1(-)", "Foreign body on leadfilm")));
             Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "RULEBASE")));
         }
@@ -2779,15 +2804,15 @@ public sealed class CoreTests
         Directory.CreateDirectory(Path.GetDirectoryName(csv)!);
         var headers = new[]
         {
-            "DATE", "TIME", "CELL-ID",
+            "DATE", "TIME", "LOT-ID", "CELL-ID",
             "UPPER_IMAGE-PATH-1", "UPPER_IMAGE-PATH-2", "UPPER_IMAGE-PATH-3",
             "LOWER_IMAGE-PATH-1", "LOWER_IMAGE-PATH-2", "LOWER_IMAGE-PATH-3"
         };
         var row = new[]
         {
-            "20260709", "08:00:00", "CELL-FLAG",
-            @"E:\Files\Image\Raw\u1.jpg", @"E:\Files\Image\Raw\u2.jpg", @"E:\Files\Image\Raw\u3.jpg",
-            @"E:\Files\Image\Raw\l1.jpg", @"E:\Files\Image\Raw\l2.jpg", @"E:\Files\Image\Raw\l3.jpg"
+            "20260709", "08:00:00", "LOT", "CELL-FLAG",
+            @"E:\Files\Image\Raw\20260709_080000_LOT_CELL-FLAG_EXT_0_0.jpg", @"E:\Files\Image\Raw\20260709_080000_LOT_CELL-FLAG_EXT_0_1.jpg", @"E:\Files\Image\Raw\20260709_080000_LOT_CELL-FLAG_EXT_0_2.jpg",
+            @"E:\Files\Image\Raw\20260709_080000_LOT_CELL-FLAG_EXT_1_0.jpg", @"E:\Files\Image\Raw\20260709_080000_LOT_CELL-FLAG_EXT_1_1.jpg", @"E:\Files\Image\Raw\20260709_080000_LOT_CELL-FLAG_EXT_1_2.jpg"
         };
         await File.WriteAllLinesAsync(csv, [string.Join(",", headers), string.Join(",", row)]);
         var machine = new WeldingMachine("1-1-ca", "1-1", Polarity.Cathode, "unused", ['E']);
@@ -2833,7 +2858,7 @@ public sealed class CoreTests
             Assert.Equal("flag-previous", Assert.Single(oldFlags).Key);
             Assert.Equal("BTM", candidate.CameraLocation);
             Assert.Equal(3, candidate.RawImagePaths?.Count);
-            Assert.All(candidate.RawImagePaths!, path => Assert.Contains(@"\Raw\l", path));
+            Assert.All(candidate.RawImagePaths!, path => Assert.Contains("_EXT_1_", path));
         }
         finally
         {
@@ -3090,6 +3115,21 @@ public sealed class CoreTests
             "source.csv");
     }
 
+
+    private static bool ExportExists(string path) => File.Exists(path) ||
+        (Directory.Exists(Path.GetDirectoryName(path)) && Directory.EnumerateFiles(
+            Path.GetDirectoryName(path)!, Path.GetFileName(path), SearchOption.AllDirectories).Any());
+
+    private static IrsReviewCandidate ResolvedFixture(IrsReviewCandidate candidate, IrsReviewRecord record)
+    {
+        var originals = (record.SavedPaths ?? []).Where(Directory.Exists)
+            .SelectMany(path => Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)).ToArray();
+        if (originals.Length == 0)
+            originals = [$"{candidate.ProducedAt:yyyyMMdd_HHmmss}_{candidate.LotId}_{candidate.CellId}_EXT_0_0.jpg"];
+        return candidate with { Inspection = new(record.MachineId, "E81C", candidate.LotId, candidate.CellId,
+            candidate.ProducedAt, candidate.ProducedAt, originals) };
+    }
+
     private static DlngReviewItem DlngItem(
         WeldingMachine machine,
         string defect,
@@ -3113,7 +3153,31 @@ public sealed class CoreTests
             [],
             "source.csv",
             2,
-            string.Empty);
+            string.Empty,
+            new InspectionContext(machine.Id, machine.Model, "LOT", cellId,
+                new DateTime(2026, 6, 23, 1, 2, 3), new DateTime(2026, 6, 23, 1, 2, 3),
+                [$"20260623_010203_LOT_{cellId}_EXT_0_0.jpg"]));
+
+    private static async Task CollectFixtureReviewsAsync(AppStorage storage, IDlngReviewStore reviews)
+    {
+        var collection = new TrainingCollectionService(storage);
+        foreach (var original in (await reviews.LoadAsync(default)).Values.ToArray())
+        {
+            if (original.IsFallbackRaw || !ReviewSemantics.Known(original.FinalClass)) continue;
+            var paths = original.ImagePaths.ToList();
+            if (paths.Count == 1)
+            {
+                var source = paths[0];
+                var partner = source.Contains("_SourceMap", StringComparison.OrdinalIgnoreCase)
+                    ? source.Replace("_SourceMap", "_ActiveMap") : Path.ChangeExtension(source, null) + "_mask.png";
+                await File.WriteAllBytesAsync(partner, [2]);
+                paths.Add(partner);
+            }
+            var selected = original with { IncludeInTraining = true, TrainingSelectedAt = DateTimeOffset.Now, ImagePaths = paths };
+            await reviews.SaveAsync(selected, default);
+            Assert.Equal("Collected", await collection.ApplyAsync(selected));
+        }
+    }
 
     private static Task SaveDlngReviewAsync(
         IDlngReviewStore reviews,

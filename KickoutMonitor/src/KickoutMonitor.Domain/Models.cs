@@ -74,7 +74,8 @@ public sealed record KickoutCandidate(
     IReadOnlyList<CandidateImage> PreviewImages,
     string SourceFolder,
     string SourceCsv,
-    int SourceRow);
+    int SourceRow,
+    InspectionContext? Inspection = null);
 
 public sealed record ReviewEntry(
     string CandidateKey,
@@ -134,7 +135,8 @@ public sealed record SummaryReportRow(
     int Overkill,
     double InitialNgRate,
     double ConfirmedNgRate,
-    double OverkillRate);
+    double OverkillRate,
+    string ProductModel = "Unknown");
 
 public sealed record SummaryReportResult(
     DateOnly ReportDate,
@@ -164,14 +166,17 @@ public sealed record IrsReviewCandidate(
     string SecondResult,
     string SecondReason,
     int SourceRow,
-    IReadOnlyList<string>? RawImagePaths = null)
+    IReadOnlyList<string>? RawImagePaths = null,
+    InspectionContext? Inspection = null,
+    string? ResolutionMessage = null)
 {
     public string? RawImagePath => RawImagePaths?.FirstOrDefault();
 }
 
 public sealed record IrsImageLookupResult(
     IReadOnlyList<string> NetworkPaths,
-    string Message);
+    string Message,
+    InspectionContext? Inspection = null);
 
 public enum IrsSelectionKind
 {
@@ -222,7 +227,8 @@ public sealed record IrsReviewRecord(
     int MissingFiles,
     string DestinationRoot,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<string>? SavedPaths = null);
+    IReadOnlyList<string>? SavedPaths = null,
+    InspectionContext? Inspection = null);
 
 public sealed record IrsDatasetItem(
     string Key,
@@ -236,7 +242,8 @@ public sealed record IrsDatasetItem(
     string OriginalClass,
     IReadOnlyList<string> ImagePaths,
     IReadOnlyList<string> AllowedClasses,
-    bool IsNeedToSimulate);
+    bool IsNeedToSimulate,
+    InspectionContext? Inspection = null);
 
 public sealed record IrsDatasetDecision(
     string ItemKey,
@@ -270,7 +277,8 @@ public sealed record FlaggedItem(
     IReadOnlyList<string> RawImagePaths,
     DateTimeOffset FlaggedAt,
     DateTimeOffset UpdatedAt,
-    DateTimeOffset? SummarizedAt = null)
+    DateTimeOffset? SummarizedAt = null,
+    InspectionContext? Inspection = null)
 {
     public bool IsSummarized => SummarizedAt is not null;
 }
@@ -303,7 +311,10 @@ public sealed record DlngReviewItem(
     IReadOnlyList<DlngImage> Images,
     string SourceCsv,
     int SourceRow,
-    string SourceFolder);
+    string SourceFolder,
+    InspectionContext? Inspection = null,
+    IReadOnlyList<DlngImage>? RawImages = null,
+    string? ResolutionMessage = null);
 
 public sealed record DlngReviewRecord(
     string ItemKey,
@@ -319,7 +330,14 @@ public sealed record DlngReviewRecord(
     string FinalClass,
     bool IsFallbackRaw,
     IReadOnlyList<string> ImagePaths,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    InspectionContext? Inspection = null,
+    bool IncludeInTraining = false,
+    DateTimeOffset? TrainingSelectedAt = null,
+    string ProductModel = "",
+    DlngModelKind? ModelKind = null,
+    string TrainingPolarity = "",
+    DateTimeOffset? CollectedAt = null);
 
 public sealed record DlngReportRow(
     string DatasetSection,
@@ -362,7 +380,8 @@ public sealed record NgBypassCandidate(
     string SourceCsv,
     int SourceRow,
     IReadOnlyList<string> Headers,
-    IReadOnlyList<string> Values);
+    IReadOnlyList<string> Values,
+    InspectionContext? Inspection = null);
 
 public sealed record NgBypassReviewRecord(
     string CandidateKey,

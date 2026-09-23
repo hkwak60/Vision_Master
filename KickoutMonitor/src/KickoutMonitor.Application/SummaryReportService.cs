@@ -75,6 +75,10 @@ public sealed class SummaryReportService
         }
 
         var records = rows
+            .SeparateCollisions(x => x.Record.CandidateKey, x => InspectionIdentity.Fingerprint(
+                x.Record.Headers.Select((h, i) => (h, i)).Where(v => v.h.Contains("IMAGE-PATH-", StringComparison.OrdinalIgnoreCase))
+                    .Select(v => x.Record.Values[v.i]).Where(v => !string.IsNullOrWhiteSpace(v))),
+                (x, key) => (Machine: x.Machine, Record: x.Record with { CandidateKey = key }))
             .GroupBy(
                 x => x.Record.CandidateKey,
                 StringComparer.OrdinalIgnoreCase)
@@ -136,7 +140,8 @@ public sealed class SummaryReportService
             }
         }
 
-        return results
+        return results.Select(row => row with { ProductModel = records.Where(x => x.Machine.OutputFolderName == row.LinePolarity)
+                .Select(x => x.Machine.Model).Distinct(StringComparer.OrdinalIgnoreCase).SingleOrDefault() ?? "Unknown" })
             .OrderBy(x => x.LinePolarity, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Defect == "ALL" ? string.Empty : x.Defect, StringComparer.OrdinalIgnoreCase)
             .ToArray();

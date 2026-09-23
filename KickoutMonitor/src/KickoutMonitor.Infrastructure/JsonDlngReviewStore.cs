@@ -36,7 +36,22 @@ public sealed class JsonDlngReviewStore : IDlngReviewStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var records = await LoadUnlockedAsync(cancellationToken);
+            var records = new Dictionary<string, DlngReviewRecord>(await LoadUnlockedAsync(cancellationToken), StringComparer.OrdinalIgnoreCase);
+            if (File.Exists(_storage.DlngReviewFile) && !File.Exists(_storage.DlngReviewFile + ".overkill-v1.bak"))
+                File.Copy(_storage.DlngReviewFile, _storage.DlngReviewFile + ".overkill-v1.bak");
+            ReviewCompatibility.Backup(_storage.DlngReviewFile);
+            // Legacy ordinal and stable keys can describe the exact same saved pair.
+            // Replace those representations together so re-review cannot leave a stale duplicate in history.
+            if (record.ImagePaths.Count > 0)
+            {
+                var paths = record.ImagePaths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToArray();
+                var aliases = records.Where(p => p.Key != record.ItemKey
+                    && p.Value.MachineId == record.MachineId && p.Value.InspectedAt == record.InspectedAt
+                    && p.Value.CellId == record.CellId && p.Value.CropFolder == record.CropFolder && p.Value.Side == record.Side
+                    && p.Value.ImagePaths.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).SequenceEqual(paths, StringComparer.OrdinalIgnoreCase))
+                    .Select(p => p.Key).ToArray();
+                foreach (var alias in aliases) records.Remove(alias);
+            }
             records[record.ItemKey] = record;
             Directory.CreateDirectory(Path.GetDirectoryName(_storage.DlngReviewFile)!);
             var temporary = _storage.DlngReviewFile + ".writing";
@@ -56,6 +71,7 @@ public sealed class JsonDlngReviewStore : IDlngReviewStore
             }
 
             File.Move(temporary, _storage.DlngReviewFile, true);
+            _cache = records;
             _cacheWriteTimeUtc = File.GetLastWriteTimeUtc(_storage.DlngReviewFile);
         }
         finally
@@ -90,6 +106,17 @@ public sealed class JsonDlngReviewStore : IDlngReviewStore
             stream,
             cancellationToken: cancellationToken) ?? [];
         _cache = records.ToDictionary(x => x.ItemKey, StringComparer.OrdinalIgnoreCase);
+        foreach (var record in records.Where(x => !x.IsFallbackRaw))
+        {
+            var split = record.ItemKey.LastIndexOf('|');
+            if (split < 0 || !int.TryParse(record.ItemKey[(split + 1)..], out _)) continue;
+            var pairKeys = record.ImagePaths.Select(InspectionIdentity.PairKey).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (pairKeys.Length != 1) continue;
+            // Require the production filename prefix; the current queue key provides the exact inspection check.
+            if (!pairKeys[0].StartsWith(record.CellId + "_", StringComparison.OrdinalIgnoreCase)) continue;
+            var stable = record.ItemKey[..split] + "|PAIR:" + InspectionIdentity.Hash(pairKeys[0]);
+            _cache.TryAdd(stable, record with { ItemKey = stable });
+        }
         _cacheWriteTimeUtc = writeTime;
         return _cache;
     }

@@ -81,7 +81,7 @@
                                 BorderThickness="0,0,0,1">
                             <TextBlock Text="IRS Review Queue" FontSize="16" FontWeight="SemiBold"/>
                         </Border>
-                        <DataGrid ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}"
+                        <DataGrid Sorting="ReworkGrid_Sorting" ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}"
                                   AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
                                   HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                                   SelectionMode="Single"
@@ -107,7 +107,9 @@
                                 </Style>
                             </DataGrid.RowStyle>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="66"/>
+                                <DataGridTextColumn Header="Images" Binding="{Binding ImageState}" Width="160"/>
+                                <DataGridTextColumn Header="Rework" Binding="{Binding ReworkLabel}" Width="62"/>
+                                <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="90"/>
                                 <DataGridTextColumn Header="Line" Binding="{Binding LinePolarity}" Width="68"/>
                                 <DataGridTextColumn Header="Cell ID" Binding="{Binding CellId}" Width="112"/>
                                 <DataGridTextColumn Header="Vision Type" Binding="{Binding VisionType}" Width="112"/>

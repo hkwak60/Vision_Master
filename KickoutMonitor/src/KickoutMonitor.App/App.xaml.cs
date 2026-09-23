@@ -54,6 +54,8 @@ public partial class App : System.Windows.Application
         var reviews = new JsonReviewStore(storage);
         var ngBypassReviews = new JsonNgBypassReviewStore(storage);
         var dlngReviews = new JsonDlngReviewStore(storage);
+        var collection = new TrainingCollectionService(storage);
+        var overkill = new OverkillMonitorViewModel(new OverkillHistoryService(storage, dlngReviews, collection), collection, dlngReviews);
         var flaggedItems = new JsonFlaggedItemStore(storage);
         var shares = new SharePathResolver();
         var locator = new DailyCsvLocator(shares, settings);
@@ -132,7 +134,7 @@ public partial class App : System.Windows.Application
             new DlngReportGenerator(dlngQueue, dlngReviews, storage),
             imageLoader,
             settings,
-            flaggedItems);
+            flaggedItems, collection);
         var ngBypassViewModel = new NgBypassMonitorViewModel(
             machines,
             ngBypassQueue,
@@ -149,7 +151,7 @@ public partial class App : System.Windows.Application
             imageLoader,
             flaggedItems);
         var settingsViewModel = new SettingsViewModel(settingsStore, settings, settingsStore.LastWarning);
-        var window = new MainWindow(kickoutViewModel, irsViewModel, dlngViewModel, ngBypassViewModel, flaggedViewModel, settingsViewModel);
+        var window = new MainWindow(kickoutViewModel, irsViewModel, dlngViewModel, ngBypassViewModel, flaggedViewModel, settingsViewModel, overkill);
         MainWindow = window;
         window.Show();
     }

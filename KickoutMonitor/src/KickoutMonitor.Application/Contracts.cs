@@ -107,6 +107,7 @@ public interface IIrsWorkbookReader
 
 public interface IIrsRawImageLocator
 {
+    void Reset() { }
     Task<IrsImageLookupResult> FindAsync(
         WeldingMachine machine,
         IrsReviewCandidate candidate,
@@ -186,6 +187,10 @@ public interface IFlaggedReviewService
 
 public interface IDlngCsvReader
 {
+    Task<IReadOnlyList<InspectionContext>> ReadInspectionContextsAsync(WeldingMachine machine,
+        SnapshotResult snapshot, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<InspectionContext>>([]);
+
     IAsyncEnumerable<DlngReviewItem> ReadAsync(
         WeldingMachine machine,
         SnapshotResult snapshot,
@@ -195,6 +200,7 @@ public interface IDlngCsvReader
 
 public interface IDlngCropLocator
 {
+    void Reset() { }
     Task<IReadOnlyList<DlngReviewItem>> ExpandAsync(
         WeldingMachine machine,
         DlngReviewItem candidate,

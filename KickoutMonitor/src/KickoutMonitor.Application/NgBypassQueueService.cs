@@ -61,6 +61,7 @@ public sealed class NgBypassQueueService
 
         return new(
             items
+                .SeparateCollisions(x => x.Key, x => InspectionIdentity.Fingerprint(x.Inspection?.ImagePaths ?? x.Images.Select(i => i.Path).ToArray()), (x, key) => x with { Key = key })
                 .GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
                 .Select(x => x.First())
                 .OrderBy(x => x.InspectedAt)

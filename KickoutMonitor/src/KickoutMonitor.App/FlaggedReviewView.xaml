@@ -44,7 +44,7 @@
                         <TextBlock Text="Queue" FontSize="16" FontWeight="SemiBold"/>
                         <TextBlock Text="{Binding PositionText}" Margin="12,2,0,0" Foreground="#52606D"/>
                     </StackPanel>
-                    <DataGrid ItemsSource="{Binding Candidates}"
+                    <DataGrid Sorting="ReworkGrid_Sorting" ItemsSource="{Binding Candidates}"
                               SelectedItem="{Binding SelectedCandidate, Mode=TwoWay}"
                               AutoGenerateColumns="False"
                               IsReadOnly="True"
@@ -69,7 +69,9 @@
                         </DataGrid.RowStyle>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Date" Binding="{Binding Date}" Width="82"/>
-                            <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="62"/>
+                            <DataGridTextColumn Header="Images" Binding="{Binding ImageState}" Width="160"/>
+                                <DataGridTextColumn Header="Rework" Binding="{Binding ReworkLabel}" Width="62"/>
+                                <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="90"/>
                             <DataGridTextColumn Header="Line" Binding="{Binding LinePolarity}" Width="80"/>
                             <DataGridTextColumn Header="Cell" Binding="{Binding CellId}" Width="125"/>
                             <DataGridTextColumn Header="Side" Binding="{Binding Camera}" Width="60"/>

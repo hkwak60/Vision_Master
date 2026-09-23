@@ -9,11 +9,12 @@ using System.Windows.Media.Imaging;
 using KickoutMonitor.App.Services;
 using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
+using KickoutMonitor.Infrastructure;
 using Microsoft.Win32;
 
 namespace KickoutMonitor.App.ViewModels;
 
-public sealed class IrsCandidateItem : INotifyPropertyChanged
+public sealed class IrsCandidateItem : INotifyPropertyChanged, IReworkRow
 {
     private string _reviewStatus = "Pending";
 
@@ -41,18 +42,24 @@ public sealed class IrsCandidateItem : INotifyPropertyChanged
             string.Empty,
             datasetItem.SecondReason,
             0,
-            datasetItem.ImagePaths);
+            datasetItem.ImagePaths,
+            datasetItem.Inspection);
     }
 
     public string Date => Candidate.ProducedAt.ToString("yyyy-MM-dd");
-    public string Time => Candidate.ProducedAt.ToString("HH:mm:ss");
+    public string Time => InspectionIdentity.DisplayTime(InspectionTime);
     public string LinePolarity => Candidate.LinePolarity;
     public string CellId => Candidate.CellId;
+    public DateTime InspectionTime => Candidate.Inspection?.JudgedAt ?? Candidate.ProducedAt;
+    public string InspectionKey => Candidate.Inspection?.Identity ?? $"{Candidate.Inspection?.MachineId ?? Candidate.LinePolarity}|{InspectionTime:O}|{Candidate.Inspection?.LotId ?? Candidate.LotId}|{Candidate.CellId}";
+    public string ReworkGroup => InspectionIdentity.Group(Candidate.Inspection?.MachineId ?? Candidate.LinePolarity, Candidate.Inspection?.LotId ?? Candidate.LotId, Candidate.CellId, InspectionKey);
+    public string ReworkLabel { get; set; } = "";
+
     public string VisionType => Candidate.VisionType;
     public string Camera => Candidate.CameraLocation;
     public string SecondResult => Candidate.SecondResult;
     public string SecondReason => Candidate.SecondReason;
-    public string ImageState => Candidate.RawImagePath is null ? "Missing" : "Ready";
+    public string ImageState => Candidate.ResolutionMessage ?? (Candidate.RawImagePath is null ? "Missing" : "Ready");
     public string ReviewStatus
     {
         get => _reviewStatus;
@@ -427,7 +434,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             var committed = await _commits.LoadRecordsAsync(CancellationToken.None);
             _loadedReviewRecords = committed;
             _committedSelections.Clear();
-            foreach (var record in committed)
+            foreach (var record in committed.Where(saved => records.Any(candidate => candidate.Key == saved.Key && ReviewCompatibility.SavedImagesMatch(candidate, saved))))
             {
                 _committedSelections[record.Key] = record.Selections;
             }
@@ -442,10 +449,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 return item;
             });
             foreach (var item in queueItems
-                         .OrderBy(IsUnclassified)
-                         .ThenBy(item => item.Candidate.ProducedAt)
-                         .ThenBy(item => item.LinePolarity, StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(item => item.CellId, StringComparer.OrdinalIgnoreCase))
+                         .ReworkOrder(IsUnclassified))
             {
                 Candidates.Add(item);
             }
@@ -639,7 +643,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             : Array.Empty<string>();
         var now = DateTimeOffset.Now;
         await _flags.SaveAsync(new(
-            FlagKey("IRS", machine.Id, item.Candidate.ProducedAt, item.CellId, side),
+            FlagKey("IRS", machine.Id, item.Candidate.ProducedAt, item.CellId, side) + "|" + InspectionIdentity.Hash(item.Candidate.Inspection?.Identity ?? item.Candidate.Key),
             "IRS",
             machine.Id,
             item.LinePolarity,
@@ -652,7 +656,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             string.IsNullOrWhiteSpace(item.SecondReason) ? item.VisionType : item.SecondReason,
             rawPaths,
             now,
-            now), CancellationToken.None);
+            now, Inspection: item.Candidate.Inspection), CancellationToken.None);
         Status = $"Flagged {item.LinePolarity} {item.CellId} {side}.";
         AddLog(Status);
     }
@@ -898,11 +902,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 ReviewStatus = decisions.ContainsKey(datasetItem.Key) ? "Saved" : "Pending"
             });
             foreach (var item in queueItems
-                         .OrderBy(IsUnclassified)
-                         .ThenBy(item => item.Candidate.ProducedAt)
-                         .ThenBy(item => item.LinePolarity, StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(item => item.CellId, StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(item => item.Candidate.SecondReason, StringComparer.OrdinalIgnoreCase))
+                         .ReworkOrder(IsUnclassified))
             {
                 Candidates.Add(item);
             }

@@ -12,6 +12,7 @@ public sealed class DlngReportGenerator : IDlngReportService
     private readonly DlngQueueService _queue;
     private readonly IDlngReviewStore _reviews;
     private readonly AppStorage _storage;
+    private readonly TrainingCollectionService _collection;
 
     public DlngReportGenerator(
         DlngQueueService queue,
@@ -21,6 +22,7 @@ public sealed class DlngReportGenerator : IDlngReportService
         _queue = queue;
         _reviews = reviews;
         _storage = storage;
+        _collection = new(storage);
     }
 
     public async Task<DlngReportResult> GenerateAsync(
@@ -106,18 +108,17 @@ public sealed class DlngReportGenerator : IDlngReportService
             .ThenBy(x => x.Item.InspectedAt)
             .ToArray();
 
-        if (rows.Length == 0)
-        {
-            throw new InvalidOperationException("Cannot generate DLNG dataset: no reviewed cropped DLNG item(s) were found for the selected date range.");
-        }
-
         var datasetRoot = Path.Combine(_storage.DlngReport, "DATASET");
+        foreach (var item in items.Where(i => i.InspectedAt >= windowStart && i.InspectedAt < windowEnd))
+            if (decisions.TryGetValue(item.Key, out var d) && ShouldSkipDatasetExport(item, d)) RemoveExport(datasetRoot, item.Key);
         var dateRange = DateRangeFolder(startDate, endDate);
         var copied = 0;
         foreach (var row in rows)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            copied += CopyFlatDataset(row.Item, row.Decision, datasetRoot, dateRange, cancellationToken);
+            var local = await LocalDecisionAsync(row.Decision, cancellationToken);
+            if (local is null) { RemoveExport(datasetRoot, row.Item.Key); progress?.Report($"Collection unavailable: {row.Item.CellId} / {row.Item.CropFolder}"); continue; }
+            copied += CopyFlatDataset(row.Item, local, datasetRoot, dateRange, cancellationToken);
         }
 
         progress?.Report($"DLNG dataset generated: {copied:N0} image(s) copied.");
@@ -140,14 +141,7 @@ public sealed class DlngReportGenerator : IDlngReportService
             progress?.Report($"Skipped {missing:N0} unclassified DLNG crop item(s).");
         }
 
-        var rows = reviewedRows
-            .Where(x => !ShouldSkipDatasetExport(x.Item, x.Decision))
-            .ToArray();
-        var skippedNoNeed = reviewedRows.Length - rows.Length;
-        if (skippedNoNeed > 0)
-        {
-            progress?.Report($"Skipped {skippedNoNeed:N0} segmentation No Need item(s); no dataset export is required.");
-        }
+        var rows = reviewedRows;
 
         if (rows.Length == 0)
         {
@@ -163,7 +157,10 @@ public sealed class DlngReportGenerator : IDlngReportService
         foreach (var row in rows)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CopyDataset(row.Item, row.Decision, datasetRoot, cancellationToken);
+            if (ShouldSkipDatasetExport(row.Item, row.Decision)) { RemoveExport(datasetRoot, row.Item.Key); continue; }
+            var local = await LocalDecisionAsync(row.Decision, cancellationToken);
+            if (local is not null) CopyDataset(row.Item, local, datasetRoot, cancellationToken);
+            else RemoveExport(datasetRoot, row.Item.Key);
         }
 
         var summaryRows = rows
@@ -205,51 +202,67 @@ public sealed class DlngReportGenerator : IDlngReportService
         && !string.IsNullOrWhiteSpace(decision.SourceClass)
         && !decision.SourceClass.Equals(decision.FinalClass, StringComparison.OrdinalIgnoreCase);
 
-    private static void CopyDataset(
-        DlngReviewItem item,
-        DlngReviewRecord decision,
-        string datasetRoot,
-        CancellationToken cancellationToken)
+    private static void RemoveExport(string root, string key)
     {
-        var destinationFolder = DatasetDestinationFolder(item, decision, datasetRoot);
-        Directory.CreateDirectory(destinationFolder);
-        var images = decision.IsFallbackRaw && Directory.Exists(item.SourceFolder)
-            ? Directory.EnumerateFiles(item.SourceFolder)
-                .Where(IsImageFile)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-                .ToArray()
-            : decision.ImagePaths.Where(File.Exists).ToArray();
-        foreach (var image in images)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var target = Path.Combine(destinationFolder, ModelSuffixedFileName(image, item.CropFolder));
-            File.Copy(image, target, true);
-        }
+        var manifest = Path.Combine(root, ".ownership", InspectionIdentity.Hash(key) + ".json");
+        if (!File.Exists(manifest)) return;
+        var paths = System.Text.Json.JsonSerializer.Deserialize<string[]>(File.ReadAllText(manifest)) ?? [];
+        foreach (var path in paths)
+            if (Path.GetFullPath(path).StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && File.Exists(path)) File.Delete(path);
+        File.Delete(manifest);
     }
-
-    private static int CopyFlatDataset(
-        DlngReviewItem item,
-        DlngReviewRecord decision,
-        string datasetRoot,
-        string dateRange,
-        CancellationToken cancellationToken)
+    private async Task<DlngReviewRecord?> LocalDecisionAsync(DlngReviewRecord decision, CancellationToken token)
     {
-        var destinationFolder = Path.Combine(
-            datasetRoot,
-            SafeName(item.CropFolder),
-            dateRange,
-            SafeName(FlatDatasetClassFolder(item, decision)));
-        Directory.CreateDirectory(destinationFolder);
-        var copied = 0;
-        foreach (var image in decision.ImagePaths.Where(File.Exists))
+        var id = ReviewSemantics.SampleId(decision);
+        var sample = (await _collection.LoadAsync(token)).SelectMany(b => b.Samples)
+            .FirstOrDefault(s => s.Id == id && s.State == "Ready" && !s.Superseded && s.Review.FinalClass == decision.FinalClass);
+        if (sample is not null && sample.Files.Count == 2 && sample.Files.All(File.Exists))
+            return decision with { ImagePaths = sample.Files };
+        // Export is not an implicit collection operation.
+        return null;
+    }
+    private static void CopyDataset(DlngReviewItem item, DlngReviewRecord decision, string root, CancellationToken token)
+    {
+        var destination = DatasetDestinationFolder(item, decision, root);
+        if (!item.CropFolder.Equals("SEPA", StringComparison.OrdinalIgnoreCase))
+            destination = Path.Combine(destination, InspectionIdentity.Hash(item.Inspection?.Identity ?? item.Key));
+        ExportPair(item, decision, root, destination, token, true);
+    }
+    private static int CopyFlatDataset(DlngReviewItem item, DlngReviewRecord decision, string root, string range, CancellationToken token)
+    {
+        var destination = Path.Combine(root, SafeName(item.CropFolder), range, SafeName(decision.FinalClass));
+        if (!item.CropFolder.Equals("SEPA", StringComparison.OrdinalIgnoreCase))
+            destination = Path.Combine(destination, InspectionIdentity.Hash(item.Inspection?.Identity ?? item.Key));
+        return ExportPair(item, decision, root, destination, token);
+    }
+    private static int ExportPair(DlngReviewItem item, DlngReviewRecord decision, string root, string folder, CancellationToken token, bool report = false)
+    {
+        TrainingCollectionService.ValidatePair(decision.ImagePaths);
+        var id = InspectionIdentity.Hash(item.Key);
+        var manifestFolder = Path.Combine(root, ".ownership");
+        Directory.CreateDirectory(manifestFolder);
+        var manifest = Path.Combine(manifestFolder, id + ".json");
+        var previous = File.Exists(manifest)
+            ? System.Text.Json.JsonSerializer.Deserialize<string[]>(File.ReadAllText(manifest)) ?? [] : [];
+        Directory.CreateDirectory(folder);
+        var targets = decision.ImagePaths.Select(path => Path.Combine(folder,
+            item.CropFolder.Equals("SEPA", StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFileName(path) : report ? ModelSuffixedFileName(path, item.CropFolder) : Path.GetFileName(path))).ToArray();
+        // Record both sets before publishing, so an interrupted export can clean up its own old files.
+        File.WriteAllText(manifest + ".tmp", System.Text.Json.JsonSerializer.Serialize(previous.Concat(targets).Distinct()));
+        File.Move(manifest + ".tmp", manifest, true);
+        for (var i = 0; i < targets.Length; i++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var target = UniqueTargetPath(destinationFolder, Path.GetFileName(image));
-            File.Copy(image, target, false);
-            copied++;
+            token.ThrowIfCancellationRequested();
+            File.Copy(decision.ImagePaths[i], targets[i] + ".tmp", true);
+            File.Move(targets[i] + ".tmp", targets[i], true);
         }
-
-        return copied;
+        foreach (var old in previous.Except(targets, StringComparer.OrdinalIgnoreCase))
+            if (Path.GetFullPath(old).StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && File.Exists(old))
+                File.Delete(old);
+        File.WriteAllText(manifest + ".tmp", System.Text.Json.JsonSerializer.Serialize(targets));
+        File.Move(manifest + ".tmp", manifest, true);
+        return targets.Length;
     }
     private static string DatasetDestinationFolder(
         DlngReviewItem item,
@@ -326,8 +339,7 @@ public sealed class DlngReportGenerator : IDlngReportService
     private static string FlatDatasetClassFolder(DlngReviewItem item, DlngReviewRecord decision) => decision.FinalClass;
 
     private static bool ShouldSkipDatasetExport(DlngReviewItem item, DlngReviewRecord decision) =>
-        (item.ModelKind is DlngModelKind.Segmentation or DlngModelKind.FallbackRaw || decision.IsFallbackRaw)
-        && IsNoNeedToTrain(decision.FinalClass);
+        !decision.IncludeInTraining || decision.IsFallbackRaw || item.ModelKind == DlngModelKind.FallbackRaw || !ReviewSemantics.CanTrain(decision.FinalClass);
 
     private static bool IsNoNeedToTrain(string finalClass) =>
         finalClass.Equals("No Need to Train", StringComparison.OrdinalIgnoreCase)

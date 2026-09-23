@@ -16,6 +16,10 @@ public sealed class DlngCsvReader : IDlngCsvReader
         _settings = settings ?? VisionMasterSettings.CreateDefault();
     }
 
+    public Task<IReadOnlyList<InspectionContext>> ReadInspectionContextsAsync(WeldingMachine machine,
+        SnapshotResult snapshot, CancellationToken cancellationToken) =>
+        InspectionPaths.ReadAsync(machine, snapshot.SnapshotPath, snapshot.SourcePath, _shares, cancellationToken);
+
     public async IAsyncEnumerable<DlngReviewItem> ReadAsync(
         WeldingMachine machine,
         SnapshotResult snapshot,
@@ -54,7 +58,7 @@ public sealed class DlngCsvReader : IDlngCsvReader
             if (IsIgnoredCell(cellId)) continue;
             var judge = row.Get(ProductionCsvSchema.Judge);
             var defect = row.Get(ProductionCsvSchema.JudgeDefect);
-            var mapping = DlngRules.FindMapping(defect, _settings.DlngRules);
+            var mapping = DlngRules.FindMappings(defect, _settings.DlngRules).FirstOrDefault();
             if (mapping is null || !DlngRules.IsEligibleJudge(judge, _settings.DlngRules)) continue;
             if (!TryTimestamp(row.Get(ProductionCsvSchema.Date), row.Get(ProductionCsvSchema.Time), out var inspectedAt)) continue;
 
@@ -94,7 +98,9 @@ public sealed class DlngCsvReader : IDlngCsvReader
                     rawImages,
                     snapshot.SourcePath,
                     rowNumber,
-                    sourceFolder);
+                    sourceFolder,
+                    InspectionPaths.Create(machine, row.Get, inspectedAt, snapshot.SourcePath, rowNumber, _shares),
+                    rawImages);
             }
         }
         progress?.Report(

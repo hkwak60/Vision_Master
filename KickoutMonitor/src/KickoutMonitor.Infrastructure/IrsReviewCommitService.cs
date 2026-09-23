@@ -35,14 +35,22 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
         IrsReviewCommitRequest request,
         CancellationToken cancellationToken)
     {
+        var resolver = new ProductionInspectionResolver(_csvs, _shares);
+        var resolved = await resolver.ResolveAsync(request.Machine, request.Candidate, cancellationToken);
+        if (resolved.Inspection is null || resolved.NetworkPaths.Count == 0)
+            throw new InvalidOperationException(resolved.Message);
+        request = request with { Candidate = request.Candidate with {
+            Inspection = resolved.Inspection, RawImagePaths = resolved.NetworkPaths, ResolutionMessage = resolved.Message } };
         var machineRoot = _storage.MachineRoot(request.Machine);
-        var destinationRoot = Path.Combine(machineRoot, _workflowFolder);
+        var destinationRoot = Path.Combine(machineRoot, _workflowFolder, InspectionIdentity.Hash(request.Candidate.Key));
         Directory.CreateDirectory(destinationRoot);
 
         var records = await LoadRecordListAsync(cancellationToken);
         var previous = records.FirstOrDefault(x =>
             x.Key.Equals(request.Candidate.Key, StringComparison.OrdinalIgnoreCase));
-        DeleteSavedPaths(previous?.SavedPaths);
+        DeleteSavedPaths(previous?.SavedPaths?.Where(path =>
+            Path.GetFullPath(path).StartsWith(Path.GetFullPath(destinationRoot) + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase)).ToArray());
 
         var crop = await CopyCropFilesAsync(request, destinationRoot, cancellationToken);
         var original = await CopyOriginalFolderAsync(
@@ -114,61 +122,9 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
         IrsReviewCommitRequest request,
         CancellationToken cancellationToken)
     {
-        var date = DateOnly.FromDateTime(request.Candidate.ProducedAt);
-        var csvFiles = await _csvs.FindAsync(request.Machine, date, cancellationToken);
-        foreach (var csv in csvFiles)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                var paths = await FindOriginalImagePathsInCsvAsync(request, csv, cancellationToken);
-                if (paths.Count > 0) return paths;
-            }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
-        }
-
-        return request.Candidate.RawImagePaths ?? [];
-    }
-
-    private async Task<IReadOnlyList<string>> FindOriginalImagePathsInCsvAsync(
-        IrsReviewCommitRequest request,
-        string csvFile,
-        CancellationToken cancellationToken)
-    {
-        await using var stream = new FileStream(
-            csvFile,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete,
-            128 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
-
-        var headerLine = await reader.ReadLineAsync(cancellationToken);
-        if (headerLine is null) return [];
-        var headers = CsvSupport.UniqueHeaders(CsvSupport.ParseLine(headerLine));
-        while (await reader.ReadLineAsync(cancellationToken) is { } line)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var values = CsvSupport.ParseLine(line);
-            if (values.Count < headers.Count) continue;
-            var row = new CsvRow(headers, values);
-            var cellId = row.Get("CELL-ID");
-            if (!request.Candidate.CellId.Equals(cellId, StringComparison.OrdinalIgnoreCase)) continue;
-
-            var paths = new List<string>(12);
-            AddOriginalPaths(request.Machine, row, paths, "UPPER");
-            AddOriginalPaths(request.Machine, row, paths, "LOWER");
-            return paths;
-        }
-
-        return [];
+        var result = await new ProductionInspectionResolver(_csvs, _shares)
+            .ResolveAsync(request.Machine, request.Candidate, cancellationToken);
+        return result.Inspection?.ImagePaths ?? [];
     }
 
     private void AddOriginalPaths(
@@ -246,6 +202,8 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var name = Path.GetFileName(file);
+                    if (request.Candidate.Inspection is not { } context
+                        || !InspectionIdentity.MatchesCrop(file, request.Machine, context, InspectionIdentity.CropPathDate(file))) continue;
                     if (!MatchesSide(name, request.Candidate.CameraLocation)) continue;
                     if (!MatchesCropToken(name, selection)) continue;
                     if (!IsUsefulCropFile(name)) continue;
@@ -277,17 +235,15 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
         IrsReviewCandidate candidate,
         string folder)
     {
-        var relative = Path.Combine(
-            _settings.ProductionPaths.ImageSegments
-                .Concat([machine.Model, candidate.ProducedAt.ToString("yyyy"), candidate.ProducedAt.ToString("MM"), candidate.ProducedAt.ToString("dd"), _settings.ProductionPaths.MavinFolderName, folder])
-                .ToArray());
-        foreach (var drive in CropSearchDrives(machine, candidate))
+        if (candidate.Inspection is not { ImageAt: not null } context) yield break;
+        foreach (var date in InspectionIdentity.CropDates(context))
         {
-            yield return Path.Combine(_shares.GetRoot(machine, drive), relative);
-            if (folder.Equals("GAP_DL", StringComparison.OrdinalIgnoreCase))
-            {
-                yield return Path.Combine(_shares.GetRoot(machine, drive), relative.Replace("GAP_DL", "Gap_DL"));
-            }
+            var relative = Path.Combine(
+                _settings.ProductionPaths.ImageSegments
+                    .Concat([context.Model, date.ToString("yyyy"), date.ToString("MM"), date.ToString("dd"), _settings.ProductionPaths.MavinFolderName, folder])
+                    .ToArray());
+            foreach (var drive in CropSearchDrives(machine, candidate))
+                yield return Path.Combine(_shares.GetRoot(machine, drive), relative);
         }
     }
 
@@ -483,10 +439,12 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
             result.MissingFiles,
             result.DestinationRoot,
             DateTimeOffset.Now,
-            savedPaths));
+            savedPaths,
+            request.Candidate.Inspection));
 
         var orderedRecords = records.OrderBy(x => x.ProducedAt).ToArray();
         var path = _reviewFile;
+        ReviewCompatibility.Backup(path);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await using (var write = new FileStream(
             path,

@@ -69,7 +69,7 @@ public sealed class MachineOption : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-public sealed class CandidateItem : INotifyPropertyChanged
+public sealed class CandidateItem : INotifyPropertyChanged, IReworkRow
 {
     private ReviewDecision _decision;
     private CopyState _copyState;
@@ -89,9 +89,15 @@ public sealed class CandidateItem : INotifyPropertyChanged
 
     public WeldingMachine Machine { get; }
     public KickoutCandidate Candidate { get; private set; }
-    public string Time => Candidate.InspectedAt.ToString("HH:mm:ss");
+    public string Time => InspectionIdentity.DisplayTime(Candidate.InspectedAt);
     public string LinePolarity => Machine.OutputFolderName;
     public string CellId => Candidate.CellId;
+    public DateTime InspectionTime => Candidate.InspectedAt;
+    public string InspectionKey => Candidate.Inspection?.Identity ?? $"{Candidate.MachineId}|{InspectionTime:O}|{Candidate.LotId}|{Candidate.CellId}";
+    public string ReworkGroup => InspectionIdentity.Group(Candidate.MachineId, Candidate.LotId, Candidate.CellId, InspectionKey);
+    public string ReworkLabel { get; set; } = "";
+    public string ResolutionMessage => Candidate.Inspection?.Issue ?? "";
+
     public string Defect => Candidate.Defect;
     public string Side => Candidate.NgSide.ToString();
     public string ReviewLabel => Decision switch
@@ -177,6 +183,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         AppStorage storage,
         IFlaggedItemStore? flags = null)
     {
+        var defaultRange = QueueTimeRange.KickoutDefault(DateTime.Now);
+        _startDate = defaultRange.Start.Date;
+        _endDate = defaultRange.End.Date;
+        _startTime = defaultRange.Start.ToString("HH:mm");
+        _endTime = defaultRange.End.ToString("HH:mm");
         _machines = machines;
         _queue = queue;
         _reviews = reviews;
@@ -187,7 +198,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _reports = reports;
         _flags = flags;
         MachineOptions = new(machines.All.Select(
-            (machine, index) => new MachineOption(machine, index == 0)));
+            (machine, index) => new MachineOption(machine, machine.Line is "1-1" or "1-2")));
         StorageRoot = storage.Root;
         LoadCommand = new(
             LoadQueueAsync,
@@ -200,10 +211,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             () => !IsBusy
                 && MachineOptions.Any(option => option.IsSelected)
                 && ReportDate is not null);
-        RealNgCommand = new(() => ReviewAsync(ReviewDecision.RealNg), CanReview);
-        OverkillCommand = new(() => ReviewAsync(ReviewDecision.Overkill), CanReview);
-        MultiDefectCommand = new(() => ReviewAsync(ReviewDecision.MultiDefectNg), CanReview);
-        IgnoreCommand = new(() => ReviewAsync(ReviewDecision.Ignore), CanReview);
+        CommitCommand = new(CommitDraftAsync, () => CanReview() && _draftDecision is not null);
+        RealNgCommand = new(() => SelectDraftAsync(ReviewDecision.RealNg), CanReview);
+        OverkillCommand = new(() => SelectDraftAsync(ReviewDecision.Overkill), CanReview);
+        MultiDefectCommand = new(() => SelectDraftAsync(ReviewDecision.MultiDefectNg), CanReview);
+        IgnoreCommand = new(() => SelectDraftAsync(ReviewDecision.Ignore), CanReview);
         PreviousCommand = new(Previous, CanPrevious);
         NextCommand = new(Next, CanNext);
         PreviousImageCommand = new(
@@ -222,6 +234,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<SummaryReportRow> SummaryRows { get; } = [];
     public AsyncRelayCommand LoadCommand { get; }
     public AsyncRelayCommand GenerateReportCommand { get; }
+    private ReviewDecision? _draftDecision;
+    public string DraftLabel => _draftDecision is null ? "Select a judgment to save" : $"Draft: {_draftDecision}";
+    public AsyncRelayCommand CommitCommand { get; }
+    private Task SelectDraftAsync(ReviewDecision decision)
+    {
+        _draftDecision = decision;
+        OnPropertyChanged(nameof(DraftLabel));
+        CommandManager.InvalidateRequerySuggested();
+        return AutoAdvanceAfterReview ? CommitDraftAsync() : Task.CompletedTask;
+    }
+    private Task CommitDraftAsync() => _draftDecision is { } decision && CanReview() ? ReviewAsync(decision) : Task.CompletedTask;
+
     public AsyncRelayCommand RealNgCommand { get; }
     public AsyncRelayCommand OverkillCommand { get; }
     public AsyncRelayCommand MultiDefectCommand { get; }
@@ -238,6 +262,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         get => _autoAdvanceAfterReview;
         set => Set(ref _autoAdvanceAfterReview, value);
     }
+
+    private string _startTime = "06:00";
+    private string _endTime = "06:00";
+    public string StartTime { get => _startTime; set => Set(ref _startTime, value); }
+    public string EndTime { get => _endTime; set => Set(ref _endTime, value); }
 
     public DateTime? StartDate
     {
@@ -264,6 +293,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (!Set(ref _selectedCandidate, value)) return;
             Comment = value?.ReviewComment ?? string.Empty;
+            _draftDecision = null;
+            OnPropertyChanged(nameof(DraftLabel));
             _ = LoadPreviewsAsync(value);
             CommandManager.InvalidateRequerySuggested();
             OnPropertyChanged(nameof(SelectedIndex));
@@ -329,6 +360,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (IsBusy) return;
         switch (key)
         {
+            case Key.Enter when CommitCommand.CanExecute(null):
+                CommitCommand.Execute(null);
+                break;
             case Key.R when CanReview():
                 RealNgCommand.Execute(null);
                 break;
@@ -363,13 +397,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             .Select(option => option.Machine)
             .ToArray();
         if (selectedMachines.Length == 0 || StartDate is null || EndDate is null) return;
-        var start = DateOnly.FromDateTime(StartDate.Value);
-        var end = DateOnly.FromDateTime(EndDate.Value);
-        if (end < start)
+        if (!QueueTimeRange.TryCreate(StartDate, StartTime, EndDate, EndTime, out var range, out var error))
         {
-            Status = "End date must be on or after the start date.";
+            Status = error;
             return;
         }
+        var start = DateOnly.FromDateTime(range!.Start);
+        var end = DateOnly.FromDateTime(range.End.AddTicks(-1));
 
         IsBusy = true;
         Candidates.Clear();
@@ -380,7 +414,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AddConnectionLog(
                 $"Fetching review queue for {selectedMachines.Length} machine(s), " +
-                $"{start:yyyy-MM-dd} through {end:yyyy-MM-dd}...");
+                $"{range.Start:yyyy-MM-dd HH:mm:ss} to {range.End:yyyy-MM-dd HH:mm:ss} (end excluded)...");
             var saved = await _reviews.LoadAsync(CancellationToken.None);
             var progress = new Progress<string>(message => Status = message);
             var cachedCount = 0;
@@ -408,7 +442,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     continue;
                 }
 
-                for (var date = start; date <= end; date = date.AddDays(1))
+                foreach (var date in range.Dates())
                 {
                     try
                     {
@@ -416,7 +450,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                             machine,
                             date,
                             progress,
-                            CancellationToken.None);
+                            CancellationToken.None, range);
                         foreach (var record in records)
                         {
                             saved.TryGetValue(record.Key, out var review);
@@ -457,15 +491,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             foreach (var item in loaded
-                         .OrderBy(IsUnclassified)
-                         .ThenBy(item => item.Candidate.InspectedAt)
-                         .ThenBy(item => item.LinePolarity, StringComparer.OrdinalIgnoreCase))
+                         .ReworkOrder(IsUnclassified))
             {
                 Candidates.Add(item);
             }
             SelectedCandidate = Candidates.FirstOrDefault();
             Status = Candidates.Count == 0
-                ? "No eligible JUDGE=NG records were found."
+                ? "No eligible JUDGE=NG records were found in the selected timeframe."
                 : $"Loaded {Candidates.Count:N0} KICKOUT candidates.";
             AddConnectionLog(
                 $"Review queue ready: {Candidates.Count:N0} candidate(s) from " +
@@ -503,7 +535,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             .ToArray();
         var now = DateTimeOffset.Now;
         await _flags.SaveAsync(new(
-            FlagKey("Kickout", item.Candidate.MachineId, item.Candidate.InspectedAt, item.Candidate.CellId, side),
+            FlagKey("Kickout", item.Candidate.MachineId, item.Candidate.InspectedAt, item.Candidate.CellId, side) + "|" + InspectionIdentity.Hash(item.Candidate.Inspection?.Identity ?? item.Candidate.Key),
             "Kickout",
             item.Candidate.MachineId,
             item.LinePolarity,
@@ -516,7 +548,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             item.Candidate.Defect,
             rawPaths,
             now,
-            now), CancellationToken.None);
+            now, Inspection: item.Candidate.Inspection), CancellationToken.None);
         Status = $"Flagged {item.LinePolarity} {item.CellId} {side}.";
         AddConnectionLog(Status);
     }
@@ -629,9 +661,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task ReviewAsync(ReviewDecision decision)
     {
-        if (SelectedCandidate is null) return;
+        if (IsBusy || SelectedCandidate is null) return;
         IsBusy = true;
         var item = SelectedCandidate;
+        var displayed = DisplayedCandidates();
+        var index = DisplayedIndexOf(item, displayed);
+        var next = index >= 0 && index + 1 < displayed.Count ? displayed[index + 1] : null;
         try
         {
             Status = "Verifying and copying the complete source folder...";
@@ -672,7 +707,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             Status = $"{decision}: {copy.Message}";
             LogReviewCompletionIfDone();
-            if (AutoAdvanceAfterReview) Next();
+            if (copy.State is CopyState.Copied or CopyState.NotRequested)
+            {
+                _draftDecision = null;
+                OnPropertyChanged(nameof(DraftLabel));
+                if (ReferenceEquals(SelectedCandidate, item) && next is not null) SelectedCandidate = next;
+            }
         }
         catch (Exception exception)
         {

@@ -1,5 +1,7 @@
 # VisionMaster Project Overview
 
+Rework identity, timestamp matching, grouping, saved-review compatibility and validation are specified in [Rework-safe inspection review](Rework_Review.md).
+
 This document is a handoff guide for reviewers and maintainers who need to understand VisionMaster quickly without losing the important production rules. It complements `docs/VisionMaster_Rules.md` by describing the application structure, shared workflows, queue behavior, image lookup conventions, decision persistence, and report outputs across all current review modules.
 
 ## 1. Product Purpose
@@ -130,7 +132,7 @@ Most review modules use the same three-pane interaction:
 
 The queue is visually stateful:
 
-- Pending/unreviewed items are prioritized above reviewed items when a queue loads across multiple days.
+- Existing review-status ordering applies to whole rework groups; attempts within each group stay chronological.
 - Reviewed items are colored green where the module supports state coloring.
 - Copy or lookup failures can be colored red.
 - Rework duplicate rows in NG/Bypass are subtly yellow.
@@ -433,9 +435,9 @@ Review decisions:
 Rework duplicate rule:
 
 - Production can rework a kicked-out NG cell by reinserting the same cell.
-- If the same cell receives the same measure-side NG from the same line/polarity again, keep it in the queue for human review.
+- If the same cell in the same Lot ID receives the same measure-side NG from the same line/polarity again, keep it in the queue for human review.
 - Mark duplicate/rework queue rows with a slight yellow hint so the user knows they are rework repeats.
-- Summary counts should count only the first occurrence for initial matched count, Real, and Overkill.
+- Summary counts should count only the first occurrence per machine, Lot ID, cell and measure-side for initial matched count, Real, and Overkill.
 - Image saving behavior does not change for duplicate/rework rows.
 
 Summary behavior:
@@ -633,3 +635,8 @@ When adding or changing a feature:
 7. Add focused tests for CSV filtering, side selection, crop lookup, persistence reload, summary blocking, and output layout.
 
 The most reliable mental model is: production data is a read-only source, review stores are the truth for operator decisions, and summary/dataset folders are generated artifacts that should be reproducible from source data plus review JSON.
+
+
+## Overkill Monitor and training collection
+
+See [Overkill Monitor workflow](Overkill_Monitor.md) for independent review/training selection, batch ownership and trained transitions, local history rates, Enter behavior, and flat SEPA exports.

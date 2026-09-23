@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
+using KickoutMonitor.Infrastructure;
 
 namespace KickoutMonitor.App.ViewModels;
 
@@ -261,13 +262,16 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
             {
                 var item = new IrsCandidateItem(candidate)
                 {
-                    ReviewStatus = records.Any(x => x.Key.Equals(candidate.Key, StringComparison.OrdinalIgnoreCase))
+                    ReviewStatus = records.Any(x => x.Key.Equals(candidate.Key, StringComparison.OrdinalIgnoreCase) && ReviewCompatibility.SavedImagesMatch(candidate, x))
                         ? "Saved"
                         : summarized ? "Summarized" : "Pending"
                 };
                 Candidates.Add(item);
             }
 
+            var grouped = Candidates.ReworkOrder(IsUnclassified);
+            Candidates.Clear();
+            foreach (var row in grouped) Candidates.Add(row);
             SelectedCandidate = Candidates.FirstOrDefault();
             Status = summarized
                 ? $"Loaded {Candidates.Count:N0} previously flagged item(s)."
@@ -407,14 +411,14 @@ public sealed class FlaggedReviewViewModel : INotifyPropertyChanged
                      {
                          ReviewStatus = decisions.ContainsKey(datasetItem.Key) ? "Saved" : "Pending"
                      })
-                     .OrderBy(IsUnclassified)
-                     .ThenBy(x => x.Candidate.ProducedAt)
-                     .ThenBy(x => x.LinePolarity, StringComparer.OrdinalIgnoreCase)
-                     .ThenBy(x => x.CellId, StringComparer.OrdinalIgnoreCase))
+                     .ReworkOrder(IsUnclassified))
             {
                 Candidates.Add(item);
             }
 
+            var grouped = Candidates.ReworkOrder(IsUnclassified);
+            Candidates.Clear();
+            foreach (var row in grouped) Candidates.Add(row);
             SelectedCandidate = Candidates.FirstOrDefault();
             Status = Candidates.Count == 0
                 ? "No crop dataset items were created. Rulebase/Undetectable-only summary can be generated now."

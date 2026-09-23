@@ -22,6 +22,9 @@ public partial class FlaggedReviewView : UserControl
     private INotifyCollectionChanged? _activityLogSource;
     private INotifyPropertyChanged? _viewModelSource;
 
+    private void ReworkGrid_Sorting(object sender, System.Windows.Controls.DataGridSortingEventArgs e)
+        => Services.ReworkGrid.Sort(sender, e);
+
     public FlaggedReviewView()
     {
         InitializeComponent();

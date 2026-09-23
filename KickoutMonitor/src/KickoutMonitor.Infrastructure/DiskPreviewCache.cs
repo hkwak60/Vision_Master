@@ -38,6 +38,7 @@ public sealed class DiskPreviewCache : IPreviewCache
                 if (copied)
                 {
                     File.Move(temporary, cachedPath, true);
+                    File.SetLastWriteTimeUtc(cachedPath, File.GetLastWriteTimeUtc(image.NetworkPath));
                 }
                 else
                 {
@@ -89,6 +90,7 @@ public sealed class DiskPreviewCache : IPreviewCache
             var source = new FileInfo(sourcePath);
             return source.Exists
                 && cached.Length == source.Length
+                && cached.LastWriteTimeUtc == source.LastWriteTimeUtc
                 && HasCompleteImageEnding(cachedPath);
         }
         catch (IOException)

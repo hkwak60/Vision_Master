@@ -10,7 +10,7 @@ using KickoutMonitor.Domain;
 
 namespace KickoutMonitor.App.ViewModels;
 
-public sealed class NgBypassCandidateItem : INotifyPropertyChanged
+public sealed class NgBypassCandidateItem : INotifyPropertyChanged, IReworkRow
 {
     private ReviewDecision _decision;
     private CopyState _copyState;
@@ -24,9 +24,15 @@ public sealed class NgBypassCandidateItem : INotifyPropertyChanged
     }
 
     public NgBypassCandidate Candidate { get; }
-    public string Time => Candidate.InspectedAt.ToString("HH:mm:ss");
+    public string Time => InspectionIdentity.DisplayTime(Candidate.InspectedAt);
     public string LinePolarity => Candidate.LinePolarity;
     public string CellId => Candidate.CellId;
+    public DateTime InspectionTime => Candidate.InspectedAt;
+    public string InspectionKey => Candidate.Inspection?.Identity ?? $"{Candidate.MachineId}|{InspectionTime:O}|{Candidate.LotId}|{Candidate.CellId}";
+    public string ReworkGroup => InspectionIdentity.Group(Candidate.MachineId, Candidate.LotId, Candidate.CellId, InspectionKey);
+    public string ReworkLabel { get; set; } = "";
+    public string ResolutionMessage => Candidate.Inspection?.Issue ?? "";
+
     public string Measure => Candidate.Measure;
     public string Side => Candidate.Side;
     public string TargetValue => Candidate.TargetValue;
@@ -421,11 +427,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
             }
 
             foreach (var item in loaded
-                         .OrderBy(IsUnclassified)
-                         .ThenBy(x => x.Candidate.InspectedAt)
-                         .ThenBy(x => x.LinePolarity, StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(x => x.CellId, StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(x => x.Side, StringComparer.OrdinalIgnoreCase))
+                         .ReworkOrder(IsUnclassified))
             {
                 Candidates.Add(item);
             }
@@ -490,7 +492,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
             .ToArray();
         var now = DateTimeOffset.Now;
         await _flags.SaveAsync(new(
-            FlagKey("NGBypass", item.MachineId, item.InspectedAt, item.CellId, item.Side),
+            FlagKey("NGBypass", item.MachineId, item.InspectedAt, item.CellId, item.Side) + "|" + InspectionIdentity.Hash(item.Inspection?.Identity ?? item.Key),
             "NG/Bypass",
             item.MachineId,
             item.LinePolarity,
@@ -503,7 +505,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
             item.Measure,
             rawPaths,
             now,
-            now), CancellationToken.None);
+            now, Inspection: item.Inspection), CancellationToken.None);
         Status = $"Flagged {item.LinePolarity} {item.CellId} {item.Side}.";
         AddLog(Status);
     }
@@ -601,7 +603,7 @@ public sealed class NgBypassMonitorViewModel : INotifyPropertyChanged
         }
 
         foreach (var group in items.GroupBy(
-                     x => $"{x.Candidate.MachineId}|{x.LinePolarity}|{x.CellId}|{x.Measure}|{x.Side}",
+                     x => $"{x.Candidate.MachineId}|{x.LinePolarity}|{(string.IsNullOrWhiteSpace(x.Candidate.LotId) ? x.Candidate.Key : x.Candidate.LotId)}|{x.CellId}|{x.Measure}|{x.Side}",
                      StringComparer.OrdinalIgnoreCase))
         {
             var first = true;

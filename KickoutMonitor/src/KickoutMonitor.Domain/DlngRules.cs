@@ -21,6 +21,22 @@ public static class DlngRules
         return null;
     }
 
+    // Supplemental segmentation targets apply to existing settings too; classification mappings stay intact.
+    public static IReadOnlyList<DlngDefectMappingSetting> FindMappings(string? defect, DlngRuleSettings rules)
+    {
+        var result = new List<DlngDefectMappingSetting>();
+        if (FindMapping(defect, rules) is { } original) result.Add(original);
+        if (new[] { "SS_Left", "SS_Right", "Tab_Burr_LL", "Tab_Burr_LB", "Tab_Burr_RR", "Tab_Burr_RB" }
+            .Contains(defect?.Trim(), StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var folder in new[] { "SEPA", "SEPA_SHOULDER" })
+                if (!result.Any(m => m.CropFolders.Contains(folder, StringComparer.OrdinalIgnoreCase)))
+                    result.Add(new() { Defect = defect!.Trim(), ModelKind = DlngModelKind.Segmentation,
+                        CropFolders = [folder], Token = folder.Replace('_', ' ') });
+        }
+        return result;
+    }
+
     public static bool IsEligibleJudge(string? judge, DlngRuleSettings rules) =>
         rules.EligibleJudges.Any(x =>
             x.Equals(judge?.Trim(), StringComparison.OrdinalIgnoreCase));

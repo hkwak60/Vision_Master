@@ -90,6 +90,8 @@ public sealed class NgBypassCsvReader : INgBypassCsvReader
                     query.Measure.Trim(),
                     column.Side,
                     query.TargetValue);
+                var inspection = InspectionPaths.Create(machine, row.Get, inspectedAt, snapshot.SourcePath, rowNumber, _shares);
+                if (inspection.Issue is not null) { images = []; sourceFolder = ""; }
                 yield return new(
                     key,
                     machine.Id,
@@ -108,7 +110,8 @@ public sealed class NgBypassCsvReader : INgBypassCsvReader
                     snapshot.SourcePath,
                     rowNumber,
                     headers,
-                    values.Take(headers.Count).ToArray());
+                    values.Take(headers.Count).ToArray(),
+                    InspectionPaths.Create(machine, row.Get, inspectedAt, snapshot.SourcePath, rowNumber, _shares));
             }
         }
         progress?.Report(

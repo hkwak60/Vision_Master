@@ -55,6 +55,8 @@ public sealed class IrsDatasetService : IIrsDatasetService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var candidate = candidatesByKey[record.Key];
+            if (!ReviewCompatibility.SavedImagesMatch(candidate, record))
+                throw new InvalidOperationException($"Re-review required for {candidate.CellId}: saved images cannot be verified against this inspection.");
             foreach (var savedPath in record.SavedPaths ?? [])
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -89,7 +91,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
                         "NEED_TO_SIMULATE",
                         images,
                         ClassesFor(missingCropFolder, record.LinePolarity, candidate.CameraLocation),
-                        true));
+                        true, candidate.Inspection));
                     continue;
                 }
             }
@@ -106,7 +108,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
                 {
                     var originalClass = OriginalClassFromFiles(pair, folder, record.LinePolarity);
                     items.Add(new(
-                        $"{record.Key}|{folder}|{items.Count}",
+                        $"{record.Key}|{folder}|PAIR:{InspectionIdentity.Hash(InspectionIdentity.PairKey(pair[0]))}",
                         record.Key,
                         record.LinePolarity,
                         record.ProducedAt,
@@ -117,7 +119,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
                         originalClass,
                         pair,
                         ClassesFor(folder, record.LinePolarity, candidate.CameraLocation),
-                        false));
+                        false, candidate.Inspection));
                 }
             }
         }
@@ -138,6 +140,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
         CancellationToken cancellationToken)
     {
         var records = await LoadDecisionListAsync(cancellationToken);
+        ReviewCompatibility.Backup(_decisionFile);
         records.RemoveAll(x => x.ItemKey.Equals(item.Key, StringComparison.OrdinalIgnoreCase));
         records.Add(new(
             item.Key,
@@ -160,6 +163,12 @@ public sealed class IrsDatasetService : IIrsDatasetService
         CancellationToken cancellationToken,
         IProgress<string>? progress = null)
     {
+        foreach (var candidate in candidates)
+        {
+            var record = reviewRecords.FirstOrDefault(x => x.Key == candidate.Key);
+            if (record is null || !ReviewCompatibility.SavedImagesMatch(candidate, record))
+                throw new InvalidOperationException($"Re-review required for {candidate.CellId}: unresolved inspection or saved images.");
+        }
         progress?.Report("Loading IRS dataset decisions.");
         var decisions = await LoadDecisionsAsync(cancellationToken);
         var relevant = datasetItems
@@ -211,7 +220,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
             foreach (var finalClass in row.Decision.FinalClasses)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var destinationFolder = DatasetDestinationFolder(row.Item, finalClass, datasetRoot);
+                var destinationFolder = Path.Combine(DatasetDestinationFolder(row.Item, finalClass, datasetRoot), InspectionIdentity.Hash(row.Item.SourceReviewKey));
                 Directory.CreateDirectory(destinationFolder);
                 foreach (var image in row.Item.ImagePaths.Where(File.Exists))
                 {
@@ -307,6 +316,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
             SegmentationFolder,
             "NEED_TO_SIMULATE",
             item.SourceFolder,
+            InspectionIdentity.Hash(item.SourceReviewKey),
             Path.GetFileName(sourceFolder));
         CopyDirectoryContents(sourceFolder, destinationFolder, cancellationToken);
     }
@@ -341,6 +351,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
                     "Rulebase",
                     SafeName(record.LinePolarity),
                     reasonFolder,
+                    InspectionIdentity.Hash(record.Key),
                     Path.GetFileName(normalizedPath));
                 CopyDirectoryContents(normalizedPath, destinationFolder, cancellationToken);
             }
@@ -527,23 +538,10 @@ public sealed class IrsDatasetService : IIrsDatasetService
             return BuildMapPairs(sourceMaps, activeMaps);
         }
 
-        var sourceImgs = ordered.Where(path => Path.GetFileName(path).Contains("SourceImg", StringComparison.OrdinalIgnoreCase)
-            && !Path.GetFileName(path).Contains("mask", StringComparison.OrdinalIgnoreCase)).ToArray();
-        var masks = ordered.Where(path => Path.GetFileName(path).Contains("mask", StringComparison.OrdinalIgnoreCase)).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
-        if (sourceImgs.Length > 0 && masks.Length > 0)
-        {
-            var pairs = new List<IReadOnlyList<string>>();
-            foreach (var source in sourceImgs)
-            {
-                var side = SideToken(source);
-                var mask = masks.FirstOrDefault(path => SideToken(path).Equals(side, StringComparison.OrdinalIgnoreCase))
-                    ?? masks.FirstOrDefault();
-                if (mask is not null) pairs.Add([source, mask]);
-            }
-            return pairs;
-        }
-
-        return ordered.Chunk(2).Select(chunk => (IReadOnlyList<string>)chunk).ToArray();
+        // Segmentation pairs must share their complete capture/crop stem, not just a side.
+        return ordered.GroupBy(InspectionIdentity.PairKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => (IReadOnlyList<string>)group.OrderBy(SourceFirstOrder)
+                .ThenBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray()).ToArray();
     }
 
     private static bool IsProductionRawImage(string path, string cameraLocation)

@@ -11,6 +11,7 @@ public partial class MainWindow : Window
     private readonly NgBypassMonitorViewModel _ngBypassViewModel;
     private readonly FlaggedReviewViewModel _flaggedViewModel;
     private readonly SettingsViewModel _settingsViewModel;
+    private readonly OverkillMonitorViewModel? _overkill;
 
     public MainWindow(
         MainViewModel kickoutViewModel,
@@ -18,7 +19,7 @@ public partial class MainWindow : Window
         DlngReviewViewModel dlngViewModel,
         NgBypassMonitorViewModel ngBypassViewModel,
         FlaggedReviewViewModel flaggedViewModel,
-        SettingsViewModel settingsViewModel)
+        SettingsViewModel settingsViewModel, OverkillMonitorViewModel? overkill = null)
     {
         InitializeComponent();
         _kickoutViewModel = kickoutViewModel;
@@ -27,6 +28,7 @@ public partial class MainWindow : Window
         _ngBypassViewModel = ngBypassViewModel;
         _flaggedViewModel = flaggedViewModel;
         _settingsViewModel = settingsViewModel;
+        _overkill = overkill;
     }
 
     private void KickoutButton_Click(object sender, RoutedEventArgs e)
@@ -67,6 +69,16 @@ public partial class MainWindow : Window
         view.BackRequested += (_, _) => ReturnToDashboard();
         ModuleHost.Content = view;
         ShowModule("Flagged", "Flag follow-up review");
+    }
+
+    private async void OverkillButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_overkill is null) return;
+        var view = new OverkillMonitorView { DataContext = _overkill };
+        view.BackRequested += (_, _) => ReturnToDashboard();
+        ModuleHost.Content = view;
+        ShowModule("Overkill Monitor", "Review statistics and training collection");
+        await _overkill.RefreshAsync();
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)

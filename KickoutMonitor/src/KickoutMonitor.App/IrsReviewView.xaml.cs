@@ -28,6 +28,9 @@ public partial class IrsReviewView : UserControl
     private double _savedCenterX = 0.5;
     private double _savedCenterY = 0.5;
 
+    private void ReworkGrid_Sorting(object sender, System.Windows.Controls.DataGridSortingEventArgs e)
+        => Services.ReworkGrid.Sort(sender, e);
+
     public IrsReviewView()
     {
         InitializeComponent();

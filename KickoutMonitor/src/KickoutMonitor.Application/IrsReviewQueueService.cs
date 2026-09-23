@@ -23,6 +23,7 @@ public sealed class IrsReviewQueueService
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        _images.Reset();
         var records = await _reader.ReadRequestedAsync(workbookPath, cancellationToken);
         progress?.Report($"IRS workbook parsed: {records.Count:N0} requested row(s).");
         var results = new List<IrsReviewCandidate>(records.Count);
@@ -45,6 +46,7 @@ public sealed class IrsReviewQueueService
 
             searched++;
             var lookup = await _images.FindAsync(machine, record, cancellationToken);
+            progress?.Report($"{record.CellId}: {lookup.Message}");
             if (lookup.NetworkPaths.Count == 0)
             {
                 missing++;
@@ -62,7 +64,9 @@ public sealed class IrsReviewQueueService
             results.Add(record with
             {
                 LinePolarity = machine.OutputFolderName,
-                RawImagePaths = lookup.NetworkPaths
+                RawImagePaths = lookup.NetworkPaths,
+                Inspection = lookup.Inspection,
+                ResolutionMessage = lookup.Message
             });
         }
 

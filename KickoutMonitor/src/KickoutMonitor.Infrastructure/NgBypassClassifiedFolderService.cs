@@ -36,7 +36,7 @@ public sealed class NgBypassClassifiedFolderService : INgBypassClassifiedFolderS
             classFolder,
             SafeName(candidate.Measure));
         Directory.CreateDirectory(destinationParent);
-        var destination = Path.Combine(destinationParent, originalFolderName);
+        var destination = Path.Combine(destinationParent, InspectionIdentity.Hash(candidate.Key), originalFolderName);
         if (Directory.Exists(destination))
         {
             return Task.FromResult(new CopyResult(CopyState.Copied, destination, "Destination already exists."));

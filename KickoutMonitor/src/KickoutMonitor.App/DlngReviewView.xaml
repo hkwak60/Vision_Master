@@ -30,30 +30,41 @@
 
         <Grid Margin="12">
             <Grid.RowDefinitions>
-                <RowDefinition Height="118"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="105"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
             <Border Background="White" BorderBrush="{StaticResource PanelBorder}"
                     BorderThickness="1" Padding="8" Margin="0,0,0,10">
-                <Grid>
+                <Grid x:Name="ReviewToolbar">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="300"/>
-                        <ColumnDefinition Width="420"/>
+                        <ColumnDefinition Width="*" MinWidth="80"/>
+                        <ColumnDefinition Width="0.8*" MinWidth="98"/>
                         <ColumnDefinition Width="150"/>
                         <ColumnDefinition Width="150"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="150"/>
-                        <ColumnDefinition Width="150"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="104"/>
+                        <ColumnDefinition Width="104"/>
+                        <ColumnDefinition Width="104"/>
+                        <ColumnDefinition Width="116"/>
+                        <ColumnDefinition Width="114"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                        <TextBlock Text="Lines / Polarities" FontWeight="SemiBold"/>
-                        <ListBox ItemsSource="{Binding MachineOptions}" Height="42"
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Column="0" Text="Lines / ±" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
+                    <TextBlock Grid.Column="1" Text="Models" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
+                    <TextBlock Grid.Column="2" Text="Start date / time" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
+                    <TextBlock Grid.Column="3" Text="End date / time" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
+                    <TextBlock Grid.Column="5" Text="Report start" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
+                    <TextBlock Grid.Column="6" Text="Report end" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
+                    <StackPanel Grid.Column="0" Grid.Row="1" Margin="0,0,6,0">
+
+                        <ListBox ItemsSource="{Binding MachineOptions}" Height="56"
                                  BorderBrush="{StaticResource PanelBorder}"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <WrapPanel/>
@@ -63,20 +74,20 @@
                                 <DataTemplate>
                                     <CheckBox IsChecked="{Binding IsSelected}"
                                               Content="{Binding Label}"
-                                              Margin="7,2" MinWidth="78"/>
+                                              Margin="2,1" MinWidth="66"/>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Margin="0,0,10,0">
-                        <TextBlock Text="Models" FontWeight="SemiBold"/>
+                    <StackPanel Grid.Column="1" Grid.Row="1" Margin="0,0,6,0">
+
                         <Border BorderBrush="{StaticResource PanelBorder}" BorderThickness="1"
-                                Padding="6" MinHeight="66">
-                            <WrapPanel>
+                                Padding="2" Height="56">
+                            <ScrollViewer  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel>
                                 <CheckBox Content="All"
                                           IsChecked="{Binding AllModelsSelected}"
                                           FontWeight="SemiBold"
-                                          Margin="7,2" MinWidth="54"/>
+                                          Margin="2,1" MinWidth="54"/>
                                 <ItemsControl ItemsSource="{Binding ModelOptions}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
@@ -87,38 +98,36 @@
                                         <DataTemplate>
                                             <CheckBox IsChecked="{Binding IsSelected}"
                                                       Content="{Binding Name}"
-                                                      Margin="7,2" MinWidth="72"/>
+                                                      Margin="2,1" MinWidth="72"/>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                            </WrapPanel>
+                            </StackPanel></ScrollViewer>
                         </Border>
                     </StackPanel>
-                    <StackPanel Grid.Column="2" Margin="0,0,10,0">
-                        <TextBlock Text="Start date" FontWeight="SemiBold"/>
-                        <DatePicker SelectedDate="{Binding StartDate}" Height="34"/>
+                    <StackPanel Grid.Column="2" Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,6,0">
+                        <DatePicker SelectedDate="{Binding StartDate}" Width="94" Height="34" FontSize="12"/>
+                        <TextBox Text="{Binding StartTime, UpdateSourceTrigger=PropertyChanged}" Width="46" Height="34" Padding="2,0"
+                                 FontSize="12" Margin="4,0,0,0" VerticalContentAlignment="Center"
+                                 ToolTip="Queue time: HH:mm (24-hour). Start included; end excluded."/>
                     </StackPanel>
-                    <StackPanel Grid.Column="3" Margin="0,0,10,0">
-                        <TextBlock Text="End date" FontWeight="SemiBold"/>
-                        <DatePicker SelectedDate="{Binding EndDate}" Height="34"/>
+                    <StackPanel Grid.Column="3" Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,6,0">
+                        <DatePicker SelectedDate="{Binding EndDate}" Width="94" Height="34" FontSize="12"/>
+                        <TextBox Text="{Binding EndTime, UpdateSourceTrigger=PropertyChanged}" Width="46" Height="34" Padding="2,0"
+                                 FontSize="12" Margin="4,0,0,0" VerticalContentAlignment="Center"
+                                 ToolTip="Queue time: HH:mm (24-hour). Start included; end excluded."/>
                     </StackPanel>
-                    <Button Grid.Column="4" Content="Load DLNG Queue"
-                            Command="{Binding LoadCommand}" VerticalAlignment="Bottom"/>
-                    <StackPanel Grid.Column="5" Margin="16,0,10,0">
-                        <TextBlock Text="Report start" FontWeight="SemiBold"/>
-                        <DatePicker SelectedDate="{Binding ReportDate}" Height="34"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="6" Margin="0,0,10,0">
-                        <TextBlock Text="Report end" FontWeight="SemiBold"/>
-                        <DatePicker SelectedDate="{Binding ReportEndDate}" Height="34"/>
-                    </StackPanel>
-                    <Button Grid.Column="7" Content="Generate DLNG Report"
-                            Command="{Binding GenerateReportCommand}"
-                            VerticalAlignment="Bottom"
-                            Margin="0,0,8,0"/>
-                    <Button Grid.Column="8" Content="Generate Dataset"
-                            Command="{Binding GenerateDatasetCommand}"
-                            VerticalAlignment="Bottom"/>
+                    <Button Grid.Column="4" Grid.Row="1" Content="Load Queue" Command="{Binding LoadCommand}"
+                            ToolTip="Load DLNG Queue" FontSize="12" Padding="3,2" MinHeight="34" Height="34" VerticalAlignment="Top" Margin="0,0,6,0"/>
+                    <DatePicker Grid.Column="5" Grid.Row="1" SelectedDate="{Binding ReportDate}" Height="34" FontSize="12"
+                                VerticalAlignment="Top" Margin="0,0,6,0"/>
+                    <DatePicker Grid.Column="6" Grid.Row="1" SelectedDate="{Binding ReportEndDate}" Height="34" FontSize="12"
+                                VerticalAlignment="Top" Margin="0,0,6,0"/>
+                    <Button x:Name="GenerateReportButton" Grid.Column="7" Grid.Row="1" Content="Generate Summary"
+                            Command="{Binding GenerateReportCommand}" ToolTip="Generate DLNG Report" FontSize="12" Padding="3,2" MinHeight="34"
+                            Height="34" VerticalAlignment="Top" Margin="0,0,6,0"/>
+                    <Button x:Name="GenerateDatasetButton" Grid.Column="8" Grid.Row="1" Content="Generate Dataset"
+                            Command="{Binding GenerateDatasetCommand}" FontSize="12" Padding="3,2" MinHeight="34" Height="34" VerticalAlignment="Top" Margin="0"/>
                 </Grid>
             </Border>
 
@@ -174,7 +183,7 @@
                                 BorderThickness="0,0,0,1">
                             <TextBlock Text="DLNG Review Queue" FontSize="16" FontWeight="SemiBold"/>
                         </Border>
-                        <DataGrid ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}"
+                        <DataGrid Sorting="ReworkGrid_Sorting" ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}"
                                   AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
                                   HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                                   SelectionMode="Single"
@@ -184,23 +193,34 @@
                                 <Style TargetType="DataGridRow">
                                     <Setter Property="Background" Value="White"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding ReviewStatus}" Value="Saved">
+                                        <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=DataGrid}}" Value="True"><Setter Property="IsHitTestVisible" Value="False"/></DataTrigger>
+                                        <DataTrigger Binding="{Binding JudgmentTone}" Value="Real">
                                             <Setter Property="Background" Value="#D9EAD3"/>
                                         </DataTrigger>
+                                        <DataTrigger Binding="{Binding JudgmentTone}" Value="Overkill"><Setter Property="Background" Value="#F4CCCC"/></DataTrigger>
                                         <DataTrigger Binding="{Binding ReviewStatus}" Value="Save failed">
-                                            <Setter Property="Background" Value="#F4CCCC"/>
+                                            <Setter Property="Background" Value="#FFE5A3"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </DataGrid.RowStyle>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="66"/>
+                                <DataGridTextColumn Header="Images" Binding="{Binding ImageState}" Width="160">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="ToolTip" Value="{Binding ImageState}"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+                                <DataGridTextColumn Header="Rework" Binding="{Binding ReworkLabel}" Width="62"/>
+                                <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="90"/>
                                 <DataGridTextColumn Header="Line" Binding="{Binding LinePolarity}" Width="68"/>
-                                <DataGridTextColumn Header="Cell ID" Binding="{Binding CellId}" Width="112"/>
+                                <DataGridTextColumn Header="Cell ID" Binding="{Binding CellId}" Width="116"/>
                                 <DataGridTextColumn Header="Judge" Binding="{Binding Judge}" Width="65"/>
-                                <DataGridTextColumn Header="Defect" Binding="{Binding Defect}" Width="112"/>
+                                <DataGridTextColumn Header="Defect" Binding="{Binding Defect}" Width="116"/>
                                 <DataGridTextColumn Header="Folder" Binding="{Binding CropFolder}" Width="105"/>
                                 <DataGridTextColumn Header="Side" Binding="{Binding Side}" Width="64"/>
+                                <DataGridTextColumn Header="Final class" Binding="{Binding SavedClass}" Width="120"/>
                                 <DataGridTextColumn Header="Review" Binding="{Binding ReviewStatus}" Width="80"/>
                             </DataGrid.Columns>
                         </DataGrid>
@@ -304,6 +324,7 @@
                             </StackPanel.Resources>
                             <TextBlock Text="Final Class" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
                             <CheckBox Content="Auto advance" IsChecked="{Binding AutoAdvanceAfterReview}" Margin="2,0,0,8"/>
+                            <CheckBox Content="Include in training dataset" IsChecked="{Binding IncludeInTraining}" IsEnabled="{Binding CanCollect}" Margin="2,4,0,10"/>
                             <ItemsControl ItemsSource="{Binding FinalClassOptions}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>

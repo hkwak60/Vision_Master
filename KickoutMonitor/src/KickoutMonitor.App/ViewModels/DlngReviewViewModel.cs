@@ -11,7 +11,7 @@ using KickoutMonitor.Infrastructure;
 
 namespace KickoutMonitor.App.ViewModels;
 
-public sealed class DlngCandidateItem : INotifyPropertyChanged
+public sealed class DlngCandidateItem : INotifyPropertyChanged, IReworkRow
 {
     private string _reviewStatus;
 
@@ -19,17 +19,27 @@ public sealed class DlngCandidateItem : INotifyPropertyChanged
     {
         Item = item;
         _reviewStatus = review is null ? "Pending" : "Saved";
+        SavedClass = review?.FinalClass ?? "";
     }
 
+    private string _savedClass = "";
+    public string SavedClass { get => _savedClass; set { _savedClass = value; PropertyChanged?.Invoke(this, new(nameof(SavedClass))); PropertyChanged?.Invoke(this, new(nameof(JudgmentTone))); } }
+    public string JudgmentTone => ReviewSemantics.Tone(SavedClass);
     public DlngReviewItem Item { get; }
-    public string Time => Item.InspectedAt.ToString("HH:mm:ss");
+    public string Time => InspectionIdentity.DisplayTime(Item.InspectedAt);
     public string LinePolarity => Item.LinePolarity;
     public string CellId => Item.CellId;
+    public DateTime InspectionTime => Item.InspectedAt;
+    public string InspectionKey => Item.Inspection?.Identity ?? $"{Item.MachineId}|{InspectionTime:O}|{Item.LotId}|{Item.CellId}";
+    public string ReworkGroup => InspectionIdentity.Group(Item.MachineId, Item.LotId, Item.CellId, InspectionKey);
+    public string ReworkLabel { get; set; } = "";
+
     public string Judge => Item.Judge;
     public string Defect => Item.JudgeDefect;
     public string CropFolder => Item.CropFolder;
     public string Side => Item.Side;
     public string SourceClass => Item.SourceClass;
+    public string ImageState => Item.ResolutionMessage ?? "Ready";
     public string DisplayOverlay => Item.ModelKind == DlngModelKind.Classification
         ? $"{Item.SourceClass} / {Item.SideTitle()}"
         : $"{(Item.ModelKind == DlngModelKind.FallbackRaw ? "NEED_TO_SIMULATE" : "Segmentation")} / {Item.SideTitle()}";
@@ -142,6 +152,15 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private readonly IPreviewImageLoader<BitmapSource> _images;
     private readonly VisionMasterSettings _settings;
     private readonly IFlaggedItemStore? _flags;
+    private readonly TrainingCollectionService? _collection;
+    private bool _draftEdited;
+    private bool _includeInTraining;
+    public bool IncludeInTraining
+    {
+        get => _includeInTraining;
+        set { if (Set(ref _includeInTraining, value) && !_restoringSelections) { _draftEdited = true; CommandManager.InvalidateRequerySuggested(); } }
+    }
+    public bool CanCollect => SelectedCandidate?.Item.ModelKind is DlngModelKind.Classification or DlngModelKind.Segmentation;
     private CancellationTokenSource? _previewCancellation;
     private DlngCandidateItem? _selectedCandidate;
     private DateTime? _startDate = DateTime.Today;
@@ -166,8 +185,14 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         IDlngReportService reports,
         IPreviewImageLoader<BitmapSource> images,
         VisionMasterSettings? settings = null,
-        IFlaggedItemStore? flags = null)
+        IFlaggedItemStore? flags = null,
+        TrainingCollectionService? collection = null)
     {
+        var defaultRange = QueueTimeRange.DlngDefault(DateTime.Now);
+        _startDate = defaultRange.Start.Date;
+        _endDate = defaultRange.End.Date;
+        _startTime = defaultRange.Start.ToString("HH:mm");
+        _endTime = defaultRange.End.ToString("HH:mm");
         _machines = machines;
         _queue = queue;
         _reviews = reviews;
@@ -175,7 +200,8 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         _images = images;
         _settings = settings ?? VisionMasterSettings.CreateDefault();
         _flags = flags;
-        MachineOptions = new(_machines.All.Select((machine, index) => new MachineOption(machine, index == 0)));
+        _collection = collection;
+        MachineOptions = new(_machines.All.Select((machine, index) => new MachineOption(machine, machine.Line is "1-1" or "1-2")));
         ModelOptions = new(DlngModelNames(_settings).Select(name => new DlngModelOption(name)));
         foreach (var option in ModelOptions) option.PropertyChanged += ModelOption_PropertyChanged;
         LoadCommand = new(LoadQueueAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && ModelOptions.Any(x => x.IsSelected) && StartDate is not null && EndDate is not null);
@@ -186,7 +212,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         PreviousImageCommand = new(PreviousImageAsync, () => CurrentImageIndex > 0);
         NextImageCommand = new(NextImageAsync, () => CurrentImageIndex >= 0 && CurrentImageIndex < PreviewImages.Count - 1);
         FlagCommand = new(FlagCurrentAsync, () => SelectedCandidate is not null && _flags is not null);
-        CommitCommand = new(CommitSelection, () => !IsBusy && SelectedCandidate is not null && FinalClassOptions.Any(x => x.IsSelected));
+        CommitCommand = new(CommitSelection, () => !IsBusy && _draftEdited && SelectedCandidate is not null && FinalClassOptions.Any(x => x.IsSelected));
     }
 
     public ObservableCollection<MachineOption> MachineOptions { get; }
@@ -204,7 +230,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     public AsyncRelayCommand PreviousImageCommand { get; }
     public AsyncRelayCommand NextImageCommand { get; }
     public AsyncRelayCommand FlagCommand { get; }
-    public RelayCommand CommitCommand { get; }
+    public AsyncRelayCommand CommitCommand { get; }
 
     public bool AutoAdvanceAfterReview
     {
@@ -234,6 +260,11 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             CommandManager.InvalidateRequerySuggested();
         }
     }
+
+    private string _startTime = "06:00";
+    private string _endTime = "06:00";
+    public string StartTime { get => _startTime; set => Set(ref _startTime, value); }
+    public string EndTime { get => _endTime; set => Set(ref _endTime, value); }
 
     public DateTime? StartDate
     {
@@ -353,9 +384,6 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             case Key.O:
                 SelectByDisplay("Overkill");
                 return;
-            case Key.N:
-                SelectByDisplay("No Need to Train");
-                return;
             case Key.Enter when CommitCommand.CanExecute(null):
                 CommitCommand.Execute(null);
                 return;
@@ -393,13 +421,13 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     {
         var selectedMachines = MachineOptions.Where(x => x.IsSelected).Select(x => x.Machine).ToArray();
         if (StartDate is null || EndDate is null || selectedMachines.Length == 0) return;
-        var start = DateOnly.FromDateTime(StartDate.Value);
-        var end = DateOnly.FromDateTime(EndDate.Value);
-        if (end < start)
+        if (!QueueTimeRange.TryCreate(StartDate, StartTime, EndDate, EndTime, out var range, out var error))
         {
-            Status = "End date must be on or after the start date.";
+            Status = error;
             return;
         }
+        var start = DateOnly.FromDateTime(range!.Start);
+        var end = DateOnly.FromDateTime(range.End.AddTicks(-1));
 
         _lastSummaryStart = null;
         _lastSummaryEnd = null;
@@ -409,7 +437,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         ActivityLog.Clear();
         try
         {
-            AddLog($"Loading DLNG queue for {selectedMachines.Length} machine(s), {start:yyyy-MM-dd} through {end:yyyy-MM-dd}.");
+            AddLog($"Loading DLNG queue for {selectedMachines.Length} machine(s), {range.Start:yyyy-MM-dd HH:mm:ss} to {range.End:yyyy-MM-dd HH:mm:ss} (end excluded).");
             var saved = await _reviews.LoadAsync(CancellationToken.None);
             _reviewRecords.Clear();
             foreach (var pair in saved) _reviewRecords[pair.Key] = pair.Value;
@@ -418,11 +446,11 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             var selectedModels = SelectedModelNames();
             foreach (var machine in selectedMachines)
             {
-                for (var date = start; date <= end; date = date.AddDays(1))
+                foreach (var date in range.Dates())
                 {
                     try
                     {
-                        var items = await _queue.LoadAsync(machine, date, progress, CancellationToken.None, selectedModels);
+                        var items = await _queue.LoadAsync(machine, date, progress, CancellationToken.None, selectedModels, range);
                         foreach (var item in items)
                         {
                             saved.TryGetValue(item.Key, out var review);
@@ -442,17 +470,13 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             }
 
             foreach (var item in loaded
-                         .OrderBy(IsUnclassified)
-                         .ThenBy(x => x.Item.InspectedAt)
-                         .ThenBy(x => x.LinePolarity, StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(x => x.CellId, StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(x => x.CropFolder, StringComparer.OrdinalIgnoreCase))
+                         .ReworkOrder(IsUnclassified))
             {
                 Candidates.Add(item);
             }
             SelectedCandidate = Candidates.FirstOrDefault();
             Status = Candidates.Count == 0
-                ? "No eligible DLNG crop items were found."
+                ? "No eligible DLNG crop items were found in the selected timeframe."
                 : $"Loaded {Candidates.Count:N0} DLNG crop item(s).";
             RequestKeyboardFocus?.Invoke(this, EventArgs.Empty);
         }
@@ -472,12 +496,10 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         if (_flags is null) return;
         var item = SelectedCandidate?.Item;
         if (item is null) return;
-        var rawPaths = item.ModelKind == DlngModelKind.FallbackRaw
-            ? item.Images.Select(x => x.Path).Where(path => !string.IsNullOrWhiteSpace(path)).ToArray()
-            : Array.Empty<string>();
+        var rawPaths = (item.RawImages ?? []).Select(x => x.Path).ToArray();
         var now = DateTimeOffset.Now;
         await _flags.SaveAsync(new(
-            FlagKey("DLNG", item.MachineId, item.InspectedAt, item.CellId, item.Side),
+            FlagKey("DLNG", item.MachineId, item.InspectedAt, item.CellId, item.Side) + "|" + InspectionIdentity.Hash(item.Inspection?.Identity ?? item.Key),
             "DLNG",
             item.MachineId,
             item.LinePolarity,
@@ -490,7 +512,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             $"{item.JudgeDefect} / {item.CropFolder}",
             rawPaths,
             now,
-            now), CancellationToken.None);
+            now, Inspection: item.Inspection), CancellationToken.None);
         Status = $"Flagged {item.LinePolarity} {item.CellId} {item.Side}.";
         AddLog(Status);
     }
@@ -601,6 +623,9 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         try
         {
             FinalClassOptions.Clear();
+            _draftEdited = false;
+            IncludeInTraining = item is not null && _reviewRecords.TryGetValue(item.Item.Key, out var old) && old.IncludeInTraining;
+            OnPropertyChanged(nameof(CanCollect));
             if (item is null) return;
             var classes = item.Item.ModelKind is DlngModelKind.Segmentation or DlngModelKind.FallbackRaw
                 ? _settings.DlngRules.SegmentationClasses
@@ -608,7 +633,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             var selected = _reviewRecords.TryGetValue(item.Item.Key, out var saved)
                 ? saved.FinalClass
                 : string.Empty;
-            foreach (var klass in classes)
+            foreach (var klass in classes.Where(klass => !ReviewSemantics.IsLegacyNoNeed(klass)))
             {
                 var option = new DlngClassOption(klass)
                 {
@@ -627,6 +652,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private void FinalClassOption_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_restoringSelections || e.PropertyName != nameof(DlngClassOption.IsSelected)) return;
+        _draftEdited = true;
         if (sender is DlngClassOption option && option.IsSelected)
         {
             foreach (var other in FinalClassOptions.Where(x => !ReferenceEquals(x, option)))
@@ -642,11 +668,15 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         CommandManager.InvalidateRequerySuggested();
     }
 
-    private async void CommitSelection()
+    private async Task CommitSelection()
     {
         var item = SelectedCandidate;
         var selected = FinalClassOptions.FirstOrDefault(x => x.IsSelected)?.DisplayName;
-        if (item is null || string.IsNullOrWhiteSpace(selected)) return;
+        if (IsBusy || !_draftEdited || item is null || string.IsNullOrWhiteSpace(selected)) return;
+        var displayed = DisplayedCandidates();
+        var index = DisplayedIndexOf(item, displayed);
+        var next = index >= 0 && index + 1 < displayed.Count ? displayed[index + 1] : null;
+        IsBusy = true;
         var record = new DlngReviewRecord(
             item.Item.Key,
             item.Item.MachineId,
@@ -661,14 +691,36 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             selected,
             item.Item.ModelKind == DlngModelKind.FallbackRaw,
             item.Item.Images.Select(x => x.Path).ToArray(),
-            DateTimeOffset.Now);
+            DateTimeOffset.Now, item.Item.Inspection,
+            IncludeInTraining && CanCollect,
+            IncludeInTraining ? (_reviewRecords.GetValueOrDefault(item.Item.Key)?.TrainingSelectedAt ?? DateTimeOffset.Now) : null,
+            item.Item.Model, item.Item.ModelKind, item.Item.Polarity.ToString());
         try
         {
             await _reviews.SaveAsync(record, CancellationToken.None);
             _reviewRecords[item.Item.Key] = record;
             item.ReviewStatus = "Saved";
+            item.SavedClass = selected;
+            _draftEdited = false;
+            Status = "Judgment saved.";
+            if (_collection is not null)
+            {
+                try
+                {
+                    Status = "Judgment saved. " + await _collection.ApplyAsync(record);
+                    var collected = (await _collection.LoadAsync()).SelectMany(b => b.Samples)
+                        .FirstOrDefault(s => s.Id == ReviewSemantics.SampleId(record) && s.State == "Ready");
+                    if (collected is not null)
+                    {
+                        record = record with { CollectedAt = collected.CollectedAt };
+                        await _reviews.SaveAsync(record, CancellationToken.None);
+                        _reviewRecords[item.Item.Key] = record;
+                    }
+                }
+                catch (Exception copyError) { Status = "Judgment saved; collection pending: " + copyError.Message; }
+            }
             AddLog($"{item.LinePolarity} {item.CellId} {item.Defect}: classified as {selected}.");
-            Next();
+            if (ReferenceEquals(SelectedCandidate, item) && next is not null) SelectedCandidate = next;
             RequestKeyboardFocus?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception exception)
@@ -676,6 +728,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             item.ReviewStatus = "Save failed";
             Status = exception.Message;
         }
+        finally { IsBusy = false; }
     }
 
     private async Task LoadPreviewsAsync(DlngCandidateItem? item)
@@ -787,13 +840,23 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private void SelectByDisplay(string display)
     {
         var option = FinalClassOptions.FirstOrDefault(x => x.DisplayName.Equals(display, StringComparison.OrdinalIgnoreCase));
-        if (option is not null) option.IsSelected = true;
+        if (option is not null)
+        {
+            if (option.IsSelected) { _draftEdited = true; if (AutoAdvanceAfterReview && CommitCommand.CanExecute(null)) CommitCommand.Execute(null); }
+            else option.IsSelected = true;
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     private void SelectByPrefix(string prefix)
     {
         var option = FinalClassOptions.FirstOrDefault(x => x.DisplayName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-        if (option is not null) option.IsSelected = true;
+        if (option is not null)
+        {
+            if (option.IsSelected) { _draftEdited = true; if (AutoAdvanceAfterReview && CommitCommand.CanExecute(null)) CommitCommand.Execute(null); }
+            else option.IsSelected = true;
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     private void AddLog(string message) => ActivityLog.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
