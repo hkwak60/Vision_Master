@@ -143,7 +143,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
                 .OrderBy(r => r.InspectedAt))
                 Contributions.Add(new(OverkillTrendService.ProductionDay(r.InspectedAt), "DLNG", TrainingCollectionService.Product(r),
                     r.LinePolarity, r.CropFolder, $"{r.InspectedAt:yyyy-MM-dd HH:mm:ss} · {r.CellId} · {r.ItemKey}", r.SourceClass,
-                    r.FinalClass, string.Join("; ", r.ImagePaths), 0, ReviewSemantics.Outcome(r) == "Unknown" ? 0 : 1, ReviewSemantics.Outcome(r) == "Overkill" ? 1 : 0));
+                    r.FinalClass, string.Join("; ", r.ImagePaths), 0, ReviewSemantics.IsApplicableOutcome(ReviewSemantics.Outcome(r)) ? 1 : 0, ReviewSemantics.Outcome(r) == "Overkill" ? 1 : 0));
         }
         else foreach (var snapshot in _kickout.Where(h => h.Day >= start && h.Day <= end).OrderBy(h => h.Day))
         {

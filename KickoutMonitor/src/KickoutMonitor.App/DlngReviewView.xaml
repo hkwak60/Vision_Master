@@ -322,7 +322,7 @@
                                     <Setter Property="BorderBrush" Value="#BCCCDC"/>
                                 </Style>
                             </StackPanel.Resources>
-                            <TextBlock Text="Final Class" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <TextBlock Text="Final Class" ToolTip="Segmentation: R = Real, O = Overkill, N = Not DLNG" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
                             <CheckBox Content="Auto advance" IsChecked="{Binding AutoAdvanceAfterReview}" Margin="2,0,0,8"/>
                             <CheckBox Content="Include in training dataset" IsChecked="{Binding IncludeInTraining}" IsEnabled="{Binding CanCollect}" Margin="2,4,0,10"/>
                             <ItemsControl ItemsSource="{Binding FinalClassOptions}">

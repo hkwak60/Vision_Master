@@ -37,6 +37,25 @@ public sealed class OverkillTests : IDisposable
     public void SharedClassColors(string label,string expected)=>Assert.Equal(expected,ReviewSemantics.Tone(label));
 
     [Fact]
+    public async Task NotDlngIsSeparateFromRealOverkillAndCannotBeCollected()
+    {
+        var r = Review(label: ReviewSemantics.NotDlng);
+        Assert.Equal("Unknown", ReviewSemantics.Tone(r.FinalClass));
+        Assert.Equal(ReviewSemantics.NotDlng, ReviewSemantics.Outcome(r));
+        Assert.False(ReviewSemantics.CanTrain(r.FinalClass));
+        var metric = Assert.Single(OverkillHistoryService.DlngMetrics([r], []));
+        Assert.Equal(0, metric.Reviewed); Assert.Equal(0, metric.Overkill); Assert.Equal(0, metric.Unknown);
+        var day = OverkillTrendService.ProductionDay(r.InspectedAt);
+        Assert.All(OverkillTrendService.Dlng([r], day, day).Points, p => Assert.Null(p.Count));
+        await Collection.ApplyAsync(r with { FinalClass = "Real" });
+        Assert.Equal(1, Assert.Single(await Collection.LoadAsync()).NewSamples);
+        await Collection.ApplyAsync(r);
+        Assert.Equal(0, Assert.Single(await Collection.LoadAsync()).NewSamples);
+        var store = new JsonDlngReviewStore(Storage);
+        await store.SaveAsync(r, default);
+        Assert.Equal("Not DLNG", (await store.LoadAsync(default))[r.ItemKey].FinalClass);
+    }
+    [Fact]
     public void OutcomesAndUnknownDenominatorsAreIndependentOfSelection()
     {
         var r=Review(crop:"Crop_B",label:"01_OK",selected:false);

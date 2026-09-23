@@ -160,7 +160,8 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         get => _includeInTraining;
         set { if (Set(ref _includeInTraining, value) && !_restoringSelections) { _draftEdited = true; CommandManager.InvalidateRequerySuggested(); } }
     }
-    public bool CanCollect => SelectedCandidate?.Item.ModelKind is DlngModelKind.Classification or DlngModelKind.Segmentation;
+    public bool CanCollect => (SelectedCandidate?.Item.ModelKind is DlngModelKind.Classification or DlngModelKind.Segmentation)
+        && !FinalClassOptions.Any(x => x.IsSelected && ReviewSemantics.IsNotDlng(x.DisplayName));
     private CancellationTokenSource? _previewCancellation;
     private DlngCandidateItem? _selectedCandidate;
     private DateTime? _startDate = DateTime.Today;
@@ -383,6 +384,9 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
                 return;
             case Key.O:
                 SelectByDisplay("Overkill");
+                return;
+            case Key.N when SelectedCandidate?.Item.ModelKind == DlngModelKind.Segmentation:
+                SelectByDisplay(ReviewSemantics.NotDlng);
                 return;
             case Key.Enter when CommitCommand.CanExecute(null):
                 CommitCommand.Execute(null);
@@ -633,7 +637,9 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             var selected = _reviewRecords.TryGetValue(item.Item.Key, out var saved)
                 ? saved.FinalClass
                 : string.Empty;
-            foreach (var klass in classes.Where(klass => !ReviewSemantics.IsLegacyNoNeed(klass)))
+            var choices = classes.Where(klass => !ReviewSemantics.IsLegacyNoNeed(klass) && !ReviewSemantics.IsNotDlng(klass));
+            if (item.Item.ModelKind == DlngModelKind.Segmentation) choices = choices.Append(ReviewSemantics.NotDlng);
+            foreach (var klass in choices.Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 var option = new DlngClassOption(klass)
                 {
@@ -645,6 +651,8 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         }
         finally
         {
+            if (!CanCollect) IncludeInTraining = false;
+            OnPropertyChanged(nameof(CanCollect));
             _restoringSelections = false;
         }
     }
@@ -660,6 +668,8 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
                 other.IsSelected = false;
             }
 
+            if (ReviewSemantics.IsNotDlng(option.DisplayName)) IncludeInTraining = false;
+            OnPropertyChanged(nameof(CanCollect));
             if (AutoAdvanceAfterReview && CommitCommand.CanExecute(null))
             {
                 CommitCommand.Execute(null);

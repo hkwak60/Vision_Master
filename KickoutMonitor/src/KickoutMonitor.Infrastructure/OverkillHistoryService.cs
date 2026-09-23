@@ -132,7 +132,7 @@ public sealed class OverkillHistoryService(AppStorage storage, IDlngReviewStore 
             .Select(s => s.Id).ToHashSet();
         return records.GroupBy(r => (Product: TrainingCollectionService.Product(r), r.LinePolarity, r.CropFolder))
             .Select(g => new OverkillMetric("DLNG",g.Key.Product,g.Key.LinePolarity,g.Key.CropFolder,0,
-                g.Count(r => ReviewSemantics.Outcome(r) != "Unknown"),g.Count(r => ReviewSemantics.Outcome(r) == "Overkill"),
+                g.Count(r => ReviewSemantics.IsApplicableOutcome(ReviewSemantics.Outcome(r))),g.Count(r => ReviewSemantics.Outcome(r) == "Overkill"),
                 g.Count(r => ReviewSemantics.Outcome(r) == "Class correction"),g.Count(r => ReviewSemantics.Outcome(r) == "Missed defect"),
                 g.Count(r => ReviewSemantics.Outcome(r) == "Unknown"),g.Count(r => collected.Contains(ReviewSemantics.SampleId(r)))))
             .OrderByDescending(r => r.Overkill).ToArray();

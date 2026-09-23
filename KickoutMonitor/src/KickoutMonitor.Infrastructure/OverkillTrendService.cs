@@ -41,7 +41,7 @@ public static class OverkillTrendService
         var unique = UniqueReviews(records);
         var fields = unique.Select(r => r.CropFolder).Where(f => !string.IsNullOrWhiteSpace(f)).Distinct().Order().ToArray();
         var rows = unique.Select(r => (Day: ProductionDay(r.InspectedAt), Review: r, Outcome: ReviewSemantics.Outcome(r)))
-            .Where(x => x.Day >= start && x.Day <= end && x.Outcome != "Unknown")
+            .Where(x => x.Day >= start && x.Day <= end && ReviewSemantics.IsApplicableOutcome(x.Outcome))
             .ToLookup(x => (x.Day, x.Review.LinePolarity));
         return Build(fields, start, end, (day, line, field) =>
         {

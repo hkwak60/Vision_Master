@@ -2,6 +2,8 @@
 
 ## Review controls
 
+Segmentation additionally offers **Not DLNG** with the **N** shortcut. It is a saved neutral judgment, neither Real nor Overkill; it is excluded from applicable DLNG statistics and training exports. Selecting it clears/disables training inclusion. With Auto advance enabled N saves/advances; otherwise it selects a draft for Enter/Save. Classification and raw fallback items do not receive this option.
+
 DLNG final judgment and **Include in training dataset** are independent. New items start unselected for training. With Auto advance on, set the dataset checkbox before choosing a class. With Auto advance off, choose the class and dataset selection, then press Enter or Save. Revisiting a saved item restores both without arming a save.
 
 Kickout likewise stages an explicit draft with Auto advance off. Enter or Save commits that draft and advances exactly one displayed item. With Auto advance on, choosing a judgment saves and advances once. Enter without an explicit draft does nothing. Held keys and concurrent commits are suppressed. Failed saves preserve the current item and draft. Dates, times, comments, and other editors do not route Enter to review commands.

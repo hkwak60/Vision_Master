@@ -118,6 +118,23 @@ internal static class Program
             Require(ReviewKeyboard.IsEditor(new TextBox()) && ReviewKeyboard.IsEditor(new DatePicker()) &&
                 ReviewKeyboard.IsEditor(new ComboBox()) && !ReviewKeyboard.IsEditor(new Button()), "review editor guard");
 
+            vm.AutoAdvanceAfterReview = false;
+            vm.SelectedCandidate = displayed[0];
+            vm.IncludeInTraining = true;
+            var beforeNotDlng = reviewStore.Saves;
+            vm.HandleHotkey(Key.N);
+            Require(reviewStore.Saves == beforeNotDlng && vm.FinalClassOptions.Any(x => x.IsSelected && x.DisplayName == "Not DLNG"), "N selects explicit Not DLNG draft");
+            Require(!vm.IncludeInTraining && !vm.CanCollect, "Not DLNG disables collection");
+            vm.HandleHotkey(Key.Enter);
+            Require(reviewStore.Last!.FinalClass == "Not DLNG" && !reviewStore.Last.IncludeInTraining && ReferenceEquals(vm.SelectedCandidate, displayed[1]), "Not DLNG saves and advances once");
+            vm.SelectedCandidate = displayed[0];
+            Require(displayed[0].SavedClass == "Not DLNG" && displayed[0].JudgmentTone == "Unknown" && !vm.CommitCommand.CanExecute(null), "Not DLNG restores as neutral saved judgment");
+            vm.HandleHotkey(Key.R);
+            Require(vm.CanCollect, "changing back to Real enables collection");
+            vm.AutoAdvanceAfterReview = true;
+            vm.HandleHotkey(Key.N);
+            Require(reviewStore.Saves == beforeNotDlng + 2, "N auto advance commits once");
+
             var kr = new KickoutReviews();
             var kv = new MainViewModel(new Machines(machine),null!,kr,new Folders(),new Cache(),null!,new Preview(),null!,new AppStorage(Root));
             foreach(var row in new[]{first,unrelated,repeat})

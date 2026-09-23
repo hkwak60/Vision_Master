@@ -10,13 +10,17 @@ public static class ReviewSemantics
         if (value == "REAL" || value.StartsWith("NG") || value.StartsWith("QNG")) return "Real";
         return "Unknown";
     }
+    public const string NotDlng = "Not DLNG";
+    public static bool IsNotDlng(string? label) => string.Equals(label?.Trim(), NotDlng, StringComparison.OrdinalIgnoreCase);
+    public static bool IsApplicableOutcome(string outcome) => outcome is not ("Unknown" or NotDlng);
     public static bool IsLegacyNoNeed(string? label) =>
         (label ?? "").Trim().StartsWith("No Need", StringComparison.OrdinalIgnoreCase);
     public static bool CanTrain(string? label) => !string.IsNullOrWhiteSpace(label) && !IsLegacyNoNeed(label)
-        && !label.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
+        && !label.Equals("Unknown", StringComparison.OrdinalIgnoreCase) && !IsNotDlng(label);
     public static bool Known(string? label) => Tone(label) != "Unknown";
     public static string Outcome(DlngReviewRecord record)
     {
+        if (IsNotDlng(record.FinalClass)) return NotDlng;
         var final = Tone(record.FinalClass);
         if (final == "Unknown") return "Unknown";
         if (record.ModelKind == DlngModelKind.Segmentation ||
