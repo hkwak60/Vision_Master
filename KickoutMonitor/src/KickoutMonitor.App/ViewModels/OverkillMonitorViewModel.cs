@@ -7,8 +7,6 @@ using KickoutMonitor.Infrastructure;
 
 namespace KickoutMonitor.App.ViewModels;
 
-public sealed record HeatCell(string Field, int Count, string Rate, string Color);
-public sealed record HeatLine(string Line, IReadOnlyList<HeatCell> Cells);
 public sealed record CollectionCount(string Product, string Crop, string Line, string FinalClass, int Samples, int Files);
 public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
 {
@@ -19,55 +17,82 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     private IReadOnlyList<DlngReviewRecord> _dlng = [];
     private IReadOnlyList<TrainingBatch> _batches = [];
     private bool _busy;
-    private string _status = "Local history; no production connection is required.";
-    private DateTime? _start = DateTime.Today.AddDays(-30), _end = DateTime.Today;
-    private string _product = "All", _line = "All", _field = "All";
-    private OverkillMetric? _selectedMetric;
+    private string _status = "";
+    private DateTime? _start = OverkillTrendService.RecentSeven(DateTime.Today).Start, _end = DateTime.Today;
+    private int _activeTab;
+    private bool _detailsOpen;
+    private string _detailTitle = "";
     private TrainingBatch? _selectedBatch;
+    private TrainingSample? _selectedSample;
     public OverkillMonitorViewModel(OverkillHistoryService history, TrainingCollectionService collection, IDlngReviewStore reviews)
     {
         _history = history; _collection = collection; _reviews = reviews;
         RefreshCommand = new(RefreshAsync, () => !_busy);
+        RecentSevenCommand = new(() =>
+        {
+            var range = OverkillTrendService.RecentSeven(DateTime.Today);
+            _start = range.Start; _end = range.End;
+            PropertyChanged?.Invoke(this, new(nameof(StartDate))); PropertyChanged?.Invoke(this, new(nameof(EndDate)));
+            Filter();
+        });
+        CloseDetailsCommand = new(() => DetailsOpen = false);
         RetryCommand = new(RetryAsync, () => !_busy);
         MarkTrainedCommand = new(MarkTrainedAsync, () => !_busy && SelectedBatch is { TrainedAt: null });
         ExcludeCommand = new(ExcludeAsync, () => !_busy && SelectedBatch is { TrainedAt: null } && SelectedSample is not null);
+        Kickout.DetailRequested += ShowDetails; Dlng.DetailRequested += ShowDetails;
+        foreach (var panel in new[] { Kickout, Dlng })
+            panel.PropertyChanged += (_, e) =>
+            {
+                if (panel == ActivePanel && e.PropertyName == nameof(panel.Fields))
+                    PropertyChanged?.Invoke(this, new(nameof(Fields)));
+                if (panel == ActivePanel && e.PropertyName == nameof(panel.SelectedField))
+                    PropertyChanged?.Invoke(this, new(nameof(Field)));
+            };
+        Filter();
     }
+    public OverkillTrendPanelViewModel Kickout { get; } = new("Kickout");
+    public OverkillTrendPanelViewModel Dlng { get; } = new("DLNG");
+    public OverkillTrendPanelViewModel ActivePanel => ActiveTab == 1 ? Dlng : Kickout;
+    public int ActiveTab
+    {
+        get => _activeTab;
+        set
+        {
+            Set(ref _activeTab, value); DetailsOpen = false;
+            foreach (var name in new[] { nameof(ActivePanel), nameof(Fields), nameof(Field), nameof(IsTrendTab) })
+                PropertyChanged?.Invoke(this, new(name));
+        }
+    }
+    public bool IsTrendTab => ActiveTab < 2;
+    public IReadOnlyList<string> Fields => ActivePanel.Fields;
+    public string Field { get => ActivePanel.SelectedField; set => ActivePanel.SelectedField = value; }
     public AsyncRelayCommand RefreshCommand { get; }
+    public RelayCommand RecentSevenCommand { get; }
+    public RelayCommand CloseDetailsCommand { get; }
     public AsyncRelayCommand RetryCommand { get; }
     public AsyncRelayCommand MarkTrainedCommand { get; }
     public AsyncRelayCommand ExcludeCommand { get; }
-    public ObservableCollection<string> Products { get; } = ["All"];
-    public ObservableCollection<string> Lines { get; } = ["All"];
-    public ObservableCollection<string> Fields { get; } = ["All"];
-    public ObservableCollection<OverkillMetric> KickoutRows { get; } = [];
-    public ObservableCollection<OverkillMetric> DlngRows { get; } = [];
-    public ObservableCollection<HeatLine> Heatmap { get; } = [];
-    public ObservableCollection<DailyOverkill> Trends { get; } = [];
     public ObservableCollection<HistoryContribution> Contributions { get; } = [];
     public ObservableCollection<TrainingBatch> Batches { get; } = [];
     public ObservableCollection<TrainingSample> Samples { get; } = [];
     public ObservableCollection<CollectionCount> CollectionCounts { get; } = [];
-    public string Status { get => _status; set => Set(ref _status,value); }
-    public string Totals { get; private set; } = "";
-    public DateTime? StartDate { get => _start; set { Set(ref _start,value); Filter(); } }
-    public DateTime? EndDate { get => _end; set { Set(ref _end,value); Filter(); } }
-    public string Product { get => _product; set { Set(ref _product,value); Filter(); } }
-    public string Line { get => _line; set { Set(ref _line,value); Filter(); } }
-    public string Field { get => _field; set { Set(ref _field,value); Filter(); } }
-    public OverkillMetric? SelectedMetric { get => _selectedMetric; set { Set(ref _selectedMetric,value); DrillDown(); } }
+    public string Status { get => _status; set => Set(ref _status, value); }
+    public DateTime? StartDate { get => _start; set { Set(ref _start, value); Filter(); } }
+    public DateTime? EndDate { get => _end; set { Set(ref _end, value); Filter(); } }
+    public bool DetailsOpen { get => _detailsOpen; private set => Set(ref _detailsOpen, value); }
+    public string DetailTitle { get => _detailTitle; private set => Set(ref _detailTitle, value); }
     public TrainingBatch? SelectedBatch
     {
         get => _selectedBatch;
-        set { Set(ref _selectedBatch,value); Replace(Samples,value?.Samples ?? []); System.Windows.Input.CommandManager.InvalidateRequerySuggested(); }
+        set { Set(ref _selectedBatch, value); Replace(Samples, value?.Samples ?? []); SelectedSample = null; System.Windows.Input.CommandManager.InvalidateRequerySuggested(); }
     }
-    private TrainingSample? _selectedSample;
-    public TrainingSample? SelectedSample { get => _selectedSample; set { Set(ref _selectedSample,value); System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } }
+    public TrainingSample? SelectedSample { get => _selectedSample; set { Set(ref _selectedSample, value); System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } }
     public async Task RefreshAsync()
     {
         if (_busy) return;
         _busy = true;
-        try { await ReloadAsync(); Status = _history.Warnings.Count == 0 ? "Local history refreshed. Select a ranked row to inspect its contributing records." : string.Join("; ",_history.Warnings); }
-        catch(Exception e) { Status = e.Message; }
+        try { await ReloadAsync(); if (ValidRange) Status = string.Join("; ", _history.Warnings); }
+        catch (Exception e) { Status = e.Message; }
         finally { _busy = false; System.Windows.Input.CommandManager.InvalidateRequerySuggested(); }
     }
     private async Task ReloadAsync()
@@ -75,64 +100,71 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         _kickout = await Task.Run(() => _history.LoadKickoutAsync());
         _dlng = await _history.LoadDlngAsync();
         _batches = await _history.LoadBatchesAsync();
-        // Preserve filter selections while refreshing option lists.
-        AddOptions(Products,_kickout.SelectMany(x=>x.Rows).Select(x=>x.ProductModel).Concat(_dlng.Select(TrainingCollectionService.Product)));
-        AddOptions(Lines,_kickout.SelectMany(x=>x.Rows).Select(x=>x.LinePolarity).Concat(_dlng.Select(x=>x.LinePolarity)));
-        AddOptions(Fields,_kickout.SelectMany(x=>x.Rows).Where(x=>x.Defect!="ALL").Select(x=>x.Defect).Concat(_dlng.Select(x=>x.CropFolder)));
         Filter();
     }
-    private bool Match(string actual, string filter) => filter == "All" || actual.Equals(filter,StringComparison.OrdinalIgnoreCase);
-    private IReadOnlyList<KickoutHistorySnapshot> FilteredKickout() => _kickout.Where(h=>h.Day>=DateOnly.FromDateTime(StartDate!.Value) && h.Day<=DateOnly.FromDateTime(EndDate!.Value))
-        .Select(h=>h with { Rows=h.Rows.Where(r=>Match(r.ProductModel,Product)&&Match(r.LinePolarity,Line)).ToArray() }).Where(h=>h.Rows.Count>0).ToArray();
-    private IReadOnlyList<DlngReviewRecord> FilteredDlng() => _dlng.Where(r=>r.InspectedAt.Date>=StartDate!.Value.Date && r.InspectedAt.Date<=EndDate!.Value.Date
-        && Match(TrainingCollectionService.Product(r),Product)&&Match(r.LinePolarity,Line)&&Match(r.CropFolder,Field)).ToArray();
+    private bool ValidRange => StartDate is not null && EndDate is not null && EndDate >= StartDate
+        && (EndDate.Value.Date - StartDate.Value.Date).TotalDays <= 3660;
     private void Filter()
     {
-        if (StartDate is null || EndDate is null || EndDate < StartDate || (EndDate.Value-StartDate.Value).TotalDays>3660)
-        { Status="Choose a valid date range of up to ten years."; return; }
-        var kickout=FilteredKickout(); var dlng=FilteredDlng();
-        Replace(KickoutRows,OverkillHistoryService.KickoutMetrics(kickout,Field=="All"?"":Field));
-        Replace(DlngRows,OverkillHistoryService.DlngMetrics(dlng,_batches));
-        Replace(Trends,OverkillHistoryService.Daily(kickout,DateOnly.FromDateTime(StartDate.Value),DateOnly.FromDateTime(EndDate.Value),Field=="All"?"":Field));
-        var fields=KickoutRows.Select(x=>x.Field).Distinct().Order().ToArray();
-        Replace(Heatmap,KickoutRows.GroupBy(x=>x.Line).Select(g=>new HeatLine(g.Key,fields.Select(f=>
+        DetailsOpen = false; Contributions.Clear();
+        if (!ValidRange)
         {
-            var rows=g.Where(x=>x.Field==f).ToArray(); var count=rows.Sum(x=>x.Overkill); var reviewed=rows.Sum(x=>x.Reviewed);
-            var fraction=reviewed==0?0:(double)count/reviewed;
-            return new HeatCell(f,count,reviewed==0?"No reviewed rejects":$"{count}/{reviewed} ({fraction:P1})",
-                reviewed==0?"#EDF1F5":$"#FF{(int)(245-115*fraction):X2}{(int)(245-135*fraction):X2}");
-        }).ToArray())));
-        Replace(Batches,_batches.Where(b=>Match(b.Product,Product)&&Match(b.Crop,Field)));
-        var ready=_batches.Where(b=>b.TrainedAt is null).SelectMany(b=>b.Samples).Where(s=>s.State=="Ready"&&!s.Superseded
-            && s.CollectedAt?.Date>=StartDate.Value.Date && s.CollectedAt?.Date<=EndDate.Value.Date
-            && Match(TrainingCollectionService.Product(s.Review),Product)&&Match(s.Review.LinePolarity,Line)&&Match(s.Review.CropFolder,Field)).ToArray();
-        Replace(CollectionCounts,ready.GroupBy(s=>(Product:TrainingCollectionService.Product(s.Review),s.Review.CropFolder,s.Review.LinePolarity,s.Review.FinalClass))
-            .Select(g=>new CollectionCount(g.Key.Product,g.Key.CropFolder,g.Key.LinePolarity,g.Key.FinalClass,g.Count(),g.Sum(s=>s.Files.Count))));
-        var all=kickout.SelectMany(h=>h.Rows).Where(r=>r.Defect==(Field=="All"?"ALL":Field)).ToArray();
-        var inspected=all.Sum(r=>r.TotalInspected); var overkill=all.Sum(r=>r.Overkill); var reviewed=all.Sum(r=>r.RealNg+r.Overkill);
-        Totals=$"Kickout: {overkill:N0} overkills / {inspected:N0} inspected / {reviewed:N0} reviewed rejects.   DLNG: {dlng.Count:N0} reviews, {DlngRows.Sum(r=>r.Unknown):N0} unknown.   New training: {ready.Length:N0} pairs ({ready.Sum(s=>s.Files.Count):N0} files).";
-        PropertyChanged?.Invoke(this,new(nameof(Totals)));
-        DrillDown();
+            Kickout.SetData(new(Kickout.Fields.Where(f => f != OverkillTrendService.All).ToArray(), []));
+            Dlng.SetData(new(Dlng.Fields.Where(f => f != OverkillTrendService.All).ToArray(), [])); CollectionCounts.Clear();
+            Status = "시작일과 종료일을 확인하세요 (최대 10년)."; return;
+        }
+        Status = "";
+        var start = DateOnly.FromDateTime(StartDate!.Value);
+        var end = DateOnly.FromDateTime(EndDate!.Value);
+        Kickout.SetData(OverkillTrendService.Kickout(_kickout, start, end));
+        Dlng.SetData(OverkillTrendService.Dlng(_dlng, start, end));
+        var batchId = SelectedBatch?.Id; var sampleId = SelectedSample?.Id;
+        Replace(Batches, _batches);
+        SelectedBatch = Batches.FirstOrDefault(b => b.Id == batchId);
+        SelectedSample = Samples.FirstOrDefault(s => s.Id == sampleId);
+        var ready = _batches.Where(b => b.TrainedAt is null).SelectMany(b => b.Samples).Where(s => s.State == "Ready" && !s.Superseded
+            && s.CollectedAt?.Date >= StartDate.Value.Date && s.CollectedAt?.Date <= EndDate.Value.Date).ToArray();
+        // Product remains part of the batch/count identity even though it is no longer a UI filter.
+        Replace(CollectionCounts, ready.GroupBy(s => (Product: TrainingCollectionService.Product(s.Review), s.Review.CropFolder, s.Review.LinePolarity, s.Review.FinalClass))
+            .Select(g => new CollectionCount(g.Key.Product, g.Key.CropFolder, g.Key.LinePolarity, g.Key.FinalClass, g.Count(), g.Sum(s => s.Files.Count))));
     }
-    private void DrillDown()
+    private void ShowDetails(TrendDetailRequest request)
     {
+        if (!ValidRange) return;
         Contributions.Clear();
-        if(SelectedMetric is not {} metric || StartDate is null || EndDate is null) return;
-        if(metric.Kind=="DLNG")
+        var start = request.Day ?? DateOnly.FromDateTime(StartDate!.Value);
+        var end = request.Day ?? DateOnly.FromDateTime(EndDate!.Value);
+        DetailTitle = $"{request.Kind} · {request.Line} · {request.Field} · {start:yyyy-MM-dd} — {end:yyyy-MM-dd}";
+        if (request.Kind == "DLNG")
         {
-            foreach(var r in FilteredDlng().Where(r=>r.LinePolarity==metric.Line&&r.CropFolder==metric.Field&&TrainingCollectionService.Product(r)==metric.Product))
-                Contributions.Add(new(DateOnly.FromDateTime(r.InspectedAt),"DLNG",metric.Product,r.LinePolarity,r.CropFolder,r.ItemKey,r.SourceClass,r.FinalClass,
-                    string.Join("; ",r.ImagePaths),0,ReviewSemantics.Outcome(r)=="Unknown"?0:1,ReviewSemantics.Outcome(r)=="Overkill"?1:0));
+            foreach (var r in OverkillTrendService.UniqueReviews(_dlng).Where(r => r.LinePolarity == request.Line
+                && (request.Field == OverkillTrendService.All || r.CropFolder == request.Field)
+                && OverkillTrendService.ProductionDay(r.InspectedAt) >= start && OverkillTrendService.ProductionDay(r.InspectedAt) <= end)
+                .OrderBy(r => r.InspectedAt))
+                Contributions.Add(new(OverkillTrendService.ProductionDay(r.InspectedAt), "DLNG", TrainingCollectionService.Product(r),
+                    r.LinePolarity, r.CropFolder, $"{r.InspectedAt:yyyy-MM-dd HH:mm:ss} · {r.CellId} · {r.ItemKey}", r.SourceClass,
+                    r.FinalClass, string.Join("; ", r.ImagePaths), 0, ReviewSemantics.Outcome(r) == "Unknown" ? 0 : 1, ReviewSemantics.Outcome(r) == "Overkill" ? 1 : 0));
         }
-        else foreach(var snapshot in FilteredKickout())
+        else foreach (var snapshot in _kickout.Where(h => h.Day >= start && h.Day <= end).OrderBy(h => h.Day))
         {
-            var row=snapshot.Rows.FirstOrDefault(r=>r.LinePolarity==metric.Line&&r.Defect==metric.Field&&r.ProductModel==metric.Product);
-            if(row is null) continue;
-            var details=snapshot.Details.Where(d=>d.LinePolarity==metric.Line&&d.Defect==metric.Field).ToArray();
-            if(details.Length==0) Contributions.Add(new(snapshot.Day,"Kickout",metric.Product,metric.Line,metric.Field,"Report snapshot","","",snapshot.Source,row.TotalInspected,row.RealNg+row.Overkill,row.Overkill));
-            foreach(var d in details) Contributions.Add(new(snapshot.Day,"Kickout",metric.Product,metric.Line,metric.Field,
-                string.Join(" | ",d.Headers.Zip(d.Values).Select(x=>$"{x.First}={x.Second}")),"NG",d.Decision.ToString(),snapshot.Source,0,1,d.Decision==ReviewDecision.Overkill?1:0));
+            var rows = snapshot.Rows.Where(r => r.LinePolarity == request.Line && r.Defect == (request.Field == OverkillTrendService.All ? "ALL" : request.Field)).ToArray();
+            foreach (var row in rows)
+                Contributions.Add(new(snapshot.Day, "Kickout", row.ProductModel, row.LinePolarity, row.Defect,
+                    "Report snapshot", "", "", snapshot.Source, row.TotalInspected, row.RealNg + row.Overkill, row.Overkill));
+            var details = snapshot.Details.Where(d => d.LinePolarity == request.Line &&
+                (request.Field == OverkillTrendService.All || d.Defect == request.Field));
+            foreach (var d in details)
+                Contributions.Add(new(snapshot.Day, "Kickout", "", d.LinePolarity, d.Defect,
+                    string.Join(" | ", d.Headers.Zip(d.Values).Select(x => $"{x.First}={x.Second}")), "NG", d.Decision.ToString(),
+                    snapshot.Source, 0, 1, d.Decision == ReviewDecision.Overkill ? 1 : 0));
+            if (rows.Length == 0 && request.Field != OverkillTrendService.All)
+            {
+                var all = snapshot.Rows.FirstOrDefault(r => r.LinePolarity == request.Line && r.Defect == "ALL");
+                if (all is not null) Contributions.Add(new(snapshot.Day, "Kickout", all.ProductModel, request.Line, request.Field,
+                    "Report snapshot (0)", "", "", snapshot.Source, all.TotalInspected, 0, 0));
+            }
         }
+        DetailsOpen = true;
     }
     private async Task RetryAsync() => await Operate(async()=>await _collection.RecoverAsync((await _reviews.LoadAsync(default)).Values));
     private async Task MarkTrainedAsync()
@@ -160,8 +192,6 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         catch(Exception e){Status=e.Message;}
         finally{_busy=false;System.Windows.Input.CommandManager.InvalidateRequerySuggested();}
     }
-    private static void AddOptions(ObservableCollection<string> target,IEnumerable<string> source)
-    { foreach(var s in source.Distinct().Order()) if(!target.Contains(s))target.Add(s); }
     private static void Replace<T>(ObservableCollection<T> target,IEnumerable<T> source){target.Clear();foreach(var x in source)target.Add(x);}
     private void Set<T>(ref T field,T value,[CallerMemberName]string? name=null){field=value;PropertyChanged?.Invoke(this,new(name));}
     public event PropertyChangedEventHandler? PropertyChanged;

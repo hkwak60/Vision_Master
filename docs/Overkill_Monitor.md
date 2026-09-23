@@ -14,15 +14,17 @@ DLNG saved Real/NG classes are green, Overkill/OK classes red, pending/unknown l
 
 ## Dashboard and history
 
-Open **Overkill Monitor**, between LOG Monitor and Settings. Filter by date, product, line/polarity, and defect/crop model. Select a ranked row, then open **Contributing records**.
+Open **Overkill Monitor**, between LOG Monitor and Settings. Kickout and DLNG each show a machine line chart above a count heatmap. The shared default range is today and the preceding six dates, inclusive. Edit either date or use **최근 7일** to reset; refresh preserves the chosen range. Each tab remembers its own defect/crop selection.
 
-Kickout uses generated summaries with their established production-day windows and counting rules. It shows overkill / inspected and overkill / reviewed rejects, a heatmap, ranked counts, and daily trends. Multi-day rates use summed counts. Missing report days are gaps. Reported days without an occurrence of a defect still contribute their inspected denominator. Overall totals use ALL rows to avoid repeating per-defect inspected counts.
+Eight machine/polarity series use fixed colors and order, from 1-1(-) through 2-2(+). Legend checkboxes toggle the same machines in both views. Lines show daily overkill counts with a zero-based axis, straight segments and markers. Missing data breaks the line; a genuine zero has a marker at zero. Hover a marker for date, machine, field and count. Click for records; coincident markers offer a machine menu.
 
-New summaries persist local snapshots and individual review details under OverkillHistory. Refresh imports recognized existing NG_Summary workbooks. Regenerating a day/line replaces its complete snapshot instead of accumulating duplicates. Legacy workbooks without product evidence appear as **Unknown**. Legacy drill-down identifies the contributing report and aggregate counts; new snapshots also show individual review details.
+Heatmap rows are machines and columns are all known defects/crop models. Cells sum the selected period, with a common linear 0-to-maximum count scale across visible cells. Pale zero and gray missing (—) are distinct. Tooltips report counts and covered days. Click a column header or cell count to select that field for the chart without hiding other columns or machines; **⋯** opens that machine/field's records across the period. The detail panel closes to return space to the chart. Long heatmaps scroll horizontally; smaller windows allow vertical scrolling.
 
-DLNG statistics describe **selectively reviewed samples, not production-wide rates**. Classification NG → OK is overkill; NG → a different NG class is a class correction; OK → NG is a missed defect. Segmentation uses Real/Overkill. Applicable reviews count regardless of dataset selection. Unknown labels appear separately and are excluded from rate denominators. Duplicate representations use inspection-and-crop identities for deduplication.
+Kickout retains generated summaries' production days and counting rules. **전체** uses only ALL rows, never a sum of defect rows. An absent defect in a complete reported day is zero; a missing report is a gap. New summaries persist snapshots and review details under OverkillHistory. Refresh imports recognized NG_Summary workbooks; regeneration replaces a day/line snapshot instead of accumulating duplicates. Details distinguish report aggregates from individual review records; these are not additive. Legacy summaries may have only aggregate provenance.
 
-Review metrics use inspection dates; newly collected sample counts use successful collection dates. Batch history remains available outside the date filter for copy recovery and trained-state management.
+DLNG is labeled **리뷰된 샘플 기준**. Production day is the date of inspection time minus six hours: 05:59:59 belongs to the preceding day, 06:00 to the current day. Review-save time and training selection do not affect these counts. Classification NG → OK is overkill; NG → different NG and OK → NG are valid reviews but not overkill. Segmentation uses Real/Overkill. Unknown/legacy “No Need” labels contribute neither overkill nor valid-review coverage. No valid review for a machine/field/day is missing; valid reviews without overkill give zero. Inspection-and-crop identity deduplicates representations while retaining separate rework attempts.
+
+Product filters/columns, ranked counts, daily tables and main-screen rates are removed. Internal E81C/E69B identity and separation remain unchanged. No stored records are migrated or reclassified by this dashboard. Newly collected sample counts still use successful collection dates, and batch history remains accessible regardless of the range. Local history works without production-share access.
 
 ## Training batches
 
@@ -52,7 +54,9 @@ Existing DLNG stores receive an .overkill-v1.bak before their first write in thi
 
 Release tests cover rate denominators and unknown labels; report gaps, zero-defect days, imports and replacement; explicit selection; pair completeness and ownership; grouping, year crossings and trained transitions; offline reclassification and both exports; interrupted staging/moves, locked sources, cancellation and safe deselection.
 
-WPF smoke checks cover six views at 1100×700, explicit drafts, Enter and auto advance, held/concurrent activation, failed saves, restored selections, editor guards, saved-class semantics, grouped sorting, navigation and flags.
+Additional trend tests cover inclusive seven-day ranges, month/year transitions, the DLNG 06:00 boundary, ALL non-double-counting, null versus zero, partial coverage, shared linear colors, rework identities and training-independent counts.
+
+WPF smoke checks cover the chart/matrix, field clicks, legend visibility, detail opening/closing, per-tab selections, preserved refresh ranges, date reset and invalid ranges, plus six views at 1100×700, explicit drafts, Enter and auto advance, held/concurrent activation, failed saves, restored selections, editor guards, saved-class semantics, grouped sorting, navigation and flags.
 
 ## Queue defaults and SEPA additions (2026-09-23)
 

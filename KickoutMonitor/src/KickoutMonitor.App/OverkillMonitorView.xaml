@@ -1,82 +1,63 @@
 <UserControl Background="#F3F5F7" Foreground="#172B4D" FontFamily="Segoe UI" x:Class="KickoutMonitor.App.OverkillMonitorView"
- xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:KickoutMonitor.App">
+ <UserControl.Resources><BooleanToVisibilityConverter x:Key="BoolVisibility"/></UserControl.Resources>
  <DockPanel Margin="14">
   <StackPanel DockPanel.Dock="Top">
    <DockPanel><Button Content="Back" Click="Back_Click" DockPanel.Dock="Left" Margin="0,0,14,0"/><TextBlock Text="Overkill Monitor" FontSize="24" FontWeight="SemiBold"/></DockPanel>
-   <WrapPanel Margin="0,12">
-    <TextBlock Text="From" VerticalAlignment="Center"/><DatePicker SelectedDate="{Binding StartDate}" Width="125" Margin="6,0,12,0"/>
-    <TextBlock Text="To" VerticalAlignment="Center"/><DatePicker SelectedDate="{Binding EndDate}" Width="125" Margin="6,0,12,0"/>
-    <TextBlock Text="Product" VerticalAlignment="Center"/><ComboBox ItemsSource="{Binding Products}" SelectedItem="{Binding Product}" Width="110" Margin="6,0,12,0"/>
-    <TextBlock Text="Line/polarity" VerticalAlignment="Center"/><ComboBox ItemsSource="{Binding Lines}" SelectedItem="{Binding Line}" Width="115" Margin="6,0,12,0"/>
-    <TextBlock Text="Defect / crop model" VerticalAlignment="Center"/><ComboBox ItemsSource="{Binding Fields}" SelectedItem="{Binding Field}" Width="145" Margin="6,0,12,0"/>
-    <Button Content="Refresh local history" Command="{Binding RefreshCommand}"/>
+   <WrapPanel Margin="0,10">
+    <TextBlock Text="시작일" VerticalAlignment="Center"/><DatePicker SelectedDate="{Binding StartDate}" Width="130" Margin="6,0,12,0"/>
+    <TextBlock Text="종료일" VerticalAlignment="Center"/><DatePicker SelectedDate="{Binding EndDate}" Width="130" Margin="6,0,12,0"/>
+    <Button Content="최근 7일" Command="{Binding RecentSevenCommand}" Padding="10,4" Margin="0,0,16,0"/>
+    <StackPanel Orientation="Horizontal" Visibility="{Binding IsTrendTab, Converter={StaticResource BoolVisibility}}">
+     <TextBlock Text="항목" VerticalAlignment="Center"/><ComboBox ItemsSource="{Binding Fields}" SelectedItem="{Binding Field}" Width="160" Margin="6,0,12,0"/>
+    </StackPanel>
+    <Button Content="새로고침" Command="{Binding RefreshCommand}" Padding="14,4"/>
    </WrapPanel>
-   <TextBlock Text="{Binding Totals}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,10"/>
   </StackPanel>
-  <TextBlock DockPanel.Dock="Bottom" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,8"/>
-  <TabControl>
-   <TabItem Header="Kickout">
-    <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="10">
-     <TextBlock Text="Overkill / inspected and overkill / reviewed rejects · generated production-day summaries" FontWeight="SemiBold"/>
-     <TextBlock Text="Legacy summaries without product evidence are shown under Unknown. Missing report days are gaps." Margin="0,4,0,10"/>
-     <ItemsControl ItemsSource="{Binding Heatmap}">
-      <ItemsControl.ItemTemplate><DataTemplate><DockPanel Margin="0,3"><TextBlock Text="{Binding Line}" Width="100" VerticalAlignment="Center"/>
-       <ItemsControl ItemsSource="{Binding Cells}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-        <ItemsControl.ItemTemplate><DataTemplate><Border Background="{Binding Color}" CornerRadius="4" Padding="8" Margin="2" MinWidth="130">
-         <StackPanel><TextBlock Text="{Binding Field}" FontWeight="SemiBold"/><TextBlock Text="{Binding Count, StringFormat={}{0} overkills}"/><TextBlock Text="{Binding Rate}" FontSize="11"/></StackPanel>
-        </Border></DataTemplate></ItemsControl.ItemTemplate>
-       </ItemsControl></DockPanel></DataTemplate></ItemsControl.ItemTemplate>
-     </ItemsControl>
-     <TextBlock Text="Ranked counts · select a row for contributing records" Margin="0,12,0,5" FontWeight="SemiBold"/>
-     <DataGrid ItemsSource="{Binding KickoutRows}" SelectedItem="{Binding SelectedMetric}" IsReadOnly="True" AutoGenerateColumns="False" MaxHeight="250">
-      <DataGrid.Columns>
-       <DataGridTextColumn Header="Product" Binding="{Binding Product}"/><DataGridTextColumn Header="Line" Binding="{Binding Line}"/><DataGridTextColumn Header="Defect" Binding="{Binding Field}"/>
-       <DataGridTextColumn Header="Overkill / inspected" Binding="{Binding PerInspected}" Width="230"/><DataGridTextColumn Header="Overkill / reviewed rejects" Binding="{Binding PerReviewed}" Width="250"/>
-      </DataGrid.Columns>
-     </DataGrid>
-     <TextBlock Text="Daily trend · summed counts, never averaged percentages" Margin="0,12,0,5" FontWeight="SemiBold"/>
-     <DataGrid ItemsSource="{Binding Trends}" IsReadOnly="True" AutoGenerateColumns="False" MaxHeight="230">
-      <DataGrid.Columns>
-       <DataGridTextColumn Header="Production day" Binding="{Binding Day}"/><DataGridTextColumn Header="Inspected" Binding="{Binding Inspected}"/>
-       <DataGridTextColumn Header="Reviewed rejects" Binding="{Binding Reviewed}"/><DataGridTextColumn Header="Overkill" Binding="{Binding Overkill}"/>
-       <DataGridTextColumn Header="Rate" Binding="{Binding Rate}"/><DataGridTextColumn Header="Coverage" Binding="{Binding State}"/>
-       <DataGridTemplateColumn Header="Overkill / reviewed rejects" Width="200"><DataGridTemplateColumn.CellTemplate><DataTemplate><Border Background="#DC7272" Height="12" Width="{Binding BarWidth}" HorizontalAlignment="Left"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-      </DataGrid.Columns>
-     </DataGrid>
-    </StackPanel></ScrollViewer>
-   </TabItem>
-   <TabItem Header="DLNG">
-    <DockPanel Margin="10">
-     <StackPanel DockPanel.Dock="Top"><TextBlock Text="Selective-review statistics — these are not production-wide rates." FontWeight="SemiBold"/>
-      <TextBlock Text="All applicable judgments count, whether or not selected for training. Unknown labels are excluded from rate denominators." Margin="0,5,0,12" TextWrapping="Wrap"/></StackPanel>
-     <DataGrid ItemsSource="{Binding DlngRows}" SelectedItem="{Binding SelectedMetric}" IsReadOnly="True" AutoGenerateColumns="False">
-      <DataGrid.Columns>
-       <DataGridTextColumn Header="Product" Binding="{Binding Product}"/><DataGridTextColumn Header="Line" Binding="{Binding Line}"/><DataGridTextColumn Header="Crop" Binding="{Binding Field}"/>
-       <DataGridTextColumn Header="Overkill / applicable reviews" Binding="{Binding PerReviewed}" Width="245"/>
-       <DataGridTextColumn Header="NG class corrections" Binding="{Binding Corrections}"/><DataGridTextColumn Header="Missed defects" Binding="{Binding Missed}"/>
-       <DataGridTextColumn Header="Unknown" Binding="{Binding Unknown}"/><DataGridTextColumn Header="Collected (active)" Binding="{Binding Collected}"/>
-      </DataGrid.Columns>
-     </DataGrid>
-    </DockPanel>
-   </TabItem>
+  <TextBlock DockPanel.Dock="Bottom" Text="{Binding Status}" TextWrapping="Wrap" Foreground="#B45309"/>
+  <Grid>
+   <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <TabControl x:Name="Tabs" SelectedIndex="{Binding ActiveTab}">
+    <TabItem Header="Kickout"><local:OverkillTrendView DataContext="{Binding Kickout}"/></TabItem>
+    <TabItem Header="DLNG"><local:OverkillTrendView DataContext="{Binding Dlng}"/></TabItem>
    <TabItem Header="Training collection">
     <Grid Margin="10"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="*"/><RowDefinition Height="*"/></Grid.RowDefinitions>
      <StackPanel><TextBlock Text="One complete pair = one sample. New sample counts use collection dates; batch history stays visible." TextWrapping="Wrap"/>
       <WrapPanel Margin="0,8"><Button Content="Retry pending copies" Command="{Binding RetryCommand}"/><Button Content="Mark selected batch trained" Command="{Binding MarkTrainedCommand}" Margin="10,0"/><Button Content="Exclude selected sample" Command="{Binding ExcludeCommand}"/></WrapPanel>
      </StackPanel>
      <DataGrid Grid.Row="1" ItemsSource="{Binding Batches}" SelectedItem="{Binding SelectedBatch}" IsReadOnly="True" AutoGenerateColumns="False">
-      <DataGrid.Columns><DataGridTextColumn Header="Product" Binding="{Binding Product}"/><DataGridTextColumn Header="Crop" Binding="{Binding Crop}"/><DataGridTextColumn Header="Polarity" Binding="{Binding Polarity}"/>
+      <DataGrid.Columns><DataGridTextColumn Header="Crop" Binding="{Binding Crop}"/><DataGridTextColumn Header="Polarity" Binding="{Binding Polarity}"/>
        <DataGridTextColumn Header="Collection dates" Binding="{Binding Range}"/><DataGridTextColumn Header="New samples" Binding="{Binding NewSamples}"/><DataGridTextColumn Header="Pending/failed" Binding="{Binding Pending}"/><DataGridTextColumn Header="Trained" Binding="{Binding TrainedAt}"/><DataGridTextColumn Header="Batch ID" Binding="{Binding Id}"/></DataGrid.Columns>
      </DataGrid>
      <DataGrid Grid.Row="2" ItemsSource="{Binding Samples}" SelectedItem="{Binding SelectedSample}" IsReadOnly="True" AutoGenerateColumns="False" Margin="0,8">
       <DataGrid.Columns><DataGridTextColumn Header="Cell" Binding="{Binding Review.CellId}"/><DataGridTextColumn Header="Line" Binding="{Binding Review.LinePolarity}"/><DataGridTextColumn Header="Final class" Binding="{Binding Review.FinalClass}"/><DataGridTextColumn Header="Copy state" Binding="{Binding State}"/><DataGridTextColumn Header="Collected" Binding="{Binding CollectedAt}"/><DataGridCheckBoxColumn Header="Superseded" Binding="{Binding Superseded}"/><DataGridTextColumn Header="Details" Binding="{Binding Error}" Width="*"/></DataGrid.Columns>
      </DataGrid>
-     <DataGrid Grid.Row="3" ItemsSource="{Binding CollectionCounts}" IsReadOnly="True" AutoGenerateColumns="True"/>
+     <DataGrid Grid.Row="3" ItemsSource="{Binding CollectionCounts}" IsReadOnly="True" AutoGenerateColumns="False"><DataGrid.Columns>
+       <DataGridTextColumn Header="Crop" Binding="{Binding Crop}"/><DataGridTextColumn Header="Line" Binding="{Binding Line}"/>
+       <DataGridTextColumn Header="Final class" Binding="{Binding FinalClass}"/><DataGridTextColumn Header="Samples" Binding="{Binding Samples}"/><DataGridTextColumn Header="Files" Binding="{Binding Files}"/>
+      </DataGrid.Columns></DataGrid>
     </Grid>
    </TabItem>
-   <TabItem Header="Contributing records">
-    <DataGrid ItemsSource="{Binding Contributions}" IsReadOnly="True" AutoGenerateColumns="True" HorizontalScrollBarVisibility="Auto"/>
-   </TabItem>
-  </TabControl>
+
+   </TabControl>
+   <Border Grid.Row="1" Visibility="{Binding DetailsOpen, Converter={StaticResource BoolVisibility}}" BorderBrush="#CBD5E1" BorderThickness="1" Background="White" Margin="0,6,0,0">
+    <DockPanel Margin="8">
+     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,5">
+      <Button Content="닫기 ×" Command="{Binding CloseDetailsCommand}" DockPanel.Dock="Right" Padding="10,3"/>
+      <TextBlock Text="{Binding DetailTitle}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+     </DockPanel>
+     <DataGrid ItemsSource="{Binding Contributions}" Height="130" AutoGenerateColumns="False" IsReadOnly="True" HorizontalScrollBarVisibility="Auto">
+      <DataGrid.Columns>
+       <DataGridTextColumn Header="생산일" Binding="{Binding Day}"/><DataGridTextColumn Header="기계" Binding="{Binding Line}"/>
+       <DataGridTextColumn Header="항목" Binding="{Binding Field}"/><DataGridTextColumn Header="과검" Binding="{Binding Overkill}"/>
+       <DataGridTextColumn Header="원판정" Binding="{Binding SourceClass}"/><DataGridTextColumn Header="최종판정" Binding="{Binding FinalClass}"/>
+       <DataGridTextColumn Header="리뷰 수" Binding="{Binding Reviewed}"/><DataGridTextColumn Header="검사 수" Binding="{Binding Inspected}"/>
+       <DataGridTextColumn Header="기록" Binding="{Binding Identity}" Width="280"/><DataGridTextColumn Header="출처" Binding="{Binding Source}" Width="300"/>
+      </DataGrid.Columns>
+     </DataGrid>
+    </DockPanel>
+   </Border>
+  </Grid>
  </DockPanel>
 </UserControl>

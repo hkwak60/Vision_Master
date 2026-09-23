@@ -20,6 +20,7 @@ internal static class Program
         try
         {
             var app = new KickoutMonitor.App.App();
+            SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext());
             app.InitializeComponent(); // Resources only: do not run production startup or connect to shares.
             var machine = new WeldingMachine("1-1-an", "1-1", Polarity.Anode, "unused", ['F']);
             var flags = new Flags();
@@ -170,23 +171,116 @@ internal static class Program
                 control.Arrange(new Rect(0, 0, 1100, 700));
                 control.UpdateLayout();
             }
-            overkill.Heatmap.Add(new("1-1(-)",[new("SEPA",12,"12 / 40 (30.0%)","#FFCCCC"),new("BEAD",2,"2 / 21 (9.5%)","#FFF0F0")]));
-            overkill.KickoutRows.Add(new("Kickout","E81C","1-1(-)","SEPA",10000,40,12));
-            overkill.Trends.Add(new(new(2026,9,20),12,40,10000));
-            overkill.Trends.Add(new(new(2026,9,21),null,null,null));
-            dashboard.Measure(new Size(1100,700));dashboard.Arrange(new Rect(0,0,1100,700));dashboard.UpdateLayout();
-            var image=new RenderTargetBitmap(1100,700,96,96,PixelFormats.Pbgra32);
-            image.Render(dashboard);
-            var png=new PngBitmapEncoder();png.Frames.Add(BitmapFrame.Create(image));
-            var artifact=System.IO.Path.Combine(Environment.CurrentDirectory,".codex-work","overkill-smoke.png");
-            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(artifact)!);
-            using(var output=System.IO.File.Create(artifact))png.Save(output);
-            Console.WriteLine("PASS: six WPF views construct/layout at 1100x700; explicit drafts, auto advance, failure retention, saved-class colors, training selection restore, editor guard; grouping, crop sibling counts, column sorting, keyboard navigation, previews, flag context, queue time validation and default selections.");
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            Require(overkill.StartDate == DateTime.Today.AddDays(-6) && overkill.EndDate == DateTime.Today, "dashboard seven inclusive days");
+            for (var dayIndex = 0; dayIndex < 7; dayIndex++)
+            {
+                if (dayIndex == 3) continue;
+                var day = today.AddDays(dayIndex - 6);
+                var rows = OverkillTrendService.Lines.SelectMany((line, lineIndex) => new[] {
+                    new SummaryReportRow(line,"ALL",1000,50,20,dayIndex == 0 ? 0 : (lineIndex + dayIndex) % 9,0,0,0,"E81C"),
+                    new SummaryReportRow(line,"SEPA",1000,20,10,dayIndex == 0 ? 0 : (lineIndex + dayIndex) % 5,0,0,0,"E81C"),
+                    new SummaryReportRow(line,"BEAD",1000,20,10,(lineIndex * dayIndex) % 4,0,0,0,"E81C")
+                }).ToArray();
+                Complete(OverkillHistoryService.SaveSnapshotAsync(localStorage, new(day, day.ToDateTime(new(6,0)), day.AddDays(1).ToDateTime(new(6,0)), rows, [], "local fixture")));
+            }
+            var sampleReview = reviewStore.Records.Values.First();
+            reviewStore.Records["trend-fixture"] = sampleReview with { ItemKey="trend-fixture", CellId="TREND",
+                InspectedAt=DateTime.Today.AddHours(6), CropFolder="SEPA", FinalClass="Overkill", Inspection=null,
+                ImagePaths=["trend-source.jpg","trend-mask.png"], ModelKind=DlngModelKind.Segmentation };
+            Complete(overkill.RefreshAsync());
+            Require(overkill.Kickout.Series.Count == 8 && overkill.Kickout.HeatRows.Count == 8, "eight machine series");
+            Require(overkill.Kickout.Series.All(series => series.Points.Count == 7), "seven graph dates");
+            Layout(dashboard);
+            var trendView = Descendants<KickoutMonitor.App.OverkillTrendView>(dashboard).First();
+            var chart = Descendants<KickoutMonitor.App.OverkillLineChart>(dashboard).First();
+            Require(Descendants<ComboBox>(dashboard).Single().SelectedItem as string == OverkillTrendService.All, "all field displayed after refresh");
+            Render(dashboard, "overkill-smoke.png");
+            Require(chart.RenderedPointCount == 48 && chart.RenderedSegmentCount == 32, $"zeros render and missing day breaks lines ({chart.RenderedPointCount}/{chart.RenderedSegmentCount}; VM {overkill.Kickout.Series.Sum(s=>s.Points.Count(p=>p.HasData))}; status {overkill.Status})");
+            var header = Descendants<Button>(trendView).First(b => b.Tag as string == "SEPA");
+            header.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Require(overkill.Field == "SEPA" && overkill.Kickout.Headers.Count == 2 && overkill.Kickout.Series.Count == 8, "field click keeps matrix and machines");
+            overkill.Kickout.Machines[0].Visible = false;
+            Require(overkill.Kickout.Series.Count == 7 && overkill.Kickout.HeatRows.Count == 7, "legend controls chart and matrix");
+            overkill.Kickout.Machines[0].Visible = true;
+            Layout(dashboard);
+            var detailButton = Descendants<Button>(trendView).First(b => b.Content as string == "⋯" && b.DataContext is TrendHeatCell);
+            detailButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Require(overkill.DetailsOpen && overkill.Contributions.Count > 0, "cell detail opens report records");
+            Layout(dashboard);
+            Render(dashboard, "overkill-detail-smoke.png");
+            var smallerChartHeight = chart.ActualHeight;
+            var close = Descendants<Button>(dashboard).Single(b => b.Content as string == "닫기 ×");
+            close.Command.Execute(null);
+            Layout(dashboard);
+            Require(!overkill.DetailsOpen && chart.ActualHeight > smallerChartHeight, "closing detail restores chart space");
+            overkill.Kickout.SelectedField = "SEPA";
+            overkill.ActiveTab = 1;
+            Layout(dashboard);
+            Require(overkill.Field == OverkillTrendService.All, "independent DLNG field");
+            overkill.Dlng.SelectedField = "SEPA";
+            Render(dashboard, "overkill-dlng-smoke.png");
+            overkill.Dlng.ShowDetails("1-1(-)", "SEPA", today);
+            Require(overkill.DetailsOpen, "point detail opens production-day records");
+            overkill.ActiveTab = 0;
+            Require(overkill.Field == "SEPA" && !overkill.DetailsOpen, "tab restores selection");
+            var customStart = DateTime.Today.AddDays(-2);
+            overkill.StartDate = customStart;
+            Complete(overkill.RefreshAsync());
+            Require(overkill.StartDate == customStart && overkill.Field == "SEPA", "refresh preserves dates and field");
+            overkill.EndDate = customStart.AddDays(-1);
+            Require(overkill.Kickout.Series.All(series => series.Points.Count == 0), "invalid range clears graph");
+            Require(overkill.Field == "SEPA", "invalid range preserves field choice");
+            overkill.RecentSevenCommand.Execute(null);
+            Require(overkill.StartDate == DateTime.Today.AddDays(-6) && overkill.EndDate == DateTime.Today, "recent seven reset");
+            foreach (var option in overkill.Kickout.Machines) option.Visible = false;
+            Require(overkill.Kickout.Series.Count == 0 && overkill.Kickout.HeatRows.Count == 0, "empty legend safe");
+            foreach (var option in overkill.Kickout.Machines) option.Visible = true;
+            overkill.ActiveTab = 2;
+            Layout(dashboard);
+            Require(Descendants<Button>(dashboard).Any(b => b.Content as string == "Retry pending copies"), "training controls retained");
+            Require(Descendants<DataGrid>(dashboard).SelectMany(g => g.Columns).All(c => c.Header as string != "Product"), "product hidden");
+            overkill.ActiveTab = 0;
+            Layout(dashboard);
+            Console.WriteLine("PASS: six WPF views construct/layout at 1100x700; trend gap/zero rendering, field selection, legend, detail, tab state and date refresh/reset; explicit drafts, auto advance, failure retention, saved-class colors, training selection restore, editor guard; grouping, crop sibling counts, column sorting, keyboard navigation, previews, flag context, queue time validation and default selections.");
             app.Shutdown();
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
         finally { if (System.IO.Directory.Exists(Root)) System.IO.Directory.Delete(Root, true); }
+    }
+
+    private static void Complete(Task task)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (!task.IsCompleted && DateTime.UtcNow < deadline)
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => {}, System.Windows.Threading.DispatcherPriority.Background);
+        if (!task.IsCompleted) throw new TimeoutException("UI fixture timeout.");
+        task.GetAwaiter().GetResult();
+    }
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) yield return match;
+            foreach (var descendant in Descendants<T>(child)) yield return descendant;
+        }
+    }
+    private static void Layout(FrameworkElement control)
+    {
+        control.Measure(new Size(1100, 700)); control.Arrange(new Rect(0, 0, 1100, 700)); control.UpdateLayout();
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => {}, System.Windows.Threading.DispatcherPriority.Background);
+    }
+    private static void Render(FrameworkElement control, string file)
+    {
+        Layout(control);
+        var image = new RenderTargetBitmap(1100, 700, 96, 96, PixelFormats.Pbgra32);
+        image.Render(control);
+        var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(image));
+        var artifact = System.IO.Path.Combine(Environment.CurrentDirectory, ".codex-work", file);
+        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(artifact)!);
+        using var output = System.IO.File.Create(artifact); png.Save(output);
     }
 
     private static void Require(bool value, string message)
