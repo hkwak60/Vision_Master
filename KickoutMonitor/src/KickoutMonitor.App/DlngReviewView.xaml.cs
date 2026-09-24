@@ -34,6 +34,12 @@ public partial class DlngReviewView : UserControl
     public DlngReviewView()
     {
         InitializeComponent();
+        ReviewToolbar.SizeChanged += (_, _) =>
+        {
+            // Keep the single row usable at the minimum window width; cap models at a quarter.
+            var width = Math.Max(100, Math.Min(ReviewToolbar.ActualWidth / 4, ReviewToolbar.ActualWidth - 956));
+            ReviewToolbar.ColumnDefinitions[1].Width = new GridLength(width);
+        };
         DataContextChanged += DlngReviewView_DataContextChanged;
         Loaded += (_, _) => Focus();
         AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(DlngReviewView_PreviewKeyDown), true);

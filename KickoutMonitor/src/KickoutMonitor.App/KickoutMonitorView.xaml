@@ -190,7 +190,6 @@
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Rework" Binding="{Binding ReworkLabel}" Width="62"/>
                                 <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="90"/>
-                                <DataGridTextColumn Header="Images" Binding="{Binding ResolutionMessage}" Width="Auto"/>
                                 <DataGridTextColumn Header="Line" Binding="{Binding LinePolarity}" Width="68"/>
                                 <DataGridTextColumn Header="Cell ID" Binding="{Binding CellId}" Width="112"/>
                                 <DataGridTextColumn Header="Defect" Binding="{Binding Defect}" Width="135"/>

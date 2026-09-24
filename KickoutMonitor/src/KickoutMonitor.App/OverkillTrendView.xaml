@@ -10,23 +10,26 @@
    </ItemsControl>
   </DockPanel>
   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-   <ItemsControl ItemsSource="{Binding Cards}">
+   <ItemsControl ItemsSource="{Binding CardRows}">
     <ItemsControl.ItemTemplate><DataTemplate>
-     <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" Margin="0,0,0,10" Padding="8">
+     <ItemsControl ItemsSource="{Binding}">
+      <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+    <ItemsControl.ItemTemplate><DataTemplate>
+     <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" Margin="0,0,6,10" Padding="8">
       <DockPanel>
        <TextBlock DockPanel.Dock="Top" Text="{Binding Line}" Foreground="{Binding Color}" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
        <Grid Height="215">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="3*"/><ColumnDefinition Width="2*" MinWidth="220"/></Grid.ColumnDefinitions>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="140"/></Grid.ColumnDefinitions>
         <local:OverkillLineChart Series="{Binding Series}" Loaded="Chart_Loaded"/>
-        <DockPanel Grid.Column="1" Margin="12,0,0,0">
-         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,5"><TextBlock Text="검출 항목 / 크롭 모델" FontWeight="SemiBold"/><TextBlock Text="과검 건수 ↓" HorizontalAlignment="Right"/></DockPanel>
+        <DockPanel Grid.Column="1" Margin="6,0,0,0">
+         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,5"><TextBlock Text="항목" FontWeight="SemiBold"/><TextBlock Text="건수 ↓" HorizontalAlignment="Right"/></DockPanel>
          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <ItemsControl ItemsSource="{Binding Rows}">
            <ItemsControl.ItemTemplate><DataTemplate>
             <Border Background="{Binding Color}" Height="29" Margin="0,1" ToolTip="{Binding Tooltip}">
              <Border.Style><Style TargetType="Border"><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="BorderThickness" Value="1"/><Style.Triggers><DataTrigger Binding="{Binding Selected}" Value="True"><Setter Property="BorderBrush" Value="#2563EB"/><Setter Property="BorderThickness" Value="2"/></DataTrigger></Style.Triggers></Style></Border.Style>
-             <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/><ColumnDefinition Width="30"/></Grid.ColumnDefinitions>
-              <Button Content="{Binding Field}" Tag="{Binding Field}" Click="Field_Click" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" Padding="5,0" Margin="0" MinHeight="0" Foreground="{Binding Foreground}"/>
+             <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="35"/><ColumnDefinition Width="22"/></Grid.ColumnDefinitions>
+              <Button FontSize="11" Content="{Binding Field}" Tag="{Binding Field}" Click="Field_Click" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" Padding="5,0" Margin="0" MinHeight="0" Foreground="{Binding Foreground}"/>
               <Button Grid.Column="1" Content="{Binding Text}" Tag="{Binding Field}" Click="Field_Click" Background="Transparent" BorderThickness="0" Padding="0" Margin="0" MinHeight="0" Foreground="{Binding Foreground}"/>
               <Button Grid.Column="2" Content="⋯" Click="Details_Click" ToolTip="상세보기" Background="Transparent" BorderThickness="0" Padding="0" Margin="0" MinHeight="0" Foreground="{Binding Foreground}"/>
              </Grid>
@@ -38,6 +41,8 @@
        </Grid>
       </DockPanel>
      </Border>
+    </DataTemplate></ItemsControl.ItemTemplate>
+     </ItemsControl>
     </DataTemplate></ItemsControl.ItemTemplate>
    </ItemsControl>
   </ScrollViewer>

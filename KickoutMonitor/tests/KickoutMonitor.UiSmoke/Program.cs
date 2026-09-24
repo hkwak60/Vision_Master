@@ -272,9 +272,15 @@ internal static class Program
             Require(!Descendants<Button>(dlngView).Any(b => b.Content as string == "Generate Dataset"), "dataset action removed from review");
             var queueGrid = Descendants<DataGrid>(dlngView).Single(g => ReferenceEquals(g.ItemsSource, vm.Candidates));
             Require(queueGrid.Columns.Select(c => c.Header as string).SequenceEqual(new[] {"Date","Time","Line","Cell-ID","Rework","Judge","Defect","Side","Final Class","Review"}), "compact queue column order");
+            vm.MachineOptions.Clear();
+            foreach (var line in new[] { "1-1", "1-2", "2-1", "2-2" })
+            foreach (var polarity in new[] { Polarity.Anode, Polarity.Cathode })
+                vm.MachineOptions.Add(new MachineOption(new WeldingMachine(line + polarity, line, polarity, "unused", ['F']), line is "1-1" or "1-2"));
             Render(dlngView, "dlng-workflow-smoke.png");
+            Render(dlngView, "dlng-wide-smoke.png", 1920, 900);
             overkill.ActiveTab = 0;
             Layout(dashboard);
+            Render(dashboard, "overkill-wide-smoke.png", 1920, 900);
             Console.WriteLine("PASS: six WPF views construct/layout at 1100x700; trend gap/zero rendering, field selection, legend, detail, tab state and date refresh/reset; explicit drafts, auto advance, failure retention, saved-class colors, training selection restore, editor guard; grouping, crop sibling counts, column sorting, keyboard navigation, previews, flag context, queue time validation and default selections.");
             app.Shutdown();
             return 0;
@@ -305,10 +311,13 @@ internal static class Program
         control.Measure(new Size(1100, 700)); control.Arrange(new Rect(0, 0, 1100, 700)); control.UpdateLayout();
         System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => {}, System.Windows.Threading.DispatcherPriority.Background);
     }
-    private static void Render(FrameworkElement control, string file)
+    private static void Render(FrameworkElement control, string file, int width = 1100, int height = 700)
     {
         Layout(control);
-        var image = new RenderTargetBitmap(1100, 700, 96, 96, PixelFormats.Pbgra32);
+        control.Measure(new Size(width, height)); control.Arrange(new Rect(0, 0, width, height)); control.UpdateLayout();
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => {}, System.Windows.Threading.DispatcherPriority.Background);
+        control.UpdateLayout();
+        var image = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
         image.Render(control);
         var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(image));
         var artifact = System.IO.Path.Combine(Environment.CurrentDirectory, ".codex-work", file);

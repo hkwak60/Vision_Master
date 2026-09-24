@@ -39,14 +39,14 @@
                     BorderThickness="1" Padding="8" Margin="0,0,0,10">
                 <Grid x:Name="ReviewToolbar">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="90"/>
-                        <ColumnDefinition Width="*" MinWidth="98"/>
-                        <ColumnDefinition Width="174"/>
-                        <ColumnDefinition Width="174"/>
-                        <ColumnDefinition Width="104"/>
-                        <ColumnDefinition Width="104"/>
-                        <ColumnDefinition Width="104"/>
-                        <ColumnDefinition Width="116"/>
+                        <ColumnDefinition Width="270"/>
+                        <ColumnDefinition Width="100"/>
+                        <ColumnDefinition Width="1.5*" MinWidth="150"/>
+                        <ColumnDefinition Width="1.5*" MinWidth="150"/>
+                        <ColumnDefinition Width="*" MinWidth="86"/>
+                        <ColumnDefinition Width="*" MinWidth="94"/>
+                        <ColumnDefinition Width="*" MinWidth="94"/>
+                        <ColumnDefinition Width="*" MinWidth="112"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -60,20 +60,21 @@
                     <TextBlock Grid.Column="6" Text="Report end" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
                     <StackPanel Grid.Column="0" Grid.Row="1" Margin="0,0,6,0">
 
-                        <ListBox ItemsSource="{Binding MachineOptions}" Height="56"
+                        <ListBox ItemsSource="{Binding MachineOptions}" Height="56" Padding="0"
                                  BorderBrush="{StaticResource PanelBorder}"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="Padding" Value="1"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style></ListBox.ItemContainerStyle>
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <WrapPanel/>
+                                    <UniformGrid Columns="4" Rows="2"/>
                                 </ItemsPanelTemplate>
                             </ListBox.ItemsPanel>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
                                     <CheckBox IsChecked="{Binding IsSelected}"
                                               Content="{Binding Label}"
-                                              Margin="2,1" MinWidth="66"/>
+                                              Margin="0,1" FontSize="11"/>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
@@ -104,18 +105,18 @@
                             </StackPanel></ScrollViewer>
                         </Border>
                     </StackPanel>
-                    <StackPanel Grid.Column="2" Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,6,0">
-                        <DatePicker SelectedDate="{Binding StartDate}" Width="118" Height="34" FontSize="12"/>
-                        <TextBox Text="{Binding StartTime, UpdateSourceTrigger=PropertyChanged}" Width="46" Height="34" Padding="2,0"
-                                 FontSize="12" Margin="4,0,0,0" VerticalContentAlignment="Center"
-                                 ToolTip="Queue time: HH:mm (24-hour). Start included; end excluded."/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="3" Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,6,0">
-                        <DatePicker SelectedDate="{Binding EndDate}" Width="118" Height="34" FontSize="12"/>
-                        <TextBox Text="{Binding EndTime, UpdateSourceTrigger=PropertyChanged}" Width="46" Height="34" Padding="2,0"
-                                 FontSize="12" Margin="4,0,0,0" VerticalContentAlignment="Center"
-                                 ToolTip="Queue time: HH:mm (24-hour). Start included; end excluded."/>
-                    </StackPanel>
+                    <Grid Grid.Column="2" Grid.Row="1" VerticalAlignment="Top" Margin="0,0,6,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="50"/></Grid.ColumnDefinitions>
+                        <DatePicker SelectedDate="{Binding StartDate}" Height="34" FontSize="12"/>
+                        <TextBox Grid.Column="1" Text="{Binding StartTime, UpdateSourceTrigger=PropertyChanged}" Height="34" Padding="2,0"
+                                 FontSize="12" Margin="4,0,0,0" VerticalContentAlignment="Center" ToolTip="Queue time: HH:mm (24-hour)"/>
+                    </Grid>
+                    <Grid Grid.Column="3" Grid.Row="1" VerticalAlignment="Top" Margin="0,0,6,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="50"/></Grid.ColumnDefinitions>
+                        <DatePicker SelectedDate="{Binding EndDate}" Height="34" FontSize="12"/>
+                        <TextBox Grid.Column="1" Text="{Binding EndTime, UpdateSourceTrigger=PropertyChanged}" Height="34" Padding="2,0"
+                                 FontSize="12" Margin="4,0,0,0" VerticalContentAlignment="Center" ToolTip="Queue time: HH:mm (24-hour)"/>
+                    </Grid>
                     <Button Grid.Column="4" Grid.Row="1" Content="Load Queue" Command="{Binding LoadCommand}"
                             ToolTip="Load DLNG Queue" FontSize="12" Padding="3,2" MinHeight="34" Height="34" VerticalAlignment="Top" Margin="0,0,6,0"/>
                     <DatePicker Grid.Column="5" Grid.Row="1" SelectedDate="{Binding ReportDate}" Height="34" FontSize="12"

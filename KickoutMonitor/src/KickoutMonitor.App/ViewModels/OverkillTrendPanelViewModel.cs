@@ -34,6 +34,7 @@ public sealed class OverkillTrendPanelViewModel : INotifyPropertyChanged
     public IReadOnlyList<MachineLegend> Machines { get; }
     public IReadOnlyList<OverkillSeries> Series { get; private set; } = [];
     public IReadOnlyList<TrendHeatRow> HeatRows { get; private set; } = [];
+    public IReadOnlyList<IReadOnlyList<MachineTrendCard>> CardRows { get; private set; } = [];
     public IReadOnlyList<MachineTrendCard> Cards { get; private set; } = [];
     public IReadOnlyList<TrendField> Headers { get; private set; } = [];
     public int Maximum { get; private set; }
@@ -81,7 +82,8 @@ public sealed class OverkillTrendPanelViewModel : INotifyPropertyChanged
             Series.Where(s => s.Line == m.Line).ToArray(),
             HeatRows.Single(r => r.Line == m.Line).Cells.OrderByDescending(c => c.Count.HasValue)
                 .ThenByDescending(c => c.Count).ThenBy(c => c.Field).ToArray())).ToArray();
-        foreach (var property in new[] { nameof(Cards), nameof(Series), nameof(HeatRows), nameof(Headers), nameof(Maximum), nameof(ScaleLabel), nameof(HasFields) })
+        CardRows = Cards.GroupBy(c => c.Line.Split('(')[0]).Select(g => (IReadOnlyList<MachineTrendCard>)g.ToArray()).ToArray();
+        foreach (var property in new[] { nameof(CardRows), nameof(Cards), nameof(Series), nameof(HeatRows), nameof(Headers), nameof(Maximum), nameof(ScaleLabel), nameof(HasFields) })
             PropertyChanged?.Invoke(this, new(property));
     }
     public event Action<TrendDetailRequest>? DetailRequested;
