@@ -25,6 +25,53 @@ public sealed class OverkillTests : IDisposable
             IncludeInTraining:selected,ProductModel:model,ModelKind:segmentation?DlngModelKind.Segmentation:DlngModelKind.Classification,
             TrainingPolarity:polarity);
     }
+    [Fact]
+    public async Task TrainedExportRestoresDeletedFilesAndKeepsCountsAndOriginalLabels()
+    {
+        var r = Review("A");
+        await Collection.ApplyAsync(r);
+        var batch = Assert.Single(await Collection.LoadAsync());
+        var folder = await Collection.GenerateDatasetAsync(batch.Id);
+        var frozen = Assert.Single(await Collection.LoadAsync());
+        Assert.Equal(1, frozen.TotalSamples); Assert.Equal(2, frozen.TotalFiles); Assert.Equal("Trained", frozen.Status);
+        var timestamp = frozen.TrainedAt;
+        var image = Directory.GetFiles(Path.Combine(folder,"Overkill"))[0];
+        File.Delete(image);
+        await Collection.ApplyAsync(r with { FinalClass = "Real" });
+        Assert.Equal(folder, await Collection.GenerateDatasetAsync(batch.Id));
+        Assert.True(File.Exists(image)); Assert.False(Directory.Exists(Path.Combine(folder,"Real")));
+        Assert.StartsWith(Path.GetFullPath(Storage.Root), Path.GetFullPath(folder));
+        Directory.Delete(folder, true);
+        Assert.Equal(folder, await Collection.GenerateDatasetAsync(batch.Id));
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(folder,"Overkill")).Length);
+        var after = Assert.Single(await Collection.LoadAsync());
+        Assert.Equal(timestamp, after.TrainedAt); Assert.Equal(1, after.TotalSamples); Assert.Equal(2, after.TotalFiles);
+    }
+    [Fact]
+    public async Task SameDateBatchesUseDateSuffixesWithoutBatchDirectories()
+    {
+        await Collection.ApplyAsync(Review("A"));
+        var first = Assert.Single(await Collection.LoadAsync());
+        var folder1 = await Collection.GenerateDatasetAsync(first.Id);
+        await Collection.ApplyAsync(Review("B"));
+        var second = (await Collection.LoadAsync()).Single(b => b.TrainedAt is null);
+        var folder2 = await Collection.GenerateDatasetAsync(second.Id);
+        Assert.Equal(folder1 + "_2", folder2);
+        Assert.DoesNotContain(second.Id, folder2);
+        Assert.Equal(folder1, await Collection.GenerateDatasetAsync(first.Id));
+        Assert.Equal(folder2, await Collection.GenerateDatasetAsync(second.Id));
+        Assert.All(await Collection.LoadAsync(), b => Assert.Equal(1,b.TotalSamples));
+    }
+    [Fact]
+    public async Task ClassificationKeepsPolarityButOmitsBatchDirectory()
+    {
+        await Collection.ApplyAsync(Review(crop:"Crop_B",label:"01_OK"));
+        var batch = Assert.Single(await Collection.LoadAsync());
+        var folder = await Collection.GenerateDatasetAsync(batch.Id);
+        Assert.Contains(Path.Combine("E81C","Crop_B","Anode","2026"), folder);
+        Assert.DoesNotContain(batch.Id,folder);
+        Assert.Equal(folder,await Collection.GenerateDatasetAsync(batch.Id));
+    }
     [Theory]
     [InlineData("SEPA_SHOULDER")]
     [InlineData("BEAD")]
@@ -81,7 +128,8 @@ public sealed class OverkillTests : IDisposable
         var batch = Assert.Single(await Collection.LoadAsync());
         var path = await Collection.GenerateDatasetAsync(batch.Id);
         Assert.Equal("1231_0102", Path.GetFileName(path));
-        Assert.Contains(Path.Combine("E81C","SEPA","shared","2026",batch.Id), path);
+        Assert.Contains(Path.Combine("E81C","SEPA","2026"), path);
+        Assert.DoesNotContain("shared", path); Assert.DoesNotContain(batch.Id, path);
         Assert.Equal(4, Directory.GetFiles(Path.Combine(path, "Overkill")).Length);
         Assert.Empty(Directory.GetDirectories(Path.Combine(path, "Overkill")));
         var frozen = Assert.Single(await Collection.LoadAsync());

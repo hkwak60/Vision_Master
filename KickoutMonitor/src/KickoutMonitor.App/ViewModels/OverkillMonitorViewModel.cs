@@ -37,7 +37,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         });
         CloseDetailsCommand = new(() => DetailsOpen = false);
         RetryCommand = new(RetryAsync, () => !_busy);
-        GenerateDatasetCommand = new(GenerateDatasetAsync, () => !_busy && (SelectedBatch is { TrainedAt: null } or { DatasetFolder: not null }));
+        GenerateDatasetCommand = new(GenerateDatasetAsync, () => !_busy && SelectedBatch is not null);
         ExcludeCommand = new(ExcludeAsync, () => !_busy && SelectedBatch is { TrainedAt: null } && SelectedSample is not null);
         Kickout.DetailRequested += ShowDetails; Dlng.DetailRequested += ShowDetails;
         foreach (var panel in new[] { Kickout, Dlng })
@@ -84,7 +84,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     public TrainingBatch? SelectedBatch
     {
         get => _selectedBatch;
-        set { Set(ref _selectedBatch, value); Replace(Samples, value?.Samples ?? []); SelectedSample = null; System.Windows.Input.CommandManager.InvalidateRequerySuggested(); }
+        set { Set(ref _selectedBatch, value); Replace(Samples, value?.Samples ?? []); UpdateCollectionCounts(); SelectedSample = null; System.Windows.Input.CommandManager.InvalidateRequerySuggested(); }
     }
     public TrainingSample? SelectedSample { get => _selectedSample; set { Set(ref _selectedSample, value); System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } }
     public async Task RefreshAsync()
@@ -122,8 +122,14 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         Replace(Batches, _batches);
         SelectedBatch = Batches.FirstOrDefault(b => b.Id == batchId);
         SelectedSample = Samples.FirstOrDefault(s => s.Id == sampleId);
-        var ready = _batches.Where(b => b.TrainedAt is null).SelectMany(b => b.Samples).Where(s => s.State == "Ready" && !s.Superseded
-            && s.CollectedAt?.Date >= StartDate.Value.Date && s.CollectedAt?.Date <= EndDate.Value.Date).ToArray();
+        UpdateCollectionCounts();
+    }
+    private void UpdateCollectionCounts()
+    {
+        var ready = SelectedBatch is { } batch
+            ? batch.Samples.Where(s => s.State == "Ready" && (batch.TrainedAt is not null || !s.Superseded)).ToArray()
+            : _batches.Where(b => b.TrainedAt is null).SelectMany(b => b.Samples).Where(s => s.State == "Ready" && !s.Superseded
+                && s.CollectedAt?.Date >= StartDate?.Date && s.CollectedAt?.Date <= EndDate?.Date).ToArray();
         // Product remains part of the batch/count identity even though it is no longer a UI filter.
         Replace(CollectionCounts, ready.GroupBy(s => (Product: TrainingCollectionService.Product(s.Review), s.Review.CropFolder, s.Review.LinePolarity, s.Review.FinalClass))
             .Select(g => new CollectionCount(g.Key.Product, g.Key.CropFolder, g.Key.LinePolarity, g.Key.FinalClass, g.Count(), g.Sum(s => s.Files.Count))));

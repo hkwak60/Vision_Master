@@ -267,6 +267,20 @@ internal static class Program
             Layout(dashboard);
             Require(Descendants<Button>(dashboard).Any(b => b.Content as string == "Retry pending copies"), "training controls retained");
             Require(Descendants<DataGrid>(dashboard).SelectMany(g => g.Columns).All(c => c.Header as string != "Product"), "product hidden");
+            var batchSource = System.IO.Path.Combine(Root, "BATCH_SourceImg.jpg");
+            var batchMask = System.IO.Path.Combine(Root, "BATCH_SourceImg_mask.png");
+            System.IO.File.WriteAllBytes(batchSource, [1,2,3]); System.IO.File.WriteAllBytes(batchMask, [4,5,6]);
+            Complete(collection.ApplyAsync(sampleReview with { ItemKey="batch-ui", CellId="BATCH", Inspection=null,
+                ImagePaths=[batchSource,batchMask], CropFolder="SEPA", ModelKind=DlngModelKind.Segmentation,
+                FinalClass="Overkill", IncludeInTraining=true }));
+            Complete(overkill.RefreshAsync());
+            overkill.SelectedBatch = overkill.Batches.Single();
+            Complete(collection.GenerateDatasetAsync(overkill.SelectedBatch.Id));
+            Complete(overkill.RefreshAsync());
+            Require(overkill.SelectedBatch is { TotalSamples: 1, TotalFiles: 2, Status: "Trained" }, "trained batch retains pair and file counts");
+            Require(overkill.CollectionCounts.Sum(c => c.Samples) == 1 && overkill.GenerateDatasetCommand.CanExecute(null), "trained class counts and repeat export remain available");
+            Layout(dashboard);
+            Render(dashboard, "trained-collection-smoke.png");
             Require(Descendants<Button>(dashboard).Any(b => b.Content as string == "Generate Dataset"), "dataset export relocated to collection");
             var dlngView = controls.OfType<KickoutMonitor.App.DlngReviewView>().Single();
             Require(!Descendants<Button>(dlngView).Any(b => b.Content as string == "Generate Dataset"), "dataset action removed from review");

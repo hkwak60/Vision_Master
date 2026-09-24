@@ -16,6 +16,12 @@ public sealed class TrainingBatch
     public DateTimeOffset? LastCollected { get; set; }
     public DateTimeOffset? TrainedAt { get; set; }
     public string? DatasetFolder { get; set; }
+    public BatchExportManifest? ExportSnapshot { get; set; }
+    public int TotalSamples => ExportSnapshot?.Files.Select(f => f.SampleId).Distinct().Count()
+        ?? Samples.Count(s => s.State == "Ready" && (TrainedAt is not null || !s.Superseded));
+    public int TotalFiles => ExportSnapshot?.Files.Count
+        ?? Samples.Where(s => s.State == "Ready" && (TrainedAt is not null || !s.Superseded)).Sum(s => s.Files.Count);
+    public string Status => TrainedAt is null ? "Active" : "Trained";
     public List<TrainingSample> Samples { get; set; } = [];
     public string Range => FirstCollected is null ? "pending" : $"{FirstCollected:MMdd}_{LastCollected:MMdd}";
     public int NewSamples => TrainedAt is null ? Samples.Count(x => x.State == "Ready" && !x.Superseded) : 0;

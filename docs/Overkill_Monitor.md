@@ -44,9 +44,9 @@ There is one active batch per grouping. **Retry pending copies** replays explici
 
 Dataset layout:
 
-    DLNG_REPORT/DATASET/<product>/<crop>/<polarity or shared>/<first-image year>/<batch ID>/<mmdd_mmdd>/<class>/
+    DLNG_REPORT/DATASET/<product>/<crop>/[classification polarity]/<first-image year>/<mmdd_mmdd>/<class>/
 
-The range uses earliest/latest image dates (inspection dates if image timestamps are unavailable), independently of collection dates. All segmentation source/mask pairs are exported directly under Real or Overkill with deterministic ownership prefixes. Classification models retain sample subfolders. Previously exported trained segmentation batches can use Generate Dataset again to create a verified flat copy under <batch ID>/flat/<date range>; frozen originals remain intact and the dataset path is updated. A dataset manifest records identities, labels, relative paths and file hashes; publication is atomic and retrying after an interrupted trained-state write reuses the complete output. The generated path appears in the batch table and status. Collection exports now mark trained; legacy report attachments do not.
+The range uses earliest/latest image dates (inspection dates if image timestamps are unavailable), independently of collection dates. All segmentation source/mask pairs are exported directly under Real or Overkill with deterministic ownership prefixes. Classification models retain sample subfolders. Segmentation exports have no shared folder, and neither model kind adds a batch-ID directory. Separate batches with the same date range use _2, _3, etc. Older exports are preserved when generating the simplified layout. A dataset manifest records identities, labels, relative paths and file hashes; publication is atomic and retrying after an interrupted trained-state write reuses the complete output. The generated path appears in the batch table and status. Collection exports now mark trained; legacy report attachments do not.
 
 Active reclassification uses local owned images when available, works offline, and retains the original collection date. SEPA pairs sit directly under Real or Overkill, with a shared deterministic product/inspection/crop prefix followed by the original filename. There are no per-item subfolders below these class folders. Other models retain per-sample collection directories.
 
@@ -77,3 +77,9 @@ WPF smoke checks cover the chart/matrix, field clicks, legend visibility, detail
 - The DLNG toolbar remains one row; model selection takes less horizontal space and date/time fields and action buttons are larger.
 
 Kickout queue hides the Images column; underlying image resolution behavior is unchanged.
+
+### Repeated batch downloads and retained counts
+
+Batch rows display total samples, physical image files and Active/Trained status. Export success marks Trained but never zeros these totals; the selected batch's class/line breakdown also stays visible. New untrained statistics still exclude trained samples. Subsequent new selections start another active batch.
+
+Generate Dataset remains available for trained batches, including older batches marked trained before export was introduced. A frozen export snapshot records labels, relative filenames and hashes. Repeating export verifies existing outputs and restores missing/altered owned files from the frozen local collection; later review corrections do not change its original labels. Missing source pairs cause a clear failure without marking an active batch trained. Internal collection ownership and batch IDs remain unchanged; only the user-facing export paths are simplified.
