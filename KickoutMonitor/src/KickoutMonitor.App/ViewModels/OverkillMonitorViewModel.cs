@@ -37,7 +37,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         });
         CloseDetailsCommand = new(() => DetailsOpen = false);
         RetryCommand = new(RetryAsync, () => !_busy);
-        GenerateDatasetCommand = new(GenerateDatasetAsync, () => !_busy && SelectedBatch is { TrainedAt: null });
+        GenerateDatasetCommand = new(GenerateDatasetAsync, () => !_busy && (SelectedBatch is { TrainedAt: null } or { DatasetFolder: not null }));
         ExcludeCommand = new(ExcludeAsync, () => !_busy && SelectedBatch is { TrainedAt: null } && SelectedSample is not null);
         Kickout.DetailRequested += ShowDetails; Dlng.DetailRequested += ShowDetails;
         foreach (var panel in new[] { Kickout, Dlng })

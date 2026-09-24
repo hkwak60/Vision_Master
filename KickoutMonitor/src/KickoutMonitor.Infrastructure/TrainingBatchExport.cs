@@ -22,6 +22,13 @@ public sealed partial class TrainingCollectionService
                 if (batch.DatasetFolder is null) throw new InvalidOperationException("This legacy trained batch has no generated dataset.");
                 var existing = ReadExport(batch.DatasetFolder);
                 ValidateExport(batch.DatasetFolder, existing);
+                if (batch.Samples.Any(s => Segmentation(s.Review)) &&
+                    existing.Files.Any(f => Path.GetDirectoryName(f.RelativePath) != Safe(f.FinalClass)))
+                {
+                    // Preserve the frozen export; publish an independently verified flat copy.
+                    batch.DatasetFolder = await FlattenDatasetAsync(batch.DatasetFolder, existing, token);
+                    Write(batches);
+                }
                 return batch.DatasetFolder;
             }
             if (batch.Pending != 0) throw new InvalidOperationException("Retry or exclude pending/failed samples before generating a dataset.");
@@ -38,7 +45,7 @@ public sealed partial class TrainingCollectionService
             var folder = ExportOwned(Path.Combine(_datasetRoot, Safe(batch.Product), Safe(batch.Crop), Safe(batch.Polarity),
                 dates.Min().Year.ToString(), batch.Id, $"{dates.Min():MMdd}_{dates.Max():MMdd}"));
             var files = samples.SelectMany(s => s.Files.Order().Select(source => new BatchExportFile(s.Id, s.Review.FinalClass,
-                batch.Crop.Equals("SEPA", StringComparison.OrdinalIgnoreCase)
+                Segmentation(s.Review) || batch.Crop.Equals("SEPA", StringComparison.OrdinalIgnoreCase)
                     ? Path.Combine(Safe(s.Review.FinalClass), Path.GetFileName(source).StartsWith(s.Id + "_") ? Path.GetFileName(source) : s.Id + "_" + Path.GetFileName(source))
                     : Path.Combine(Safe(s.Review.FinalClass), s.Id, Path.GetFileName(source)),
                 Digest(source)))).ToArray();
@@ -83,6 +90,40 @@ public sealed partial class TrainingCollectionService
             try { if (stage is not null && Directory.Exists(stage)) Directory.Delete(ExportOwned(stage), true); }
             finally { _gate.Release(); }
         }
+    }
+    private async Task<string> FlattenDatasetAsync(string sourceFolder, BatchExportManifest original, CancellationToken token)
+    {
+        var folder = ExportOwned(Path.Combine(Path.GetDirectoryName(sourceFolder)!, "flat", Path.GetFileName(sourceFolder)));
+        var flat = new BatchExportManifest(original.BatchId, original.Files.Select(f => f with {
+            RelativePath = Path.Combine(Safe(f.FinalClass), Path.GetFileName(f.RelativePath).StartsWith(f.SampleId + "_", StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFileName(f.RelativePath) : f.SampleId + "_" + Path.GetFileName(f.RelativePath))
+        }).ToArray());
+        if (Directory.Exists(folder))
+        {
+            if (JsonSerializer.Serialize(ReadExport(folder)) != JsonSerializer.Serialize(flat))
+                throw new IOException("An existing flat dataset differs; it was left unchanged.");
+            ValidateExport(folder, flat);
+            return folder;
+        }
+        var stage = ExportOwned(Path.Combine(_datasetRoot, ".staging", original.BatchId + "_" + Guid.NewGuid().ToString("N")));
+        try
+        {
+            Directory.CreateDirectory(stage);
+            for (var i = 0; i < original.Files.Count; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                var target = ExportChild(stage, flat.Files[i].RelativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(ExportChild(sourceFolder, original.Files[i].RelativePath), target, false);
+            }
+            ValidateExport(stage, flat);
+            await File.WriteAllTextAsync(Path.Combine(stage, ".batch-export.json"), JsonSerializer.Serialize(flat), token);
+            token.ThrowIfCancellationRequested();
+            Directory.CreateDirectory(Path.GetDirectoryName(folder)!);
+            Directory.Move(stage, folder);
+            return folder;
+        }
+        finally { if (Directory.Exists(stage)) Directory.Delete(ExportOwned(stage), true); }
     }
     private string ExportOwned(string path)
     {

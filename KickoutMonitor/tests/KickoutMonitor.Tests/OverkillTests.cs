@@ -25,6 +25,53 @@ public sealed class OverkillTests : IDisposable
             IncludeInTraining:selected,ProductModel:model,ModelKind:segmentation?DlngModelKind.Segmentation:DlngModelKind.Classification,
             TrainingPolarity:polarity);
     }
+    [Theory]
+    [InlineData("SEPA_SHOULDER")]
+    [InlineData("BEAD")]
+    public async Task AllSegmentationExportsAreFlatAndKeepCollidingPairNames(string crop)
+    {
+        var source = Review("SAME");
+        var a = source with { CropFolder = crop };
+        var b = a with { MachineId = "1-2-an", LinePolarity = "1-2(-)", ItemKey = "other-machine" };
+        var real = a with { InspectedAt = a.InspectedAt.AddMinutes(20), ItemKey = "rework", FinalClass = "Real" };
+        await Collection.ApplyAsync(a); await Collection.ApplyAsync(b); await Collection.ApplyAsync(real);
+        var batch = Assert.Single(await Collection.LoadAsync());
+        var folder = await Collection.GenerateDatasetAsync(batch.Id);
+        Assert.Equal(4, Directory.GetFiles(Path.Combine(folder, "Overkill")).Length);
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(folder, "Real")).Length);
+        Assert.Empty(Directory.GetDirectories(Path.Combine(folder, "Overkill")));
+        Assert.Empty(Directory.GetDirectories(Path.Combine(folder, "Real")));
+        foreach (var pair in Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Where(f => !f.EndsWith(".json"))
+            .GroupBy(f => Path.GetFileName(f).Split('_')[0]))
+            TrainingCollectionService.ValidatePair(pair.ToArray());
+        Assert.Equal(folder, await Collection.GenerateDatasetAsync(batch.Id));
+    }
+    [Fact]
+    public async Task TrainedLegacySegmentationCanRegenerateFlatWithoutChangingFrozenExport()
+    {
+        var source = Review() with { CropFolder = "SEPA_SHOULDER" };
+        await Collection.ApplyAsync(source);
+        var batch = Assert.Single(await Collection.LoadAsync());
+        var folder = await Collection.GenerateDatasetAsync(batch.Id);
+        var manifestPath = Path.Combine(folder, ".batch-export.json");
+        var manifest = JsonSerializer.Deserialize<BatchExportManifest>(await File.ReadAllTextAsync(manifestPath))!;
+        var legacyFiles = manifest.Files.Select(f => f with { RelativePath = Path.Combine(f.FinalClass, f.SampleId, Path.GetFileName(f.RelativePath)) }).ToArray();
+        for (var i = 0; i < legacyFiles.Length; i++)
+        {
+            var destination = Path.Combine(folder, legacyFiles[i].RelativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Move(Path.Combine(folder, manifest.Files[i].RelativePath), destination);
+        }
+        await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(new BatchExportManifest(batch.Id, legacyFiles)));
+        var trainedAt = Assert.Single(await Collection.LoadAsync()).TrainedAt;
+        var flattened = await Collection.GenerateDatasetAsync(batch.Id);
+        Assert.NotEqual(folder, flattened);
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(flattened, "Overkill")).Length);
+        Assert.Empty(Directory.GetDirectories(Path.Combine(flattened, "Overkill")));
+        Assert.All(legacyFiles, f => Assert.True(File.Exists(Path.Combine(folder, f.RelativePath))));
+        Assert.Equal(trainedAt, Assert.Single(await Collection.LoadAsync()).TrainedAt);
+        Assert.Equal(flattened, await Collection.GenerateDatasetAsync(batch.Id));
+    }
     [Fact]
     public async Task BatchDatasetUsesImageDatesAndFreezesOnlyAfterCompleteExport()
     {
