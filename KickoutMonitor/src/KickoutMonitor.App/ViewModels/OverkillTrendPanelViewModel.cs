@@ -20,6 +20,7 @@ public sealed record TrendHeatCell(string Line, string Field, int? Count, int Co
     public string Foreground => Color == "#2563EB" ? "White" : "#172B4D";
 }
 public sealed record TrendHeatRow(string Line, IReadOnlyList<TrendHeatCell> Cells);
+public sealed record MachineTrendCard(string Line, string Color, IReadOnlyList<OverkillSeries> Series, IReadOnlyList<TrendHeatCell> Rows);
 public sealed record TrendField(string Name, bool Selected);
 public sealed record TrendDetailRequest(string Kind, string Line, string Field, DateOnly? Day);
 
@@ -33,6 +34,7 @@ public sealed class OverkillTrendPanelViewModel : INotifyPropertyChanged
     public IReadOnlyList<MachineLegend> Machines { get; }
     public IReadOnlyList<OverkillSeries> Series { get; private set; } = [];
     public IReadOnlyList<TrendHeatRow> HeatRows { get; private set; } = [];
+    public IReadOnlyList<MachineTrendCard> Cards { get; private set; } = [];
     public IReadOnlyList<TrendField> Headers { get; private set; } = [];
     public int Maximum { get; private set; }
     public string ScaleLabel => $"과검 건수   0 — {Maximum:N0}";
@@ -52,7 +54,10 @@ public sealed class OverkillTrendPanelViewModel : INotifyPropertyChanged
     {
         _data = data;
         var selection = _field;
-        Fields = data.Fields.Prepend(OverkillTrendService.All).ToArray();
+        var totals = data.Points.Where(p => p.Field != OverkillTrendService.All).GroupBy(p => p.Field)
+            .ToDictionary(g => g.Key, g => g.Sum(p => p.Count ?? 0));
+        Fields = data.Fields.OrderByDescending(f => totals.GetValueOrDefault(f)).ThenBy(f => f)
+            .Prepend(OverkillTrendService.All).ToArray();
         _field = Fields.Contains(selection) ? selection : OverkillTrendService.All;
         Rebuild();
         PropertyChanged?.Invoke(this, new(nameof(Fields)));
@@ -65,14 +70,18 @@ public sealed class OverkillTrendPanelViewModel : INotifyPropertyChanged
             _data.Points.Where(p => p.Line == m.Line && p.Field == _field).OrderBy(p => p.Day).ToArray())).ToArray();
         var cells = OverkillTrendService.Period(_data, visible.Select(m => m.Line));
         Maximum = cells.Select(c => c.Count ?? 0).DefaultIfEmpty(0).Max();
-        Headers = _data.Fields.Select(f => new TrendField(f, f == _field)).ToArray();
+        Headers = Fields.Where(f => f != OverkillTrendService.All).Select(f => new TrendField(f, f == _field)).ToArray();
         HeatRows = visible.Select(m => new TrendHeatRow(m.Line, _data.Fields.Select(f =>
         {
             var c = cells.FirstOrDefault(c => c.Line == m.Line && c.Field == f);
             return new TrendHeatCell(m.Line, f, c?.Count, c?.CoveredDays ?? 0,
                 OverkillTrendService.HeatColor(c?.Count, Maximum), f == _field);
         }).ToArray())).ToArray();
-        foreach (var property in new[] { nameof(Series), nameof(HeatRows), nameof(Headers), nameof(Maximum), nameof(ScaleLabel), nameof(HasFields) })
+        Cards = visible.Select(m => new MachineTrendCard(m.Line, m.Color,
+            Series.Where(s => s.Line == m.Line).ToArray(),
+            HeatRows.Single(r => r.Line == m.Line).Cells.OrderByDescending(c => c.Count.HasValue)
+                .ThenByDescending(c => c.Count).ThenBy(c => c.Field).ToArray())).ToArray();
+        foreach (var property in new[] { nameof(Cards), nameof(Series), nameof(HeatRows), nameof(Headers), nameof(Maximum), nameof(ScaleLabel), nameof(HasFields) })
             PropertyChanged?.Invoke(this, new(property));
     }
     public event Action<TrendDetailRequest>? DetailRequested;

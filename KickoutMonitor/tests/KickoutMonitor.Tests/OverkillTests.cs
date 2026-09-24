@@ -25,6 +25,56 @@ public sealed class OverkillTests : IDisposable
             IncludeInTraining:selected,ProductModel:model,ModelKind:segmentation?DlngModelKind.Segmentation:DlngModelKind.Classification,
             TrainingPolarity:polarity);
     }
+    [Fact]
+    public async Task BatchDatasetUsesImageDatesAndFreezesOnlyAfterCompleteExport()
+    {
+        var a = Review("A") with { InspectedAt = new(2026,12,31,23,0,0) };
+        var b = Review("B") with { InspectedAt = new(2027,1,2,6,0,0) };
+        await Collection.ApplyAsync(a); await Collection.ApplyAsync(b);
+        var batch = Assert.Single(await Collection.LoadAsync());
+        var path = await Collection.GenerateDatasetAsync(batch.Id);
+        Assert.Equal("1231_0102", Path.GetFileName(path));
+        Assert.Contains(Path.Combine("E81C","SEPA","shared","2026",batch.Id), path);
+        Assert.Equal(4, Directory.GetFiles(Path.Combine(path, "Overkill")).Length);
+        Assert.Empty(Directory.GetDirectories(Path.Combine(path, "Overkill")));
+        var frozen = Assert.Single(await Collection.LoadAsync());
+        Assert.NotNull(frozen.TrainedAt); Assert.Equal(0, frozen.NewSamples); Assert.Equal(path, frozen.DatasetFolder);
+        Assert.Equal(path, await Collection.GenerateDatasetAsync(batch.Id));
+        await Collection.ApplyAsync(a with { FinalClass = "Real" });
+        Assert.Equal(path, await Collection.GenerateDatasetAsync(batch.Id));
+        Assert.Equal(4, Directory.GetFiles(Path.Combine(path, "Overkill")).Length);
+        await Collection.ApplyAsync(Review("NEXT"));
+        Assert.Equal(2, (await Collection.LoadAsync()).Count);
+    }
+    [Fact]
+    public async Task FailedAndCancelledExportsDoNotTrainTheBatch()
+    {
+        var a = Review();
+        await Collection.ApplyAsync(a);
+        var batch = Assert.Single(await Collection.LoadAsync());
+        using var cancel = new CancellationTokenSource();
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Collection.GenerateDatasetAsync(batch.Id, cancel.Token));
+        Assert.Null(Assert.Single(await Collection.LoadAsync()).TrainedAt);
+        File.Delete(batch.Samples[0].Files[0]);
+        await Assert.ThrowsAsync<IOException>(() => Collection.GenerateDatasetAsync(batch.Id));
+        Assert.Null(Assert.Single(await Collection.LoadAsync()).TrainedAt);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Collection.GenerateDatasetAsync(batch.Id));
+    }
+    [Fact]
+    public async Task ExportPublicationRecoversBeforeTrainedStateWrite()
+    {
+        await Collection.ApplyAsync(Review());
+        var batch = Assert.Single(await Collection.LoadAsync());
+        var manifest = Path.Combine(Storage.Root,"Training","batches.json");
+        var before = await File.ReadAllTextAsync(manifest);
+        var folder = await Collection.GenerateDatasetAsync(batch.Id);
+        // Simulate interruption after the atomic dataset publication but before persisting TrainedAt.
+        await File.WriteAllTextAsync(manifest, before);
+        Assert.Equal(folder, await Collection.GenerateDatasetAsync(batch.Id));
+        Assert.NotNull(Assert.Single(await Collection.LoadAsync()).TrainedAt);
+        Assert.Equal(3, Directory.GetFiles(folder,"*",SearchOption.AllDirectories).Length); // two images and manifest
+    }
     [Theory]
     [InlineData("01_OK","Overkill")]
     [InlineData("02_OK_NG","Overkill")]

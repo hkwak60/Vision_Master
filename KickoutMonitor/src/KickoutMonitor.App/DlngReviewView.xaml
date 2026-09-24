@@ -39,15 +39,14 @@
                     BorderThickness="1" Padding="8" Margin="0,0,0,10">
                 <Grid x:Name="ReviewToolbar">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" MinWidth="80"/>
-                        <ColumnDefinition Width="0.8*" MinWidth="98"/>
-                        <ColumnDefinition Width="150"/>
-                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="90"/>
+                        <ColumnDefinition Width="*" MinWidth="98"/>
+                        <ColumnDefinition Width="174"/>
+                        <ColumnDefinition Width="174"/>
                         <ColumnDefinition Width="104"/>
                         <ColumnDefinition Width="104"/>
                         <ColumnDefinition Width="104"/>
                         <ColumnDefinition Width="116"/>
-                        <ColumnDefinition Width="114"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -106,13 +105,13 @@
                         </Border>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,6,0">
-                        <DatePicker SelectedDate="{Binding StartDate}" Width="94" Height="34" FontSize="12"/>
+                        <DatePicker SelectedDate="{Binding StartDate}" Width="118" Height="34" FontSize="12"/>
                         <TextBox Text="{Binding StartTime, UpdateSourceTrigger=PropertyChanged}" Width="46" Height="34" Padding="2,0"
                                  FontSize="12" Margin="4,0,0,0" VerticalContentAlignment="Center"
                                  ToolTip="Queue time: HH:mm (24-hour). Start included; end excluded."/>
                     </StackPanel>
                     <StackPanel Grid.Column="3" Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,6,0">
-                        <DatePicker SelectedDate="{Binding EndDate}" Width="94" Height="34" FontSize="12"/>
+                        <DatePicker SelectedDate="{Binding EndDate}" Width="118" Height="34" FontSize="12"/>
                         <TextBox Text="{Binding EndTime, UpdateSourceTrigger=PropertyChanged}" Width="46" Height="34" Padding="2,0"
                                  FontSize="12" Margin="4,0,0,0" VerticalContentAlignment="Center"
                                  ToolTip="Queue time: HH:mm (24-hour). Start included; end excluded."/>
@@ -126,8 +125,7 @@
                     <Button x:Name="GenerateReportButton" Grid.Column="7" Grid.Row="1" Content="Generate Summary"
                             Command="{Binding GenerateReportCommand}" ToolTip="Generate DLNG Report" FontSize="12" Padding="3,2" MinHeight="34"
                             Height="34" VerticalAlignment="Top" Margin="0,0,6,0"/>
-                    <Button x:Name="GenerateDatasetButton" Grid.Column="8" Grid.Row="1" Content="Generate Dataset"
-                            Command="{Binding GenerateDatasetCommand}" FontSize="12" Padding="3,2" MinHeight="34" Height="34" VerticalAlignment="Top" Margin="0"/>
+
                 </Grid>
             </Border>
 
@@ -192,6 +190,7 @@
                             <DataGrid.RowStyle>
                                 <Style TargetType="DataGridRow">
                                     <Setter Property="Background" Value="White"/>
+                                    <Setter Property="ToolTip" Value="{Binding ImageState}"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=DataGrid}}" Value="True"><Setter Property="IsHitTestVisible" Value="False"/></DataTrigger>
                                         <DataTrigger Binding="{Binding JudgmentTone}" Value="Real">
@@ -205,23 +204,16 @@
                                 </Style>
                             </DataGrid.RowStyle>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Images" Binding="{Binding ImageState}" Width="160">
-                                    <DataGridTextColumn.ElementStyle>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="ToolTip" Value="{Binding ImageState}"/>
-                                        </Style>
-                                    </DataGridTextColumn.ElementStyle>
-                                </DataGridTextColumn>
-                                <DataGridTextColumn Header="Rework" Binding="{Binding ReworkLabel}" Width="62"/>
-                                <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="90"/>
-                                <DataGridTextColumn Header="Line" Binding="{Binding LinePolarity}" Width="68"/>
-                                <DataGridTextColumn Header="Cell ID" Binding="{Binding CellId}" Width="116"/>
-                                <DataGridTextColumn Header="Judge" Binding="{Binding Judge}" Width="65"/>
-                                <DataGridTextColumn Header="Defect" Binding="{Binding Defect}" Width="116"/>
-                                <DataGridTextColumn Header="Folder" Binding="{Binding CropFolder}" Width="105"/>
-                                <DataGridTextColumn Header="Side" Binding="{Binding Side}" Width="64"/>
-                                <DataGridTextColumn Header="Final class" Binding="{Binding SavedClass}" Width="120"/>
-                                <DataGridTextColumn Header="Review" Binding="{Binding ReviewStatus}" Width="80"/>
+                                <DataGridTextColumn Header="Date" Binding="{Binding Date}" Width="78" SortMemberPath="InspectionTime"/>
+                                <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="62" SortMemberPath="InspectionTime"/>
+                                <DataGridTextColumn Header="Line" Binding="{Binding LinePolarity}" Width="54"/>
+                                <DataGridTextColumn Header="Cell-ID" Binding="{Binding CellId}" Width="92"/>
+                                <DataGridTextColumn Header="Rework" Binding="{Binding ReworkLabel}" Width="52"/>
+                                <DataGridTextColumn Header="Judge" Binding="{Binding Judge}" Width="48"/>
+                                <DataGridTextColumn Header="Defect" Binding="{Binding Defect}" Width="83"/>
+                                <DataGridTextColumn Header="Side" Binding="{Binding Side}" Width="52"/>
+                                <DataGridTextColumn Header="Final Class" Binding="{Binding SavedClass}" Width="85"/>
+                                <DataGridTextColumn Header="Review" Binding="{Binding ReviewStatus}" Width="65"/>
                             </DataGrid.Columns>
                         </DataGrid>
                     </DockPanel>
@@ -324,7 +316,7 @@
                             </StackPanel.Resources>
                             <TextBlock Text="Final Class" ToolTip="Segmentation: R = Real, O = Overkill, N = Not DLNG" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
                             <CheckBox Content="Auto advance" IsChecked="{Binding AutoAdvanceAfterReview}" Margin="2,0,0,8"/>
-                            <CheckBox Content="Include in training dataset" IsChecked="{Binding IncludeInTraining}" IsEnabled="{Binding CanCollect}" Margin="2,4,0,10"/>
+                            <CheckBox Content="Include in training dataset (T)" IsChecked="{Binding IncludeInTraining}" IsEnabled="{Binding CanCollect}" Margin="2,4,0,10"/>
                             <ItemsControl ItemsSource="{Binding FinalClassOptions}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
@@ -338,7 +330,7 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <Button Content="Enter: Commit Selection"
+                            <Button Content="Save selection (Enter)"
                                     Command="{Binding CommitCommand}"
                                     Margin="2,6,2,8"
                                     Padding="8,5"/>

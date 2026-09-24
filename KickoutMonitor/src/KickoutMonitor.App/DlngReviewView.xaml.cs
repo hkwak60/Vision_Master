@@ -107,7 +107,7 @@ public partial class DlngReviewView : UserControl
         if (Keyboard.Modifiers is not ModifierKeys.None) return;
         if (KickoutMonitor.App.Services.ReviewKeyboard.IsEditor(Keyboard.FocusedElement)) { if (e.Key == Key.Enter) e.Handled = true; return; }
         if (DataContext is not DlngReviewViewModel viewModel) return;
-        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.R or Key.O or Key.N or Key.Enter
+        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.R or Key.O or Key.N or Key.T or Key.Enter
             or Key.D1 or Key.D2 or Key.D3 or Key.D4 or Key.D5 or Key.D6 or Key.D7 or Key.D8 or Key.D9
             or Key.NumPad1 or Key.NumPad2 or Key.NumPad3 or Key.NumPad4 or Key.NumPad5 or Key.NumPad6 or Key.NumPad7 or Key.NumPad8 or Key.NumPad9)
         {

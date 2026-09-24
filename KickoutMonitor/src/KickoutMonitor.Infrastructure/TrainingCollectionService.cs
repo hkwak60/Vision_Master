@@ -15,6 +15,7 @@ public sealed class TrainingBatch
     public DateTimeOffset? FirstCollected { get; set; }
     public DateTimeOffset? LastCollected { get; set; }
     public DateTimeOffset? TrainedAt { get; set; }
+    public string? DatasetFolder { get; set; }
     public List<TrainingSample> Samples { get; set; } = [];
     public string Range => FirstCollected is null ? "pending" : $"{FirstCollected:MMdd}_{LastCollected:MMdd}";
     public int NewSamples => TrainedAt is null ? Samples.Count(x => x.State == "Ready" && !x.Superseded) : 0;
@@ -32,17 +33,19 @@ public sealed class TrainingSample
     public List<string> Files { get; set; } = [];
     public List<string> ObsoleteFiles { get; set; } = [];
 }
-public sealed class TrainingCollectionService
+public sealed partial class TrainingCollectionService
 {
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> Gates = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _root;
     private readonly Func<DateTimeOffset> _now;
     private readonly string _manifest;
+    private readonly string _datasetRoot;
     private readonly SemaphoreSlim _gate;
     public TrainingCollectionService(AppStorage storage, Func<DateTimeOffset>? now = null)
     {
         _now = now ?? (() => DateTimeOffset.Now);
         _root = Path.Combine(storage.Root, "Training");
+        _datasetRoot = Path.Combine(storage.DlngReport, "DATASET");
         _manifest = Path.Combine(_root, "batches.json");
         _gate = Gates.GetOrAdd(_manifest, _ => new(1, 1));
     }

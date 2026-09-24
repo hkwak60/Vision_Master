@@ -26,7 +26,8 @@ public sealed class DlngCandidateItem : INotifyPropertyChanged, IReworkRow
     public string SavedClass { get => _savedClass; set { _savedClass = value; PropertyChanged?.Invoke(this, new(nameof(SavedClass))); PropertyChanged?.Invoke(this, new(nameof(JudgmentTone))); } }
     public string JudgmentTone => ReviewSemantics.Tone(SavedClass);
     public DlngReviewItem Item { get; }
-    public string Time => InspectionIdentity.DisplayTime(Item.InspectedAt);
+    public string Date => Item.InspectedAt.ToString("yyyy-MM-dd");
+    public string Time => Item.InspectedAt.ToString("HH:mm:ss");
     public string LinePolarity => Item.LinePolarity;
     public string CellId => Item.CellId;
     public DateTime InspectionTime => Item.InspectedAt;
@@ -155,10 +156,12 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private readonly TrainingCollectionService? _collection;
     private bool _draftEdited;
     private bool _includeInTraining;
+    private bool _trainingTouched;
+    private bool _applyingTrainingDefault;
     public bool IncludeInTraining
     {
         get => _includeInTraining;
-        set { if (Set(ref _includeInTraining, value) && !_restoringSelections) { _draftEdited = true; CommandManager.InvalidateRequerySuggested(); } }
+        set { if (Set(ref _includeInTraining, value) && !_restoringSelections) { if (!_applyingTrainingDefault) _trainingTouched = true; _draftEdited = true; CommandManager.InvalidateRequerySuggested(); } }
     }
     public bool CanCollect => (SelectedCandidate?.Item.ModelKind is DlngModelKind.Classification or DlngModelKind.Segmentation)
         && !FinalClassOptions.Any(x => x.IsSelected && ReviewSemantics.IsNotDlng(x.DisplayName));
@@ -168,8 +171,6 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private DateTime? _endDate = DateTime.Today;
     private DateTime? _reportDate = DateTime.Today;
     private DateTime? _reportEndDate = DateTime.Today;
-    private DateOnly? _lastSummaryStart;
-    private DateOnly? _lastSummaryEnd;
     private string _status = "Ready";
     private bool _isBusy;
     private bool _autoAdvanceAfterReview = true;
@@ -207,7 +208,6 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         foreach (var option in ModelOptions) option.PropertyChanged += ModelOption_PropertyChanged;
         LoadCommand = new(LoadQueueAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && ModelOptions.Any(x => x.IsSelected) && StartDate is not null && EndDate is not null);
         GenerateReportCommand = new(GenerateReportAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && ModelOptions.Any(x => x.IsSelected) && ReportDate is not null && ReportEndDate is not null);
-        GenerateDatasetCommand = new(GenerateDatasetAsync, CanGenerateDataset);
         PreviousCommand = new(Previous, CanPrevious);
         NextCommand = new(Next, CanNext);
         PreviousImageCommand = new(PreviousImageAsync, () => CurrentImageIndex > 0);
@@ -225,7 +225,6 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     public ObservableCollection<DlngReportRow> SummaryRows { get; } = [];
     public AsyncRelayCommand LoadCommand { get; }
     public AsyncRelayCommand GenerateReportCommand { get; }
-    public AsyncRelayCommand GenerateDatasetCommand { get; }
     public RelayCommand PreviousCommand { get; }
     public RelayCommand NextCommand { get; }
     public AsyncRelayCommand PreviousImageCommand { get; }
@@ -388,8 +387,15 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             case Key.N when SelectedCandidate?.Item.ModelKind == DlngModelKind.Segmentation:
                 SelectByDisplay(ReviewSemantics.NotDlng);
                 return;
+            case Key.T when CanCollect:
+                _trainingTouched = true;
+                IncludeInTraining = true;
+                return;
             case Key.Enter when CommitCommand.CanExecute(null):
                 CommitCommand.Execute(null);
+                return;
+            case Key.Enter when SelectedCandidate?.ReviewStatus == "Saved" && !_draftEdited && CanNext():
+                Next();
                 return;
             case Key.D1 or Key.NumPad1:
                 SelectByPrefix("01");
@@ -433,8 +439,6 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         var start = DateOnly.FromDateTime(range!.Start);
         var end = DateOnly.FromDateTime(range.End.AddTicks(-1));
 
-        _lastSummaryStart = null;
-        _lastSummaryEnd = null;
         IsBusy = true;
         Candidates.Clear();
         ClearPreviews();
@@ -560,8 +564,6 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
                 throw new InvalidOperationException("Cannot generate DLNG report: no reviewed DLNG crop item(s) were found for the selected date range.");
             }
 
-            _lastSummaryStart = reportStart;
-            _lastSummaryEnd = reportEnd;
             CommandManager.InvalidateRequerySuggested();
             Status = results.Count == 1
                 ? $"DLNG report saved: {results[0].SummaryWorkbook}"
@@ -579,48 +581,6 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         }
     }
 
-    private bool CanGenerateDataset()
-    {
-        if (IsBusy || ReportDate is null || ReportEndDate is null || Candidates.Count == 0) return false;
-        var reportStart = DateOnly.FromDateTime(ReportDate.Value);
-        var reportEnd = DateOnly.FromDateTime(ReportEndDate.Value);
-        return _lastSummaryStart == reportStart && _lastSummaryEnd == reportEnd;
-    }
-
-    private async Task GenerateDatasetAsync()
-    {
-        if (ReportDate is null || ReportEndDate is null) return;
-        var reportStart = DateOnly.FromDateTime(ReportDate.Value);
-        var reportEnd = DateOnly.FromDateTime(ReportEndDate.Value);
-        if (reportEnd < reportStart)
-        {
-            Status = "Dataset end date must be on or after dataset start date.";
-            return;
-        }
-
-        IsBusy = true;
-        try
-        {
-            var progress = new Progress<string>(AddLog);
-            var result = await _reports.GenerateDatasetFromItemsAsync(
-                Candidates.Select(x => x.Item).ToArray(),
-                reportStart,
-                reportEnd,
-                progress,
-                CancellationToken.None);
-            Status = $"DLNG dataset generated: {result.CopiedCount:N0} image(s) copied to {result.OutputFolder}.";
-            AddLog(Status);
-        }
-        catch (Exception exception)
-        {
-            Status = exception.Message;
-            AddLog($"DLNG DATASET BLOCKED: {exception.Message}");
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
     private void ConfigureFinalClasses(DlngCandidateItem? item)
     {
         _restoringSelections = true;
@@ -628,6 +588,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         {
             FinalClassOptions.Clear();
             _draftEdited = false;
+            _trainingTouched = false;
             IncludeInTraining = item is not null && _reviewRecords.TryGetValue(item.Item.Key, out var old) && old.IncludeInTraining;
             OnPropertyChanged(nameof(CanCollect));
             if (item is null) return;
@@ -668,7 +629,14 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
                 other.IsSelected = false;
             }
 
-            if (ReviewSemantics.IsNotDlng(option.DisplayName)) IncludeInTraining = false;
+            _applyingTrainingDefault = true;
+            try
+            {
+                if (ReviewSemantics.IsNotDlng(option.DisplayName)) IncludeInTraining = false;
+                else if (!_trainingTouched && SelectedCandidate?.Item.ModelKind == DlngModelKind.Segmentation)
+                    IncludeInTraining = option.DisplayName.Equals("Overkill", StringComparison.OrdinalIgnoreCase);
+            }
+            finally { _applyingTrainingDefault = false; }
             OnPropertyChanged(nameof(CanCollect));
             if (AutoAdvanceAfterReview && CommitCommand.CanExecute(null))
             {

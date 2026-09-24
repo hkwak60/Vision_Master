@@ -37,7 +37,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         });
         CloseDetailsCommand = new(() => DetailsOpen = false);
         RetryCommand = new(RetryAsync, () => !_busy);
-        MarkTrainedCommand = new(MarkTrainedAsync, () => !_busy && SelectedBatch is { TrainedAt: null });
+        GenerateDatasetCommand = new(GenerateDatasetAsync, () => !_busy && SelectedBatch is { TrainedAt: null });
         ExcludeCommand = new(ExcludeAsync, () => !_busy && SelectedBatch is { TrainedAt: null } && SelectedSample is not null);
         Kickout.DetailRequested += ShowDetails; Dlng.DetailRequested += ShowDetails;
         foreach (var panel in new[] { Kickout, Dlng })
@@ -70,7 +70,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     public RelayCommand RecentSevenCommand { get; }
     public RelayCommand CloseDetailsCommand { get; }
     public AsyncRelayCommand RetryCommand { get; }
-    public AsyncRelayCommand MarkTrainedCommand { get; }
+    public AsyncRelayCommand GenerateDatasetCommand { get; }
     public AsyncRelayCommand ExcludeCommand { get; }
     public ObservableCollection<HistoryContribution> Contributions { get; } = [];
     public ObservableCollection<TrainingBatch> Batches { get; } = [];
@@ -167,10 +167,12 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         DetailsOpen = true;
     }
     private async Task RetryAsync() => await Operate(async()=>await _collection.RecoverAsync((await _reviews.LoadAsync(default)).Values));
-    private async Task MarkTrainedAsync()
+    private async Task GenerateDatasetAsync()
     {
         var id=SelectedBatch?.Id; if(id is null)return;
-        await Operate(()=>_collection.MarkTrainedAsync(id));
+        string? folder = null;
+        await Operate(async () => { folder = await _collection.GenerateDatasetAsync(id); });
+        if (folder is not null) Status = "Dataset generated; batch trained: " + folder;
     }
     private async Task ExcludeAsync()
     {

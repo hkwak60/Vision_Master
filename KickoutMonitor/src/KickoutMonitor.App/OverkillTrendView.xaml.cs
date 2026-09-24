@@ -9,11 +9,18 @@ public partial class OverkillTrendView : UserControl
     public OverkillTrendView()
     {
         InitializeComponent();
-        SizeChanged += (_, _) => HeatScroll.MaxHeight = Math.Clamp(ActualHeight - 230, 70, 286);
-        Chart.PointClicked += point =>
+    }
+    private void Chart_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is OverkillLineChart chart)
         {
-            if (DataContext is OverkillTrendPanelViewModel vm) vm.ShowDetails(point.Line, point.Field, point.Day);
-        };
+            chart.PointClicked -= Chart_PointClicked;
+            chart.PointClicked += Chart_PointClicked;
+        }
+    }
+    private void Chart_PointClicked(KickoutMonitor.Infrastructure.MachineDayCount point)
+    {
+        if (DataContext is OverkillTrendPanelViewModel vm) vm.ShowDetails(point.Line, point.Field, point.Day);
     }
     private void Field_Click(object sender, RoutedEventArgs e)
     {
