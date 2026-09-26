@@ -281,6 +281,10 @@ internal static class Program
             Layout(dashboard);
             Require(Descendants<Button>(dashboard).Any(b => b.Content as string == "Retry pending copies"), "training controls retained");
             Require(Descendants<DataGrid>(dashboard).SelectMany(g => g.Columns).All(c => c.Header as string != "Product"), "product hidden");
+            Require(overkill.Batches.Any(b => b.Pending > 0), "saved selected reviews without collection appear as pending");
+            foreach (var pendingBatch in overkill.Batches.ToArray())
+                foreach (var pendingSample in pendingBatch.Samples.Where(s => s.State == "Pending"))
+                    Complete(collection.ExcludeAsync(pendingBatch.Id, pendingSample.Id));
             var batchSource = System.IO.Path.Combine(Root, "BATCH_SourceImg.jpg");
             var batchMask = System.IO.Path.Combine(Root, "BATCH_SourceImg_mask.png");
             System.IO.File.WriteAllBytes(batchSource, [1,2,3]); System.IO.File.WriteAllBytes(batchMask, [4,5,6]);
@@ -295,7 +299,7 @@ internal static class Program
             Require(overkill.CollectionCounts.Sum(c => c.Samples) == 1 && overkill.GenerateDatasetCommand.CanExecute(null), "trained class counts and repeat export remain available");
             Layout(dashboard);
             Render(dashboard, "trained-collection-smoke.png");
-            var batchManifest = System.IO.Path.Combine(Root, "DLNG", ".collection", "batches.json");
+            var batchManifest = System.IO.Path.Combine(Root, "DLNG_REPORT", ".collection", "batches.json");
             var intactManifest = System.IO.File.ReadAllText(batchManifest);
             System.IO.File.WriteAllText(batchManifest, "{broken");
             try

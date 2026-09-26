@@ -105,3 +105,13 @@ Overkill Monitor automatically appends full refresh/collection exceptions and mi
 Missing/empty legacy images now fail only their own sample. Migration publishes the complete batch metadata with explicit Failed states; unrelated batches and newly selected reviews can collect/export normally. Original Training files remain untouched. Legacy paths are retained for exact-file retries on subsequent reads; no other inspection is substituted. Trained batches with unresolved samples cannot export a silently reduced dataset. migration-complete.txt is withheld until migration-pending samples are recovered or explicitly excluded. Keep Training while warnings remain.
 
 After upgrading from a version where migration blocked collection, use Training collection > Retry pending copies to collect already-saved Include in training decisions (including Cathode B); do not reclassify the same reviews. Production source images must still be accessible for those copies. Missing old SEPA_SHOULDER images do not block the Cathode B batch.
+
+### Existing folder policy and saved-selection recovery (2026-09-26)
+
+Current authoritative layout: exports use StorageRoot/DLNG_REPORT/DATASET; internal collection files/manifests use StorageRoot/DLNG_REPORT/.collection. No new top-level DLNG or Training directories are created. Prior DLNG/.collection data is copied and hash-verified before publishing rewritten manifest paths; old files are preserved. Prior exports remain readable for recovery and subsequent exports use the established DATASET folder. Never remove Training while migration warnings remain.
+
+Refresh reconciles explicitly selected saved reviews into Pending batch entries without accessing production shares or collecting unselected historical reviews. This exposes decisions saved before a collection failure instead of silently omitting them. Retry pending copies performs actual copies and updates review CollectedAt timestamps on success. Pending/failed samples remain visible and cannot be exported as complete.
+
+Supplied 2026-09-26 evidence: 43 selected Crop_B Cathode reviews (21 on 1-1(+), 22 on 1-2(+)) have null CollectedAt; the supplied report contains 10 reviewed entries for 1-2(+) on its report date. The log lists 418 distinct unresolved SEPA_SHOULDER sample paths. These files establish saved decisions and unresolved migration, not successful image collection. The machine's live batches.json and image folders were not supplied, so Training deletion is not verified safe.
+
+Retry now snapshots batch ownership once rather than loading/validating the entire collection for every historical review; legacy-file recovery runs during collection loading, not for every sample write. This avoids repeated full scans of large review histories.

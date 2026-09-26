@@ -49,13 +49,17 @@ public sealed partial class TrainingCollectionService
     private readonly string _manifest;
     private readonly string _datasetRoot;
     private readonly string _legacyRoot;
+    private readonly string _previousRoot;
+    private readonly string _previousDatasetRoot;
     private readonly SemaphoreSlim _gate;
     public TrainingCollectionService(AppStorage storage, Func<DateTimeOffset>? now = null)
     {
         _now = now ?? (() => DateTimeOffset.Now);
         _legacyRoot = Path.Combine(storage.Root, "Training");
-        _root = Path.Combine(storage.Root, "DLNG", ".collection");
-        _datasetRoot = Path.Combine(storage.Root, "DLNG", "DATASET");
+        _previousRoot = Path.Combine(storage.Root, "DLNG", ".collection");
+        _previousDatasetRoot = Path.Combine(storage.Root, "DLNG", "DATASET");
+        _datasetRoot = Path.Combine(storage.DlngReport, "DATASET");
+        _root = Path.Combine(storage.DlngReport, ".collection");
         _manifest = Path.Combine(_root, "batches.json");
         _gate = Gates.GetOrAdd(_manifest, _ => new(1, 1));
     }
@@ -70,10 +74,10 @@ public sealed partial class TrainingCollectionService
         : r.TrainingPolarity;
     private List<TrainingBatch> Read()
     {
+        RelocatePreviousCollection();
         MigrateLegacyCollection();
         var batches = File.Exists(_manifest)
             ? JsonSerializer.Deserialize<List<TrainingBatch>>(File.ReadAllText(_manifest)) ?? [] : [];
-        RetryLegacySamples(batches);
         return batches;
     }
     private void Write(List<TrainingBatch> batches)
@@ -100,6 +104,7 @@ public sealed partial class TrainingCollectionService
                 LoadWarning = "Collection migration incomplete; showing original batches read-only. Keep Training. " + e;
                 return batches; // Never move, clean up, or rewrite legacy-owned files.
             }
+            RetryLegacySamples(batches);
             var migrationErrors = batches.SelectMany(b => b.Samples).Where(s => s.MigrationPending).Select(s => s.Error).ToArray();
             if (migrationErrors.Length > 0) LoadWarning = "Some legacy samples need recovery. Other batches remain available. Keep Training.\n" + string.Join("\n", migrationErrors);
             var changed = false;
@@ -329,11 +334,40 @@ public sealed partial class TrainingCollectionService
         }
         finally { _gate.Release(); }
     }
+    public async Task QueueSelectedAsync(IEnumerable<DlngReviewRecord> decisions, CancellationToken token = default)
+    {
+        await _gate.WaitAsync(token);
+        try
+        {
+            var batches = Read();
+            var known = batches.SelectMany(b => b.Samples).Select(s => s.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var changed = false;
+            foreach (var review in decisions.GroupBy(ReviewSemantics.SampleId).Select(g => g.OrderByDescending(r => r.UpdatedAt).First()))
+            {
+                if (!review.IncludeInTraining || review.IsFallbackRaw || !ReviewSemantics.CanTrain(review.FinalClass)) continue;
+                var id = ReviewSemantics.SampleId(review);
+                if (!known.Add(id)) continue;
+                var batch = batches.FirstOrDefault(b => b.TrainedAt is null && b.Group == Group(review));
+                if (batch is null)
+                {
+                    batch = new() { CreatedAt = _now(), Group = Group(review), Product = Product(review),
+                        Crop = review.CropFolder, Polarity = Segmentation(review) ? "shared" : Polarity(review) };
+                    batches.Add(batch);
+                }
+                batch.Samples.Add(new() { Id = id, Review = review, State = "Pending",
+                    Error = "Saved training selection awaiting copy. Use Retry pending copies." });
+                changed = true;
+            }
+            if (changed) Write(batches);
+        }
+        finally { _gate.Release(); }
+    }
     public async Task RecoverAsync(IEnumerable<DlngReviewRecord> decisions, CancellationToken token = default)
     {
-        // Only explicit selections from the review store can initiate collection.
+        // Snapshot ownership once; do not reload/validate every batch for each historical decision.
+        var known = (await LoadAsync(token)).SelectMany(b => b.Samples).Select(s => s.Id).ToHashSet();
         foreach (var review in decisions.GroupBy(ReviewSemantics.SampleId).Select(g => g.OrderByDescending(r => r.UpdatedAt).First()))
-            if (review.IncludeInTraining || (await LoadAsync(token)).Any(b => b.Samples.Any(s => s.Id == ReviewSemantics.SampleId(review))))
+            if (review.IncludeInTraining || known.Contains(ReviewSemantics.SampleId(review)))
                 await ApplyAsync(review, token);
     }
     public async Task ExcludeAsync(string batchId, string sampleId, CancellationToken token = default)

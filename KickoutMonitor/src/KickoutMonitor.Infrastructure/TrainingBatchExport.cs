@@ -136,7 +136,8 @@ public sealed partial class TrainingCollectionService
     private string ExportOwned(string path)
     {
         var full = Path.GetFullPath(path);
-        if (!full.StartsWith(Path.GetFullPath(_datasetRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        if (!full.StartsWith(Path.GetFullPath(_datasetRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            && !full.StartsWith(Path.GetFullPath(_previousDatasetRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             throw new IOException("Dataset path is outside the dataset root.");
         return full;
     }

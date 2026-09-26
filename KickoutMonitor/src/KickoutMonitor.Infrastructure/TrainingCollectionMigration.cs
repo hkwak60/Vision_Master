@@ -4,6 +4,42 @@ namespace KickoutMonitor.Infrastructure;
 
 public sealed partial class TrainingCollectionService
 {
+    private void RelocatePreviousCollection()
+    {
+        var previousManifest = Path.Combine(_previousRoot, "batches.json");
+        if (File.Exists(_manifest) || !File.Exists(previousManifest)) return;
+        var batches = JsonSerializer.Deserialize<List<TrainingBatch>>(File.ReadAllText(previousManifest))
+            ?? throw new IOException("Cannot read previous DLNG collection.");
+        string Relocate(string path)
+        {
+            var full = Path.GetFullPath(path);
+            if (!full.StartsWith(Path.GetFullPath(_previousRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Previous collection contains an external ownership path.");
+            return Path.Combine(_root, Path.GetRelativePath(_previousRoot, full));
+        }
+        // Copy before publishing rewritten references. Leave all old data intact.
+        foreach (var source in Directory.EnumerateFiles(_previousRoot, "*", SearchOption.AllDirectories))
+        {
+            if (source == previousManifest || Path.GetFileName(source) == "migration-complete.txt" || source.EndsWith("_ActiveMap.jpg", StringComparison.OrdinalIgnoreCase)) continue;
+            var target = Relocate(source);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            if (!File.Exists(target) || Digest(source) != Digest(target))
+            {
+                File.Copy(source, target + ".relocating", true);
+                if (Digest(source) != Digest(target + ".relocating")) throw new IOException("Collection relocation verification failed.");
+                File.Move(target + ".relocating", target, true);
+            }
+        }
+        foreach (var sample in batches.SelectMany(b => b.Samples))
+        {
+            sample.Files = sample.Files.Select(Relocate).ToList();
+            sample.ObsoleteFiles = sample.ObsoleteFiles.Select(Relocate).ToList();
+            sample.Error = sample.Error.Replace(_previousRoot, _root, StringComparison.OrdinalIgnoreCase);
+        }
+        Write(batches);
+        if (File.Exists(Path.Combine(_previousRoot, "migration-complete.txt")) && !batches.SelectMany(b => b.Samples).Any(s => s.MigrationPending))
+            File.Copy(Path.Combine(_previousRoot, "migration-complete.txt"), Path.Combine(_root, "migration-complete.txt"), true);
+    }
     // Publish the new manifest only after every retained local file is verified.
     // The old collection is a read-only backup and can be removed by the user afterward.
     private void MigrateLegacyCollection()

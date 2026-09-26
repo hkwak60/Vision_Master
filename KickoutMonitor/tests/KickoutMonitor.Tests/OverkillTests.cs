@@ -25,6 +25,48 @@ public sealed class OverkillTests : IDisposable
             IncludeInTraining:selected,ProductModel:model,ModelKind:segmentation?DlngModelKind.Segmentation:DlngModelKind.Classification,
             TrainingPolarity:polarity);
     }
+    [Fact]
+    public async Task SavedCathodeSelectionsAppearAsPendingWithoutSharesAndRetryOnce()
+    {
+        var reviews = Enumerable.Range(0, 43).Select(i => Review("CA"+i, "Crop_B",
+            polarity:"Cathode", line:i < 21 ? "1-1(+)" : "1-2(+)", label:"03_OK_WRINKLE")).ToArray();
+        var excluded = Review("OLD", "Crop_B", selected:false);
+        await Collection.QueueSelectedAsync(reviews.Append(excluded));
+        await Collection.QueueSelectedAsync(reviews);
+        var pending = Assert.Single(await Collection.LoadAsync());
+        Assert.Equal(43, pending.Pending);
+        Assert.Equal(0, pending.TotalFiles);
+        Assert.False(Directory.Exists(Path.Combine(Storage.Root, "DLNG")));
+        await Collection.RecoverAsync(reviews);
+        var ready = Assert.Single(await Collection.LoadAsync());
+        Assert.Equal(43, ready.TotalSamples);
+        Assert.Equal(43, ready.TotalFiles);
+        var folder = await Collection.GenerateDatasetAsync(ready.Id);
+        Assert.StartsWith(Path.Combine(Storage.DlngReport, "DATASET"), folder);
+        Assert.Equal(43, Directory.GetFiles(Path.Combine(folder, "03_OK_WRINKLE")).Length);
+    }
+    [Fact]
+    public async Task PreviousDlngCollectionRelocatesWithoutChangingOriginal()
+    {
+        var review = Review("MOVE", "Crop_B", label:"01_OK");
+        var previous = Path.Combine(Storage.Root, "DLNG", ".collection");
+        Directory.CreateDirectory(previous);
+        var source = Path.Combine(previous, Path.GetFileName(review.ImagePaths[0]));
+        File.Copy(review.ImagePaths[0], source);
+        var batch = new TrainingBatch { Product="E81C", Crop="Crop_B", Polarity="Cathode", TrainedAt=_now,
+            Samples=[new TrainingSample { Id=ReviewSemantics.SampleId(review), Review=review, State="Ready", Files=[source] }] };
+        var original = JsonSerializer.Serialize(new[] { batch });
+        File.WriteAllText(Path.Combine(previous,"batches.json"),original);
+        var loaded = Assert.Single(await Collection.LoadAsync());
+        Assert.Equal(batch.Id, loaded.Id);
+        Assert.True(File.Exists(loaded.Samples[0].Files.Single()));
+        Assert.StartsWith(Path.Combine(Storage.DlngReport,".collection"), loaded.Samples[0].Files[0]);
+        Assert.Equal(original, File.ReadAllText(Path.Combine(previous,"batches.json")));
+        Assert.True(File.Exists(source));
+        var folder = await Collection.GenerateDatasetAsync(batch.Id);
+        Assert.StartsWith(Path.Combine(Storage.DlngReport,"DATASET"),folder);
+        Assert.Single(Directory.GetFiles(Path.Combine(folder,"01_OK")));
+    }
     [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
@@ -52,8 +94,8 @@ public sealed class OverkillTests : IDisposable
         Assert.Contains("Keep Training", service.LoadWarning);
         Assert.Equal("Failed", fallback.Samples[0].State);
         Assert.True(fallback.Samples[0].MigrationPending);
-        Assert.True(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "batches.json")));
-        Assert.False(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "migration-complete.txt")));
+        Assert.True(File.Exists(Path.Combine(Storage.Root, "DLNG_REPORT", ".collection", "batches.json")));
+        Assert.False(File.Exists(Path.Combine(Storage.Root, "DLNG_REPORT", ".collection", "migration-complete.txt")));
         var cathode = Review("NEW", "CropB", polarity: "Cathode", line: "1-1(+)", label: "01_OK");
         await Collection.RecoverAsync(new[] { cathode });
         var current = await Collection.LoadAsync();
@@ -67,7 +109,7 @@ public sealed class OverkillTests : IDisposable
         var recovered = (await Collection.LoadAsync()).Single(b => b.Id == batch.Id);
         Assert.Equal("Ready", recovered.Samples[0].State);
         Assert.False(recovered.Samples[0].MigrationPending);
-        Assert.True(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "migration-complete.txt")));
+        Assert.True(File.Exists(Path.Combine(Storage.Root, "DLNG_REPORT", ".collection", "migration-complete.txt")));
         Assert.Equal("Ready", JsonSerializer.Deserialize<List<TrainingBatch>>(File.ReadAllText(Path.Combine(legacy, "batches.json")))![0].Samples[0].State);
     }
     [Fact]
@@ -78,12 +120,12 @@ public sealed class OverkillTests : IDisposable
         var batch = Assert.Single(await Collection.LoadAsync());
         Assert.Single(Assert.Single(batch.Samples).Files);
         var folder = await Collection.GenerateDatasetAsync(batch.Id);
-        Assert.StartsWith(Path.Combine(Storage.Root, "DLNG"), folder);
+        Assert.StartsWith(Path.Combine(Storage.Root, "DLNG_REPORT", "DATASET"), folder);
         var images = Directory.GetFiles(Path.Combine(folder, "01_OK"));
         Assert.Single(images);
         Assert.EndsWith("_SourceMap.jpg", images[0]);
         Assert.Empty(Directory.GetDirectories(Path.Combine(folder, "01_OK")));
-        Assert.Empty(Directory.GetFiles(Path.Combine(Storage.Root, "DLNG"), "*_ActiveMap.jpg", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetFiles(Path.Combine(Storage.Root, "DLNG_REPORT", "DATASET"), "*_ActiveMap.jpg", SearchOption.AllDirectories));
         File.Delete(images[0]);
         Assert.Equal(folder, await Collection.GenerateDatasetAsync(batch.Id));
         Assert.True(File.Exists(images[0]));
@@ -100,7 +142,7 @@ public sealed class OverkillTests : IDisposable
             Samples=[new TrainingSample { Id=ReviewSemantics.SampleId(review), Review=review, State="Ready", Files=paths }] };
         File.WriteAllText(Path.Combine(legacy, "batches.json"), JsonSerializer.Serialize(new[] { batch }));
         var migrated = Assert.Single(await Collection.LoadAsync());
-        Assert.True(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "migration-complete.txt")));
+        Assert.True(File.Exists(Path.Combine(Storage.Root, "DLNG_REPORT", ".collection", "migration-complete.txt")));
         Assert.Equal(2, Directory.GetFiles(legacy, "*.jpg").Length);
         Directory.Delete(legacy, true);
         var folder = await Collection.GenerateDatasetAsync(migrated.Id);
@@ -242,7 +284,7 @@ public sealed class OverkillTests : IDisposable
     {
         await Collection.ApplyAsync(Review());
         var batch = Assert.Single(await Collection.LoadAsync());
-        var manifest = Path.Combine(Storage.Root,"DLNG",".collection","batches.json");
+        var manifest = Path.Combine(Storage.Root,"DLNG_REPORT",".collection","batches.json");
         var before = await File.ReadAllTextAsync(manifest);
         var folder = await Collection.GenerateDatasetAsync(batch.Id);
         // Simulate interruption after the atomic dataset publication but before persisting TrainedAt.
@@ -366,7 +408,7 @@ public sealed class OverkillTests : IDisposable
         var sample=batch.Samples[0];var originals=sample.Files.ToArray();
         sample.ObsoleteFiles.AddRange(originals);
         sample.Files=originals.Select(p=>p.Replace("1231_1231","1231_0101")).ToList();
-        var manifest=Path.Combine(Storage.Root,"DLNG",".collection","batches.json");
+        var manifest=Path.Combine(Storage.Root,"DLNG_REPORT",".collection","batches.json");
         File.WriteAllText(manifest,JsonSerializer.Serialize(new[]{batch}));
         foreach(var path in r.ImagePaths)File.Delete(path);
         var recovered=Assert.Single(await Collection.LoadAsync());
@@ -416,7 +458,7 @@ public sealed class OverkillTests : IDisposable
         using(var locked=new FileStream(review.ImagePaths[0],FileMode.Open,FileAccess.ReadWrite,FileShare.None))
             Assert.StartsWith("Collection failed:",await Collection.ApplyAsync(review));
         Assert.Equal(0,Assert.Single(await Collection.LoadAsync()).NewSamples);
-        var staging=Path.Combine(Storage.Root,"DLNG",".collection",".staging",ReviewSemantics.SampleId(review));
+        var staging=Path.Combine(Storage.Root,"DLNG_REPORT",".collection",".staging",ReviewSemantics.SampleId(review));
         Directory.CreateDirectory(staging);
         foreach(var path in review.ImagePaths){File.Copy(path,Path.Combine(staging,Path.GetFileName(path)),true);File.Delete(path);}
         Assert.Equal("Collected",await Collection.ApplyAsync(review));

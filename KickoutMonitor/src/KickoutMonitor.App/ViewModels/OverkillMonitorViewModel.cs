@@ -102,7 +102,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         catch (Exception e) { errors.Add("Kickout history: " + e); }
         try { _dlng = await _history.LoadDlngAsync(); }
         catch (Exception e) { errors.Add("DLNG reviews: " + e); }
-        try { _batches = await Task.Run(() => _history.LoadBatchesAsync()); }
+        try { await Task.Run(() => _collection.QueueSelectedAsync(_dlng)); _batches = await Task.Run(() => _history.LoadBatchesAsync()); }
         catch (Exception e) { errors.Add("Training collection: " + e); }
         Filter();
         var details = string.Join(Environment.NewLine + Environment.NewLine, errors.Concat(_history.Warnings));
@@ -186,7 +186,17 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         }
         DetailsOpen = true;
     }
-    private async Task RetryAsync() => await Operate(async()=>await _collection.RecoverAsync((await _reviews.LoadAsync(default)).Values));
+    private async Task RetryAsync() => await Operate(async () =>
+    {
+        var decisions = (await _reviews.LoadAsync(default)).Values.ToArray();
+        await _collection.RecoverAsync(decisions);
+        var ready = (await _collection.LoadAsync()).SelectMany(b => b.Samples)
+            .Where(s => s.State == "Ready").GroupBy(s => s.Id).ToDictionary(g => g.Key, g => g.First());
+        foreach (var review in decisions.Where(r => r.IncludeInTraining))
+            if (ready.TryGetValue(ReviewSemantics.SampleId(review), out var sample) && sample.CollectedAt is { } collected
+                && review.CollectedAt != collected)
+                await _reviews.SaveAsync(review with { CollectedAt = collected }, default);
+    });
     private async Task GenerateDatasetAsync()
     {
         var id=SelectedBatch?.Id; if(id is null)return;
