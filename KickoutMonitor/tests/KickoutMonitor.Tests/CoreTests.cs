@@ -1,4 +1,4 @@
-using KickoutMonitor.Application;
+﻿using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
 using KickoutMonitor.Infrastructure;
 using System.IO.Compression;
@@ -777,7 +777,7 @@ public sealed class CoreTests
             var destination = Path.Combine(result.OutputFolder, "Dataset", "Classification", "미검_오검", "Crop_A", "1-1(-)", "04_NG_PTCL");
             Assert.True(Directory.Exists(destination));
             Assert.True(ExportExists(Path.Combine(destination, ModelSuffixedFileName(source, "Crop_A"))));
-            Assert.True(ExportExists(Path.Combine(destination, ModelSuffixedFileName(active, "Crop_A"))));
+            Assert.False(ExportExists(Path.Combine(destination, ModelSuffixedFileName(active, "Crop_A"))));
             Assert.False(File.Exists(Path.Combine(destination, Path.GetFileName(source))));
             Assert.False(File.Exists(Path.Combine(destination, Path.GetFileName(active))));
             Assert.False(File.Exists(Path.Combine(destination, $"1-1(-)_CELL-RPT_A_L_{Path.GetFileName(source)}")));
@@ -1013,7 +1013,7 @@ public sealed class CoreTests
 
             var destination = Path.Combine(storage.DlngReport, "DATASET", "Crop_A", "20260623-20260624", "04_NG_PTCL");
             Assert.Equal(Path.Combine(storage.DlngReport, "DATASET"), result.OutputFolder);
-            Assert.Equal(4, result.CopiedCount);
+            Assert.Equal(3, result.CopiedCount);
             Assert.True(ExportExists(Path.Combine(destination, Path.GetFileName(sourceImage))));
             Assert.False(File.Exists(Path.Combine(destination, ModelSuffixedFileName(sourceImage, "Crop_A"))));
             Assert.True(ExportExists(Path.Combine(storage.DlngReport, "DATASET", "SEGMENTATION", "20260623-20260624", "Overkill", Path.GetFileName(segmentationImage))));

@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using KickoutMonitor.Domain;
 
@@ -46,12 +46,14 @@ public sealed partial class TrainingCollectionService
     private readonly Func<DateTimeOffset> _now;
     private readonly string _manifest;
     private readonly string _datasetRoot;
+    private readonly string _legacyRoot;
     private readonly SemaphoreSlim _gate;
     public TrainingCollectionService(AppStorage storage, Func<DateTimeOffset>? now = null)
     {
         _now = now ?? (() => DateTimeOffset.Now);
-        _root = Path.Combine(storage.Root, "Training");
-        _datasetRoot = Path.Combine(storage.DlngReport, "DATASET");
+        _legacyRoot = Path.Combine(storage.Root, "Training");
+        _root = Path.Combine(storage.Root, "DLNG", ".collection");
+        _datasetRoot = Path.Combine(storage.Root, "DLNG", "DATASET");
         _manifest = Path.Combine(_root, "batches.json");
         _gate = Gates.GetOrAdd(_manifest, _ => new(1, 1));
     }
@@ -64,8 +66,12 @@ public sealed partial class TrainingCollectionService
     private static string Polarity(DlngReviewRecord r) => string.IsNullOrWhiteSpace(r.TrainingPolarity)
         ? (r.LinePolarity.Contains('+') ? "Cathode" : r.LinePolarity.Contains('-') && r.LinePolarity.EndsWith('-') ? "Anode" : "Unknown")
         : r.TrainingPolarity;
-    private List<TrainingBatch> Read() => File.Exists(_manifest)
-        ? JsonSerializer.Deserialize<List<TrainingBatch>>(File.ReadAllText(_manifest)) ?? [] : [];
+    private List<TrainingBatch> Read()
+    {
+        MigrateLegacyCollection();
+        return File.Exists(_manifest)
+            ? JsonSerializer.Deserialize<List<TrainingBatch>>(File.ReadAllText(_manifest)) ?? [] : [];
+    }
     private void Write(List<TrainingBatch> batches)
     {
         Directory.CreateDirectory(_root);
@@ -94,7 +100,7 @@ public sealed partial class TrainingCollectionService
                         changed = true;
                     }
                     RecoverFiles(sample);
-                    ValidatePair(sample.Files);
+                    ValidateTrainingFiles(sample.Review, sample.Files);
                 }
                 catch (IOException e) { sample.State = "Failed"; sample.Error = e.Message; changed = true; }
             }
@@ -135,7 +141,7 @@ public sealed partial class TrainingCollectionService
             if (sample is { State: "Ready" } && sample.ObsoleteFiles.Count > 0)
             { RecoverFiles(sample); Write(batches); }
             if (sample is not null && sample.State == "Ready" && sample.Review.FinalClass == review.FinalClass &&
-                sample.Files.Count == 2 && sample.Files.All(File.Exists)) { sample.Review = review; Write(batches); return "Collected"; }
+                sample.Files.Count == (Segmentation(review) ? 2 : 1) && sample.Files.All(File.Exists)) { sample.Review = review; Write(batches); return "Collected"; }
             if (batch is null)
             {
                 batch = batches.FirstOrDefault(x => x.TrainedAt is null && x.Group == Group(review));
@@ -157,14 +163,14 @@ public sealed partial class TrainingCollectionService
             {
                 var ownedSources = sample.ObsoleteFiles.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase)
                     .GroupBy(Path.GetFileName).Select(g => g.First()).ToArray();
-                var sources = ownedSources.Length == 2 ? ownedSources : review.ImagePaths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                var sources = ownedSources.Length == (Segmentation(review) ? 2 : 1) ? ownedSources : TrainingFiles(review, review.ImagePaths).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                 var staged = Path.Combine(_root, ".staging", id);
                 if (sources.Any(p => !File.Exists(p)) && Directory.Exists(staged))
                 {
-                    var recovered = review.ImagePaths.Select(p => Path.Combine(staged, Path.GetFileName(p))).ToArray();
-                    if (recovered.Length == 2 && recovered.All(File.Exists)) sources = recovered;
+                    var recovered = TrainingFiles(review, review.ImagePaths).Select(p => Path.Combine(staged, Path.GetFileName(p))).ToArray();
+                    if (recovered.Length == (Segmentation(review) ? 2 : 1) && recovered.All(File.Exists)) sources = recovered;
                 }
-                ValidatePair(sources);
+                ValidateTrainingFiles(review, sources);
                 Directory.CreateDirectory(staged);
                 var stagedFiles = new List<string>();
                 foreach (var source in sources)
@@ -260,6 +266,15 @@ public sealed partial class TrainingCollectionService
         }
         sample.ObsoleteFiles.Clear();
     }
+    public static IEnumerable<string> TrainingFiles(DlngReviewRecord review, IEnumerable<string> paths) =>
+        paths.Where(p => Segmentation(review) || !p.EndsWith("_ActiveMap.jpg", StringComparison.OrdinalIgnoreCase));
+    public static void ValidateTrainingFiles(DlngReviewRecord review, IReadOnlyList<string> paths)
+    {
+        if (Segmentation(review)) { ValidatePair(paths); return; }
+        if (paths.Count != 1 || !paths[0].Contains("_SourceMap", StringComparison.OrdinalIgnoreCase)
+            || !File.Exists(paths[0]) || new FileInfo(paths[0]).Length == 0)
+            throw new IOException("A complete classification source image is required.");
+    }
     public static void ValidatePair(IReadOnlyList<string> paths)
     {
         var unique = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -287,7 +302,7 @@ public sealed partial class TrainingCollectionService
             foreach (var sample in batch.Samples.Where(x => x.State == "Ready"))
             {
                 RecoverFiles(sample);
-                ValidatePair(sample.Files);
+                ValidateTrainingFiles(sample.Review, sample.Files);
             }
             if (batch.NewSamples == 0) throw new InvalidOperationException("This batch has no collected samples.");
             batch.TrainedAt = _now();

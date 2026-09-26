@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.Json;
 using KickoutMonitor.Domain;
 
@@ -29,7 +29,7 @@ public sealed partial class TrainingCollectionService
             BatchExportManifest manifest;
             if (frozen is not null)
             {
-                manifest = new(batch.Id, frozen.Files.Select(f => f with {
+                manifest = new(batch.Id, frozen.Files.Where(f => TrainingFiles(samples.Single(s => s.Id == f.SampleId).Review, new[] { f.RelativePath }).Any()).Select(f => f with {
                     RelativePath = RelativeFile(samples.Single(s => s.Id == f.SampleId), f.RelativePath)
                 }).ToArray());
             }
@@ -40,9 +40,9 @@ public sealed partial class TrainingCollectionService
                     if (!sample.Review.IncludeInTraining || !ReviewSemantics.CanTrain(sample.Review.FinalClass) || sample.Review.IsFallbackRaw)
                         throw new InvalidOperationException("The batch contains an ineligible sample.");
                     if (batch.TrainedAt is null) RecoverFiles(sample);
-                    ValidatePair(sample.Files);
+                    ValidateTrainingFiles(sample.Review, TrainingFiles(sample.Review, sample.Files).ToArray());
                 }
-                manifest = new(batch.Id, samples.SelectMany(sample => sample.Files.Order().Select(source =>
+                manifest = new(batch.Id, samples.SelectMany(sample => TrainingFiles(sample.Review, sample.Files).Order().Select(source =>
                     new BatchExportFile(sample.Id, sample.Review.FinalClass, RelativeFile(sample, source), Digest(Owned(source))))).ToArray());
             }
             var dates = samples.Select(s => (s.Review.Inspection?.ImageAt ?? s.Review.InspectedAt).Date).ToArray();
@@ -111,12 +111,8 @@ public sealed partial class TrainingCollectionService
     private static string RelativeFile(TrainingSample sample, string source)
     {
         var name = Path.GetFileName(source);
-        if (Segmentation(sample.Review))
-        {
-            if (!name.StartsWith(sample.Id + "_", StringComparison.OrdinalIgnoreCase)) name = sample.Id + "_" + name;
-            return Path.Combine(Safe(sample.Review.FinalClass), name);
-        }
-        return Path.Combine(Safe(sample.Review.FinalClass), sample.Id, name);
+        if (!name.StartsWith(sample.Id + "_", StringComparison.OrdinalIgnoreCase)) name = sample.Id + "_" + name;
+        return Path.Combine(Safe(sample.Review.FinalClass), name);
     }
     private string AvailableFolder(string root, TrainingBatch batch, BatchExportManifest manifest, IReadOnlyList<TrainingBatch> batches)
     {

@@ -1,4 +1,4 @@
-<UserControl x:Class="KickoutMonitor.App.DlngReviewView"
+﻿<UserControl x:Class="KickoutMonitor.App.DlngReviewView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="#F3F5F7"
@@ -317,6 +317,7 @@
                             </StackPanel.Resources>
                             <TextBlock Text="Final Class" ToolTip="Segmentation: R = Real, O = Overkill, N = Not DLNG" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
                             <CheckBox Content="Auto advance" IsChecked="{Binding AutoAdvanceAfterReview}" Margin="2,0,0,8"/>
+                            <CheckBox Content="Always save" IsChecked="{Binding AlwaysSave}" ToolTip="Default training inclusion for new reviews. You can uncheck an individual item." Margin="2,0,0,6"/>
                             <CheckBox Content="Include in training dataset (T)" IsChecked="{Binding IncludeInTraining}" IsEnabled="{Binding CanCollect}" Margin="2,4,0,10"/>
                             <ItemsControl ItemsSource="{Binding FinalClassOptions}">
                                 <ItemsControl.ItemsPanel>

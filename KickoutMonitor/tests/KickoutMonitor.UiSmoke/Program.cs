@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -100,6 +100,20 @@ internal static class Program
             vm.HandleHotkey(Key.Enter);
             Require(ReferenceEquals(vm.SelectedCandidate, displayed[1]) && reviewStore.Saves == 1, "reviewed Enter advances displayed order without resaving");
             Require(!vm.IncludeInTraining, "automatic overkill inclusion does not leak to next item");
+            vm.AlwaysSave = true;
+            Require(vm.IncludeInTraining, "Always save defaults current eligible item on");
+            vm.HandleHotkey(Key.R);
+            Require(vm.IncludeInTraining, "Always save includes Real");
+            vm.IncludeInTraining = false;
+            vm.HandleHotkey(Key.O);
+            Require(!vm.IncludeInTraining, "per-item opt out overrides Always save");
+            vm.SelectedCandidate = displayed[0];
+            vm.SelectedCandidate = displayed[1];
+            Require(vm.IncludeInTraining, "Always save defaults next unreviewed item on");
+            vm.AlwaysSave = false;
+            vm.SelectedCandidate = displayed[0];
+            vm.SelectedCandidate = displayed[1];
+            Require(!vm.IncludeInTraining && !vm.CommitCommand.CanExecute(null), "default off restored without implicit draft");
             vm.HandleHotkey(Key.T);
             Require(vm.IncludeInTraining, "T arms current training choice");
             vm.SelectedCandidate = displayed[0];

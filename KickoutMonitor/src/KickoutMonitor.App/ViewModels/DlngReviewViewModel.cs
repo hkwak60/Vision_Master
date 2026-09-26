@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -158,6 +158,21 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private bool _includeInTraining;
     private bool _trainingTouched;
     private bool _applyingTrainingDefault;
+    private bool _alwaysSave;
+    public bool AlwaysSave
+    {
+        get => _alwaysSave;
+        set
+        {
+            if (!Set(ref _alwaysSave, value)) return;
+            if (CanCollect && !_trainingTouched)
+            {
+                _applyingTrainingDefault = true;
+                try { IncludeInTraining = value || FinalClassOptions.Any(o => o.IsSelected && o.DisplayName == "Overkill"); }
+                finally { _applyingTrainingDefault = false; }
+            }
+        }
+    }
     public bool IncludeInTraining
     {
         get => _includeInTraining;
@@ -589,7 +604,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             FinalClassOptions.Clear();
             _draftEdited = false;
             _trainingTouched = false;
-            IncludeInTraining = item is not null && _reviewRecords.TryGetValue(item.Item.Key, out var old) && old.IncludeInTraining;
+            IncludeInTraining = item is not null && (_reviewRecords.TryGetValue(item.Item.Key, out var old) ? old.IncludeInTraining : AlwaysSave);
             OnPropertyChanged(nameof(CanCollect));
             if (item is null) return;
             var classes = item.Item.ModelKind is DlngModelKind.Segmentation or DlngModelKind.FallbackRaw
@@ -633,8 +648,8 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             try
             {
                 if (ReviewSemantics.IsNotDlng(option.DisplayName)) IncludeInTraining = false;
-                else if (!_trainingTouched && SelectedCandidate?.Item.ModelKind == DlngModelKind.Segmentation)
-                    IncludeInTraining = option.DisplayName.Equals("Overkill", StringComparison.OrdinalIgnoreCase);
+                else if (!_trainingTouched)
+                    IncludeInTraining = AlwaysSave || (SelectedCandidate?.Item.ModelKind == DlngModelKind.Segmentation && option.DisplayName.Equals("Overkill", StringComparison.OrdinalIgnoreCase));
             }
             finally { _applyingTrainingDefault = false; }
             OnPropertyChanged(nameof(CanCollect));

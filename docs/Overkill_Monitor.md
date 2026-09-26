@@ -83,3 +83,11 @@ Kickout queue hides the Images column; underlying image resolution behavior is u
 Batch rows display total samples, physical image files and Active/Trained status. Export success marks Trained but never zeros these totals; the selected batch's class/line breakdown also stays visible. New untrained statistics still exclude trained samples. Subsequent new selections start another active batch.
 
 Generate Dataset remains available for trained batches, including older batches marked trained before export was introduced. A frozen export snapshot records labels, relative filenames and hashes. Repeating export verifies existing outputs and restores missing/altered owned files from the frozen local collection; later review corrections do not change its original labels. Missing source pairs cause a clear failure without marking an active batch trained. Internal collection ownership and batch IDs remain unchanged; only the user-facing export paths are simplified.
+
+## DLNG collection update (2026-09-25)
+
+- Overkill Monitor stores managed collection images and manifests under VisionMaster/DLNG/.collection, and exports under VisionMaster/DLNG/DATASET. The managed copy supports offline re-downloads; both locations are now inside DLNG.
+- Classification exports go directly into final-class folders, with collision-safe sample-ID prefixes. Only SourceMap images are collected/exported; *_ActiveMap.jpg overlays remain review-only. Segmentation retains source/mask pairs.
+- On first collection access, legacy Training images and batch records are copied and hash-verified. The old folder remains untouched. Missing required images stop migration without publishing a partial manifest; restore them and retry.
+- Delete the old Training folder only after DLNG/.collection/migration-complete.txt exists and expected batches appear in the new version. Old DLNG_REPORT exports remain untouched; subsequent downloads use DLNG. This release did not migrate actual user data on the development PC.
+- Always save is a session-level toggle. New eligible items default to training inclusion; individual opt-outs remain possible. Revisiting saved items restores their recorded inclusion. The toggle does not automatically save a judgment. Not DLNG/raw fallback remain excluded; segmentation Overkill retains its existing automatic inclusion default.

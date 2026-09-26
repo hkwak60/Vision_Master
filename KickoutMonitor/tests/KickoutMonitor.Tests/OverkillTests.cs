@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using KickoutMonitor.Domain;
 using KickoutMonitor.Infrastructure;
 using Xunit;
@@ -24,6 +24,58 @@ public sealed class OverkillTests : IDisposable
             segmentation?"Segmentation":"03_NG_TORN",label,false,[source,other],_now,
             IncludeInTraining:selected,ProductModel:model,ModelKind:segmentation?DlngModelKind.Segmentation:DlngModelKind.Classification,
             TrainingPolarity:polarity);
+    }
+    [Fact]
+    public async Task InterruptedMigrationDoesNotPublishPartialManifestAndCanRetry()
+    {
+        var review = Review();
+        var legacy = Path.Combine(Storage.Root, "Training");
+        Directory.CreateDirectory(legacy);
+        var paths = review.ImagePaths.Select(p => Path.Combine(legacy, Path.GetFileName(p))).ToList();
+        File.Copy(review.ImagePaths[0], paths[0]);
+        var batch = new TrainingBatch { Product="E81C", Crop="SEPA", Polarity="shared",
+            Samples=[new TrainingSample { Id=ReviewSemantics.SampleId(review), Review=review, State="Ready", Files=paths }] };
+        File.WriteAllText(Path.Combine(legacy, "batches.json"), JsonSerializer.Serialize(new[] { batch }));
+        await Assert.ThrowsAsync<IOException>(() => Collection.LoadAsync());
+        Assert.False(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "batches.json")));
+        File.Copy(review.ImagePaths[1], paths[1]);
+        Assert.Single(await Collection.LoadAsync());
+    }
+    [Fact]
+    public async Task ClassificationIsFlatSourceOnlyAndCanBeDownloadedAgain()
+    {
+        var review = Review(crop: "CropA", label: "01_OK");
+        await Collection.ApplyAsync(review);
+        var batch = Assert.Single(await Collection.LoadAsync());
+        Assert.Single(Assert.Single(batch.Samples).Files);
+        var folder = await Collection.GenerateDatasetAsync(batch.Id);
+        Assert.StartsWith(Path.Combine(Storage.Root, "DLNG"), folder);
+        var images = Directory.GetFiles(Path.Combine(folder, "01_OK"));
+        Assert.Single(images);
+        Assert.EndsWith("_SourceMap.jpg", images[0]);
+        Assert.Empty(Directory.GetDirectories(Path.Combine(folder, "01_OK")));
+        Assert.Empty(Directory.GetFiles(Path.Combine(Storage.Root, "DLNG"), "*_ActiveMap.jpg", SearchOption.AllDirectories));
+        File.Delete(images[0]);
+        Assert.Equal(folder, await Collection.GenerateDatasetAsync(batch.Id));
+        Assert.True(File.Exists(images[0]));
+    }
+    [Fact]
+    public async Task LegacyCollectionMigrationSurvivesRemovalOfOldTraining()
+    {
+        var review = Review(crop: "CropA", label: "01_OK");
+        var legacy = Path.Combine(Storage.Root, "Training");
+        Directory.CreateDirectory(legacy);
+        var paths = review.ImagePaths.Select(p => Path.Combine(legacy, Path.GetFileName(p))).ToList();
+        for (var i = 0; i < paths.Count; i++) File.Copy(review.ImagePaths[i], paths[i]);
+        var batch = new TrainingBatch { Product="E81C", Crop="CropA", Polarity="Anode",
+            Samples=[new TrainingSample { Id=ReviewSemantics.SampleId(review), Review=review, State="Ready", Files=paths }] };
+        File.WriteAllText(Path.Combine(legacy, "batches.json"), JsonSerializer.Serialize(new[] { batch }));
+        var migrated = Assert.Single(await Collection.LoadAsync());
+        Assert.True(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "migration-complete.txt")));
+        Assert.Equal(2, Directory.GetFiles(legacy, "*.jpg").Length);
+        Directory.Delete(legacy, true);
+        var folder = await Collection.GenerateDatasetAsync(migrated.Id);
+        Assert.Single(Directory.GetFiles(Path.Combine(folder, "01_OK")));
     }
     [Fact]
     public async Task TrainedExportRestoresDeletedFilesAndKeepsCountsAndOriginalLabels()
@@ -161,7 +213,7 @@ public sealed class OverkillTests : IDisposable
     {
         await Collection.ApplyAsync(Review());
         var batch = Assert.Single(await Collection.LoadAsync());
-        var manifest = Path.Combine(Storage.Root,"Training","batches.json");
+        var manifest = Path.Combine(Storage.Root,"DLNG",".collection","batches.json");
         var before = await File.ReadAllTextAsync(manifest);
         var folder = await Collection.GenerateDatasetAsync(batch.Id);
         // Simulate interruption after the atomic dataset publication but before persisting TrainedAt.
@@ -285,7 +337,7 @@ public sealed class OverkillTests : IDisposable
         var sample=batch.Samples[0];var originals=sample.Files.ToArray();
         sample.ObsoleteFiles.AddRange(originals);
         sample.Files=originals.Select(p=>p.Replace("1231_1231","1231_0101")).ToList();
-        var manifest=Path.Combine(Storage.Root,"Training","batches.json");
+        var manifest=Path.Combine(Storage.Root,"DLNG",".collection","batches.json");
         File.WriteAllText(manifest,JsonSerializer.Serialize(new[]{batch}));
         foreach(var path in r.ImagePaths)File.Delete(path);
         var recovered=Assert.Single(await Collection.LoadAsync());
@@ -335,7 +387,7 @@ public sealed class OverkillTests : IDisposable
         using(var locked=new FileStream(review.ImagePaths[0],FileMode.Open,FileAccess.ReadWrite,FileShare.None))
             Assert.StartsWith("Collection failed:",await Collection.ApplyAsync(review));
         Assert.Equal(0,Assert.Single(await Collection.LoadAsync()).NewSamples);
-        var staging=Path.Combine(Storage.Root,"Training",".staging",ReviewSemantics.SampleId(review));
+        var staging=Path.Combine(Storage.Root,"DLNG",".collection",".staging",ReviewSemantics.SampleId(review));
         Directory.CreateDirectory(staging);
         foreach(var path in review.ImagePaths){File.Copy(path,Path.Combine(staging,Path.GetFileName(path)),true);File.Delete(path);}
         Assert.Equal("Collected",await Collection.ApplyAsync(review));

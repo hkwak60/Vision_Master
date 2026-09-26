@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO.Compression;
 using System.Security;
 using System.Text;
@@ -216,7 +216,7 @@ public sealed class DlngReportGenerator : IDlngReportService
         var id = ReviewSemantics.SampleId(decision);
         var sample = (await _collection.LoadAsync(token)).SelectMany(b => b.Samples)
             .FirstOrDefault(s => s.Id == id && s.State == "Ready" && !s.Superseded && s.Review.FinalClass == decision.FinalClass);
-        if (sample is not null && sample.Files.Count == 2 && sample.Files.All(File.Exists))
+        if (sample is not null && sample.Files.Count == (TrainingCollectionService.Segmentation(decision) ? 2 : 1) && sample.Files.All(File.Exists))
             return decision with { ImagePaths = sample.Files };
         // Export is not an implicit collection operation.
         return null;
@@ -237,7 +237,7 @@ public sealed class DlngReportGenerator : IDlngReportService
     }
     private static int ExportPair(DlngReviewItem item, DlngReviewRecord decision, string root, string folder, CancellationToken token, bool report = false)
     {
-        TrainingCollectionService.ValidatePair(decision.ImagePaths);
+        TrainingCollectionService.ValidateTrainingFiles(decision, decision.ImagePaths);
         var id = InspectionIdentity.Hash(item.Key);
         var manifestFolder = Path.Combine(root, ".ownership");
         Directory.CreateDirectory(manifestFolder);
