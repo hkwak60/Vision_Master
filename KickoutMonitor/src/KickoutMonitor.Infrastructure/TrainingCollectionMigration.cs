@@ -45,7 +45,14 @@ public sealed partial class TrainingCollectionService
                         File.Copy(recovery, missing, true);
                     }
                 }
-                if (sample.State == "Ready") ValidateTrainingFiles(sample.Review, sample.Files);
+                if (sample.State == "Ready")
+                {
+                    try { ValidateTrainingFiles(sample.Review, sample.Files); }
+                    catch (IOException e)
+                    {
+                        throw new IOException($"Batch {batch.Id}, cell {sample.Review.CellId}, crop {batch.Crop}: {e.Message} Files: {string.Join("; ", sample.Files)}", e);
+                    }
+                }
             }
             // Keep historical exports at their old location; local verified sources can recreate
             // them in DLNG. Snapshot hashes retain immutable trained labels and contents.

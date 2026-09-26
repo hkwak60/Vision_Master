@@ -79,12 +79,23 @@ public sealed partial class TrainingCollectionService
         File.WriteAllText(_manifest + ".tmp", JsonSerializer.Serialize(batches, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(_manifest + ".tmp", _manifest, true);
     }
+    public string? LoadWarning { get; private set; }
     public async Task<IReadOnlyList<TrainingBatch>> LoadAsync(CancellationToken token = default)
     {
         await _gate.WaitAsync(token);
         try
         {
-            var batches = Read();
+            LoadWarning = null;
+            List<TrainingBatch> batches;
+            try { batches = Read(); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
+            {
+                var legacyManifest = Path.Combine(_legacyRoot, "batches.json");
+                if (File.Exists(_manifest) || !File.Exists(legacyManifest)) throw;
+                batches = JsonSerializer.Deserialize<List<TrainingBatch>>(File.ReadAllText(legacyManifest)) ?? [];
+                LoadWarning = "Collection migration incomplete; showing original batches read-only. Keep Training. " + e.Message;
+                return batches; // Never move, clean up, or rewrite legacy-owned files.
+            }
             var changed = false;
             foreach (var batch in batches.Where(b => b.TrainedAt is null))
             foreach (var sample in batch.Samples.Where(s => s.State == "Ready"))

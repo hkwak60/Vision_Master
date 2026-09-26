@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -110,7 +110,12 @@ public sealed class OverkillHistoryService(AppStorage storage, IDlngReviewStore 
     public async Task<IReadOnlyList<DlngReviewRecord>> LoadDlngAsync(CancellationToken token = default) =>
         (await reviews.LoadAsync(token)).Values.GroupBy(ReviewSemantics.SampleId)
             .Select(g => g.OrderByDescending(r => r.UpdatedAt).First()).ToArray();
-    public Task<IReadOnlyList<TrainingBatch>> LoadBatchesAsync(CancellationToken token = default) => collection.LoadAsync(token);
+    public async Task<IReadOnlyList<TrainingBatch>> LoadBatchesAsync(CancellationToken token = default)
+    {
+        var batches = await collection.LoadAsync(token);
+        if (collection.LoadWarning is { } warning) Warnings.Add(warning);
+        return batches;
+    }
 
     public static IReadOnlyList<OverkillMetric> KickoutMetrics(IEnumerable<KickoutHistorySnapshot> history, string field = "")
     {

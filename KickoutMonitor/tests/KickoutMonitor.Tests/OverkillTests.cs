@@ -36,7 +36,11 @@ public sealed class OverkillTests : IDisposable
         var batch = new TrainingBatch { Product="E81C", Crop="SEPA", Polarity="shared",
             Samples=[new TrainingSample { Id=ReviewSemantics.SampleId(review), Review=review, State="Ready", Files=paths }] };
         File.WriteAllText(Path.Combine(legacy, "batches.json"), JsonSerializer.Serialize(new[] { batch }));
-        await Assert.ThrowsAsync<IOException>(() => Collection.LoadAsync());
+        var service = Collection;
+        var fallback = Assert.Single(await service.LoadAsync());
+        Assert.Equal(batch.Id, fallback.Id);
+        Assert.Contains("Keep Training", service.LoadWarning);
+        Assert.Equal(paths, fallback.Samples[0].Files);
         Assert.False(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "batches.json")));
         File.Copy(review.ImagePaths[1], paths[1]);
         Assert.Single(await Collection.LoadAsync());

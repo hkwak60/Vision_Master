@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using KickoutMonitor.Application;
@@ -91,16 +91,21 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     {
         if (_busy) return;
         _busy = true;
-        try { await ReloadAsync(); if (ValidRange) Status = string.Join("; ", _history.Warnings); }
+        try { await ReloadAsync(); }
         catch (Exception e) { Status = e.Message; }
         finally { _busy = false; System.Windows.Input.CommandManager.InvalidateRequerySuggested(); }
     }
     private async Task ReloadAsync()
     {
-        _kickout = await Task.Run(() => _history.LoadKickoutAsync());
-        _dlng = await _history.LoadDlngAsync();
-        _batches = await _history.LoadBatchesAsync();
+        var errors = new List<string>();
+        try { _kickout = await Task.Run(() => _history.LoadKickoutAsync()); }
+        catch (Exception e) { errors.Add("Kickout history: " + e.Message); }
+        try { _dlng = await _history.LoadDlngAsync(); }
+        catch (Exception e) { errors.Add("DLNG reviews: " + e.Message); }
+        try { _batches = await Task.Run(() => _history.LoadBatchesAsync()); }
+        catch (Exception e) { errors.Add("Training collection: " + e.Message); }
         Filter();
+        if (ValidRange) Status = string.Join("; ", errors.Concat(_history.Warnings));
     }
     private bool ValidRange => StartDate is not null && EndDate is not null && EndDate >= StartDate
         && (EndDate.Value.Date - StartDate.Value.Date).TotalDays <= 3660;
@@ -196,7 +201,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     private async Task Operate(Func<Task> operation)
     {
         if(_busy)return; _busy=true;
-        try { await Task.Run(operation); await ReloadAsync(); Status="Collection updated."; }
+        try { await Task.Run(operation); await ReloadAsync(); if (string.IsNullOrEmpty(Status)) Status="Collection updated."; }
         catch(Exception e){Status=e.Message;}
         finally{_busy=false;System.Windows.Input.CommandManager.InvalidateRequerySuggested();}
     }

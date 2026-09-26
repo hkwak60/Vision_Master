@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -295,6 +295,19 @@ internal static class Program
             Require(overkill.CollectionCounts.Sum(c => c.Samples) == 1 && overkill.GenerateDatasetCommand.CanExecute(null), "trained class counts and repeat export remain available");
             Layout(dashboard);
             Render(dashboard, "trained-collection-smoke.png");
+            var batchManifest = System.IO.Path.Combine(Root, "DLNG", ".collection", "batches.json");
+            var intactManifest = System.IO.File.ReadAllText(batchManifest);
+            System.IO.File.WriteAllText(batchManifest, "{broken");
+            try
+            {
+                var isolated = new OverkillMonitorViewModel(new OverkillHistoryService(localStorage, reviewStore, collection), collection, reviewStore);
+                Complete(isolated.RefreshAsync());
+                Require(isolated.Kickout.Series.Any(s => s.Points.Count > 0), "collection failure does not hide Kickout trends");
+                Require(isolated.Dlng.Series.Any(s => s.Points.Count > 0), "collection failure does not hide DLNG trends");
+                Require(isolated.Status.Contains("Training collection:"), "collection failure remains visible");
+            }
+            finally { System.IO.File.WriteAllText(batchManifest, intactManifest); }
+
             Require(Descendants<Button>(dashboard).Any(b => b.Content as string == "Generate Dataset"), "dataset export relocated to collection");
             var dlngView = controls.OfType<KickoutMonitor.App.DlngReviewView>().Single();
             Require(!Descendants<Button>(dlngView).Any(b => b.Content as string == "Generate Dataset"), "dataset action removed from review");

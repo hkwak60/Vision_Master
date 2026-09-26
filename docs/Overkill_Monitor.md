@@ -91,3 +91,7 @@ Generate Dataset remains available for trained batches, including older batches 
 - On first collection access, legacy Training images and batch records are copied and hash-verified. The old folder remains untouched. Missing required images stop migration without publishing a partial manifest; restore them and retry.
 - Delete the old Training folder only after DLNG/.collection/migration-complete.txt exists and expected batches appear in the new version. Old DLNG_REPORT exports remain untouched; subsequent downloads use DLNG. This release did not migrate actual user data on the development PC.
 - Always save is a session-level toggle. New eligible items default to training inclusion; individual opt-outs remain possible. Revisiting saved items restores their recorded inclusion. The toggle does not automatically save a judgment. Not DLNG/raw fallback remain excluded; segmentation Overkill retains its existing automatic inclusion default.
+
+### Loading isolation hotfix (2026-09-25)
+
+Kickout history, DLNG review statistics, and training batches load independently. A collection read/migration failure no longer prevents valid trends from appearing. Failed migration leaves the legacy Training store untouched and displays its original batches read-only, with an explicit warning to keep Training. Collection writes/exports still require successful migration; errors now identify the failing batch, cell, crop and file paths. Repair the reported missing/incomplete files and refresh to retry. Existing loaded data is retained when a later refresh of its source fails.
