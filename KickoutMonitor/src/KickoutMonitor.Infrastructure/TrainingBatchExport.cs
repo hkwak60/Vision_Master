@@ -17,7 +17,7 @@ public sealed partial class TrainingCollectionService
         {
             var batches = Read();
             var batch = batches.Single(b => b.Id == id);
-            if (batch.TrainedAt is null && batch.Pending != 0)
+            if (batch.Pending != 0)
                 throw new InvalidOperationException("Retry or exclude pending/failed samples before generating a dataset.");
             var samples = batch.Samples.Where(s => s.State == "Ready" && (batch.TrainedAt is not null || !s.Superseded)).OrderBy(s => s.Id).ToArray();
             if (samples.Length == 0) throw new InvalidOperationException("This batch has no collected samples.");

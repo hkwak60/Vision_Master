@@ -34,6 +34,7 @@ public sealed partial class TrainingCollectionService
         {
             foreach (var sample in batch.Samples)
             {
+                sample.LegacyFiles = TrainingFiles(sample.Review, sample.Files).ToList();
                 sample.Files = TrainingFiles(sample.Review, sample.Files).Select(p => CopyOwned(p, _legacyRoot, _root)).ToList();
                 sample.ObsoleteFiles = TrainingFiles(sample.Review, sample.ObsoleteFiles).Select(p => CopyOwned(p, _legacyRoot, _root)).ToList();
                 foreach (var missing in sample.Files.Where(p => !File.Exists(p)))
@@ -50,7 +51,9 @@ public sealed partial class TrainingCollectionService
                     try { ValidateTrainingFiles(sample.Review, sample.Files); }
                     catch (IOException e)
                     {
-                        throw new IOException($"Batch {batch.Id}, cell {sample.Review.CellId}, crop {batch.Crop}: {e.Message} Files: {string.Join("; ", sample.Files)}", e);
+                        sample.State = "Failed";
+                        sample.MigrationPending = true;
+                        sample.Error = $"Batch {batch.Id}, cell {sample.Review.CellId}, crop {batch.Crop}: {e.Message} Files: {string.Join("; ", sample.Files)}";
                     }
                 }
             }
@@ -67,7 +70,47 @@ public sealed partial class TrainingCollectionService
                 .Where(p => !p.EndsWith("_ActiveMap.jpg", StringComparison.OrdinalIgnoreCase)))
                 CopyOwned(file, _legacyRoot, _root);
         Write(batches);
-        File.WriteAllText(Path.Combine(_root, "migration-complete.txt"),
-            "Legacy Training collection copied and verified. Original Training folder was not modified. " + DateTimeOffset.Now);
+        if (!batches.SelectMany(b => b.Samples).Any(s => s.MigrationPending))
+            File.WriteAllText(Path.Combine(_root, "migration-complete.txt"),
+                "Legacy Training collection copied and verified. Original Training folder was not modified. " + DateTimeOffset.Now);
     }
+    // Retry only exact legacy-owned paths; a missing sample must not block unrelated collection.
+    private void RetryLegacySamples(List<TrainingBatch> batches)
+    {
+        var changed = false;
+        foreach (var sample in batches.SelectMany(b => b.Samples).Where(s => s.MigrationPending))
+        {
+            try
+            {
+                foreach (var target in sample.Files)
+                {
+                    if (File.Exists(Owned(target)) && new FileInfo(target).Length > 0) continue;
+                    var source = sample.LegacyFiles.FirstOrDefault(p =>
+                        Path.GetFileName(p).Equals(Path.GetFileName(target), StringComparison.OrdinalIgnoreCase));
+                    if (source is null) continue;
+                    if (!Path.GetFullPath(source).StartsWith(Path.GetFullPath(_legacyRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                        throw new IOException("Legacy source is outside Training.");
+                    if (!File.Exists(source) || new FileInfo(source).Length == 0) continue;
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    File.Copy(source, target + ".migrating", true);
+                    if (Digest(source) != Digest(target + ".migrating")) throw new IOException("Legacy retry verification failed.");
+                    File.Move(target + ".migrating", target, true);
+                }
+                ValidateTrainingFiles(sample.Review, sample.Files);
+                sample.State = "Ready";
+                sample.MigrationPending = false;
+                sample.Error = "";
+                changed = true;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            { /* Keep the durable sample error and allow unrelated batches to proceed. */ }
+        }
+        if (changed) Write(batches);
+        if (batches.SelectMany(b => b.Samples).Any(s => s.LegacyFiles.Count > 0)
+            && !batches.SelectMany(b => b.Samples).Any(s => s.MigrationPending)
+            && !File.Exists(Path.Combine(_root, "migration-complete.txt")))
+            File.WriteAllText(Path.Combine(_root, "migration-complete.txt"),
+                "Legacy sample migration resolved. Original Training was not modified. " + DateTimeOffset.Now);
+    }
+
 }

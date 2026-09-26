@@ -38,6 +38,8 @@ public sealed class TrainingSample
     // Full paths are an ownership journal. Old paths survive interrupted reclassification/range updates.
     public List<string> Files { get; set; } = [];
     public List<string> ObsoleteFiles { get; set; } = [];
+    public List<string> LegacyFiles { get; set; } = [];
+    public bool MigrationPending { get; set; }
 }
 public sealed partial class TrainingCollectionService
 {
@@ -69,8 +71,10 @@ public sealed partial class TrainingCollectionService
     private List<TrainingBatch> Read()
     {
         MigrateLegacyCollection();
-        return File.Exists(_manifest)
+        var batches = File.Exists(_manifest)
             ? JsonSerializer.Deserialize<List<TrainingBatch>>(File.ReadAllText(_manifest)) ?? [] : [];
+        RetryLegacySamples(batches);
+        return batches;
     }
     private void Write(List<TrainingBatch> batches)
     {
@@ -96,6 +100,8 @@ public sealed partial class TrainingCollectionService
                 LoadWarning = "Collection migration incomplete; showing original batches read-only. Keep Training. " + e;
                 return batches; // Never move, clean up, or rewrite legacy-owned files.
             }
+            var migrationErrors = batches.SelectMany(b => b.Samples).Where(s => s.MigrationPending).Select(s => s.Error).ToArray();
+            if (migrationErrors.Length > 0) LoadWarning = "Some legacy samples need recovery. Other batches remain available. Keep Training.\n" + string.Join("\n", migrationErrors);
             var changed = false;
             foreach (var batch in batches.Where(b => b.TrainedAt is null))
             foreach (var sample in batch.Samples.Where(s => s.State == "Ready"))
@@ -140,6 +146,7 @@ public sealed partial class TrainingCollectionService
                 if (sample is not null)
                 {
                     sample.State = "Excluded";
+                    sample.MigrationPending = false;
                     sample.ObsoleteFiles.AddRange(sample.Files);
                     sample.Files.Clear();
                     sample.Review = review;
@@ -220,6 +227,7 @@ public sealed partial class TrainingCollectionService
                 Cleanup(sample);
                 sample.CollectedAt = now;
                 sample.State = "Ready";
+                sample.MigrationPending = false;
                 sample.Error = "";
                 Write(batches);
                 return "Collected";
@@ -338,6 +346,7 @@ public sealed partial class TrainingCollectionService
             if (batch.TrainedAt is not null) throw new InvalidOperationException("Trained batches are immutable.");
             var sample = batch.Samples.Single(x => x.Id == sampleId);
             sample.State = "Excluded";
+                    sample.MigrationPending = false;
             sample.ObsoleteFiles.AddRange(sample.Files);
             sample.Files.Clear();
             Write(batches);

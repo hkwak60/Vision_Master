@@ -25,8 +25,12 @@ public sealed class OverkillTests : IDisposable
             IncludeInTraining:selected,ProductModel:model,ModelKind:segmentation?DlngModelKind.Segmentation:DlngModelKind.Classification,
             TrainingPolarity:polarity);
     }
-    [Fact]
-    public async Task InterruptedMigrationDoesNotPublishPartialManifestAndCanRetry()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task MissingLegacyPairDoesNotBlockNewCathodeCollectionAndCanRecover(bool trained, bool emptyMask)
     {
         var review = Review();
         var legacy = Path.Combine(Storage.Root, "Training");
@@ -36,14 +40,35 @@ public sealed class OverkillTests : IDisposable
         var batch = new TrainingBatch { Product="E81C", Crop="SEPA", Polarity="shared",
             Samples=[new TrainingSample { Id=ReviewSemantics.SampleId(review), Review=review, State="Ready", Files=paths }] };
         File.WriteAllText(Path.Combine(legacy, "batches.json"), JsonSerializer.Serialize(new[] { batch }));
+        if (emptyMask) File.WriteAllBytes(paths[1], []);
+        if (trained)
+        {
+            batch.TrainedAt = _now;
+            File.WriteAllText(Path.Combine(legacy, "batches.json"), JsonSerializer.Serialize(new[] { batch }));
+        }
         var service = Collection;
         var fallback = Assert.Single(await service.LoadAsync());
         Assert.Equal(batch.Id, fallback.Id);
         Assert.Contains("Keep Training", service.LoadWarning);
-        Assert.Equal(paths, fallback.Samples[0].Files);
-        Assert.False(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "batches.json")));
-        File.Copy(review.ImagePaths[1], paths[1]);
-        Assert.Single(await Collection.LoadAsync());
+        Assert.Equal("Failed", fallback.Samples[0].State);
+        Assert.True(fallback.Samples[0].MigrationPending);
+        Assert.True(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "batches.json")));
+        Assert.False(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "migration-complete.txt")));
+        var cathode = Review("NEW", "CropB", polarity: "Cathode", line: "1-1(+)", label: "01_OK");
+        await Collection.RecoverAsync(new[] { cathode });
+        var current = await Collection.LoadAsync();
+        Assert.Equal(2, current.Count);
+        var newBatch = current.Single(b => b.Crop == "CropB");
+        Assert.Equal(1, newBatch.NewSamples);
+        var output = await Collection.GenerateDatasetAsync(newBatch.Id);
+        Assert.Single(Directory.GetFiles(Path.Combine(output, "01_OK")));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Collection.GenerateDatasetAsync(batch.Id));
+        File.Copy(review.ImagePaths[1], paths[1], true);
+        var recovered = (await Collection.LoadAsync()).Single(b => b.Id == batch.Id);
+        Assert.Equal("Ready", recovered.Samples[0].State);
+        Assert.False(recovered.Samples[0].MigrationPending);
+        Assert.True(File.Exists(Path.Combine(Storage.Root, "DLNG", ".collection", "migration-complete.txt")));
+        Assert.Equal("Ready", JsonSerializer.Deserialize<List<TrainingBatch>>(File.ReadAllText(Path.Combine(legacy, "batches.json")))![0].Samples[0].State);
     }
     [Fact]
     public async Task ClassificationIsFlatSourceOnlyAndCanBeDownloadedAgain()

@@ -99,3 +99,9 @@ Kickout history, DLNG review statistics, and training batches load independently
 ### Diagnostic TXT logs (2026-09-25)
 
 Overkill Monitor automatically appends full refresh/collection exceptions and migration warnings to StorageRoot/Logs/OverkillMonitor_yyyyMMdd.txt (UTF-8). Entries include local timestamp with offset, storage root, selected dates/batch, full exception stack/inner exception where available, and migration file paths. The screen shows a short summary and the actual log path. If storage-root logging fails, LocalAppData/KickoutMonitor/Logs is tried; if both fail, the UI reports that logging failed. Logs remain local and are not uploaded automatically.
+
+### Isolated legacy image failures (2026-09-25)
+
+Missing/empty legacy images now fail only their own sample. Migration publishes the complete batch metadata with explicit Failed states; unrelated batches and newly selected reviews can collect/export normally. Original Training files remain untouched. Legacy paths are retained for exact-file retries on subsequent reads; no other inspection is substituted. Trained batches with unresolved samples cannot export a silently reduced dataset. migration-complete.txt is withheld until migration-pending samples are recovered or explicitly excluded. Keep Training while warnings remain.
+
+After upgrading from a version where migration blocked collection, use Training collection > Retry pending copies to collect already-saved Include in training decisions (including Cathode B); do not reclassify the same reviews. Production source images must still be accessible for those copies. Missing old SEPA_SHOULDER images do not block the Cathode B batch.
