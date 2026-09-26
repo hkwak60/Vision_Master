@@ -92,20 +92,29 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         if (_busy) return;
         _busy = true;
         try { await ReloadAsync(); }
-        catch (Exception e) { Status = e.Message; }
+        catch (Exception e) { ReportError(e.ToString()); }
         finally { _busy = false; System.Windows.Input.CommandManager.InvalidateRequerySuggested(); }
     }
     private async Task ReloadAsync()
     {
         var errors = new List<string>();
         try { _kickout = await Task.Run(() => _history.LoadKickoutAsync()); }
-        catch (Exception e) { errors.Add("Kickout history: " + e.Message); }
+        catch (Exception e) { errors.Add("Kickout history: " + e); }
         try { _dlng = await _history.LoadDlngAsync(); }
-        catch (Exception e) { errors.Add("DLNG reviews: " + e.Message); }
+        catch (Exception e) { errors.Add("DLNG reviews: " + e); }
         try { _batches = await Task.Run(() => _history.LoadBatchesAsync()); }
-        catch (Exception e) { errors.Add("Training collection: " + e.Message); }
+        catch (Exception e) { errors.Add("Training collection: " + e); }
         Filter();
-        if (ValidRange) Status = string.Join("; ", errors.Concat(_history.Warnings));
+        var details = string.Join(Environment.NewLine + Environment.NewLine, errors.Concat(_history.Warnings));
+        if (!string.IsNullOrWhiteSpace(details)) ReportError(details);
+        else if (ValidRange) Status = "";
+    }
+    private void ReportError(string details)
+    {
+        var context = $"Date range: {StartDate:yyyy-MM-dd} — {EndDate:yyyy-MM-dd}; Batch: {SelectedBatch?.Id ?? "(none)"}";
+        var summary = details.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "Overkill Monitor error";
+        if (summary.Length > 300) summary = summary[..300] + "…";
+        Status = summary + Environment.NewLine + _history.SaveDiagnostic(context + Environment.NewLine + details);
     }
     private bool ValidRange => StartDate is not null && EndDate is not null && EndDate >= StartDate
         && (EndDate.Value.Date - StartDate.Value.Date).TotalDays <= 3660;
@@ -202,7 +211,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     {
         if(_busy)return; _busy=true;
         try { await Task.Run(operation); await ReloadAsync(); if (string.IsNullOrEmpty(Status)) Status="Collection updated."; }
-        catch(Exception e){Status=e.Message;}
+        catch(Exception e){ReportError(e.ToString());}
         finally{_busy=false;System.Windows.Input.CommandManager.InvalidateRequerySuggested();}
     }
     private static void Replace<T>(ObservableCollection<T> target,IEnumerable<T> source){target.Clear();foreach(var x in source)target.Add(x);}

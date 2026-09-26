@@ -93,7 +93,7 @@ public sealed partial class TrainingCollectionService
                 var legacyManifest = Path.Combine(_legacyRoot, "batches.json");
                 if (File.Exists(_manifest) || !File.Exists(legacyManifest)) throw;
                 batches = JsonSerializer.Deserialize<List<TrainingBatch>>(File.ReadAllText(legacyManifest)) ?? [];
-                LoadWarning = "Collection migration incomplete; showing original batches read-only. Keep Training. " + e.Message;
+                LoadWarning = "Collection migration incomplete; showing original batches read-only. Keep Training. " + e;
                 return batches; // Never move, clean up, or rewrite legacy-owned files.
             }
             var changed = false;

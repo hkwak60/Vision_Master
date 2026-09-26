@@ -42,6 +42,27 @@ public sealed class OverkillHistoryService(AppStorage storage, IDlngReviewStore 
             File.Move(path + ".tmp", path, true);
         }
     }
+    public string SaveDiagnostic(string details)
+    {
+        var roots = new[] { Path.Combine(storage.Root, "Logs"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KickoutMonitor", "Logs") };
+        var failures = new List<string>();
+        foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                Directory.CreateDirectory(root);
+                var path = Path.Combine(root, $"OverkillMonitor_{DateTime.Now:yyyyMMdd}.txt");
+                var entry = $"[{DateTimeOffset.Now:O}] Overkill Monitor{Environment.NewLine}Storage: {storage.Root}{Environment.NewLine}{details}{Environment.NewLine}{new string('-', 80)}{Environment.NewLine}";
+                lock (DiagnosticGate) File.AppendAllText(path, entry, new System.Text.UTF8Encoding(false));
+                return "Error log: " + path;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            { failures.Add(root + ": " + e.Message); }
+        }
+        return "Could not save error log: " + string.Join("; ", failures);
+    }
+    private static readonly object DiagnosticGate = new();
     public List<string> Warnings { get; } = [];
     public async Task<IReadOnlyList<KickoutHistorySnapshot>> LoadKickoutAsync(CancellationToken token = default)
     {

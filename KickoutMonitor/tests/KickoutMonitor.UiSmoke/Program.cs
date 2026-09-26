@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -305,6 +305,12 @@ internal static class Program
                 Require(isolated.Kickout.Series.Any(s => s.Points.Count > 0), "collection failure does not hide Kickout trends");
                 Require(isolated.Dlng.Series.Any(s => s.Points.Count > 0), "collection failure does not hide DLNG trends");
                 Require(isolated.Status.Contains("Training collection:"), "collection failure remains visible");
+                var errorLog = System.IO.Path.Combine(Root, "Logs", $"OverkillMonitor_{DateTime.Now:yyyyMMdd}.txt");
+                Require(System.IO.File.Exists(errorLog), "collection error saved as TXT");
+                var errorText = System.IO.File.ReadAllText(errorLog);
+                Require(errorText.Contains("Training collection:") && errorText.Contains("JsonException") && errorText.Contains("Date range:"), "TXT includes full exception and context");
+                Require(isolated.Status.Contains(errorLog), "error log path shown");
+
             }
             finally { System.IO.File.WriteAllText(batchManifest, intactManifest); }
 

@@ -95,3 +95,7 @@ Generate Dataset remains available for trained batches, including older batches 
 ### Loading isolation hotfix (2026-09-25)
 
 Kickout history, DLNG review statistics, and training batches load independently. A collection read/migration failure no longer prevents valid trends from appearing. Failed migration leaves the legacy Training store untouched and displays its original batches read-only, with an explicit warning to keep Training. Collection writes/exports still require successful migration; errors now identify the failing batch, cell, crop and file paths. Repair the reported missing/incomplete files and refresh to retry. Existing loaded data is retained when a later refresh of its source fails.
+
+### Diagnostic TXT logs (2026-09-25)
+
+Overkill Monitor automatically appends full refresh/collection exceptions and migration warnings to StorageRoot/Logs/OverkillMonitor_yyyyMMdd.txt (UTF-8). Entries include local timestamp with offset, storage root, selected dates/batch, full exception stack/inner exception where available, and migration file paths. The screen shows a short summary and the actual log path. If storage-root logging fails, LocalAppData/KickoutMonitor/Logs is tried; if both fail, the UI reports that logging failed. Logs remain local and are not uploaded automatically.
