@@ -222,7 +222,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         ModelOptions = new(DlngModelNames(_settings).Select(name => new DlngModelOption(name)));
         foreach (var option in ModelOptions) option.PropertyChanged += ModelOption_PropertyChanged;
         LoadCommand = new(LoadQueueAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && ModelOptions.Any(x => x.IsSelected) && StartDate is not null && EndDate is not null);
-        GenerateReportCommand = new(GenerateReportAsync, () => !IsBusy && MachineOptions.Any(x => x.IsSelected) && ModelOptions.Any(x => x.IsSelected) && ReportDate is not null && ReportEndDate is not null);
+        AddToBatchCommand = new(AddToBatchAsync, () => !IsBusy && _collection is not null && Candidates.Count > 0);
         PreviousCommand = new(Previous, CanPrevious);
         NextCommand = new(Next, CanNext);
         PreviousImageCommand = new(PreviousImageAsync, () => CurrentImageIndex > 0);
@@ -239,7 +239,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     public ObservableCollection<string> ActivityLog { get; } = [];
     public ObservableCollection<DlngReportRow> SummaryRows { get; } = [];
     public AsyncRelayCommand LoadCommand { get; }
-    public AsyncRelayCommand GenerateReportCommand { get; }
+    public AsyncRelayCommand AddToBatchCommand { get; }
     public RelayCommand PreviousCommand { get; }
     public RelayCommand NextCommand { get; }
     public AsyncRelayCommand PreviousImageCommand { get; }
@@ -374,6 +374,11 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         {
             if (Set(ref _isBusy, value)) CommandManager.InvalidateRequerySuggested();
         }
+    }
+
+    public void AdvanceReviewed()
+    {
+        if (!IsBusy && !_draftEdited && SelectedCandidate?.ReviewStatus == "Saved" && CanNext()) Next();
     }
 
     public void HandleHotkey(Key key)
@@ -540,60 +545,19 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         AddLog(Status);
     }
 
-    private async Task GenerateReportAsync()
+    private async Task AddToBatchAsync()
     {
-        var selectedMachines = MachineOptions.Where(x => x.IsSelected).Select(x => x.Machine).ToArray();
-        if (ReportDate is null || ReportEndDate is null || selectedMachines.Length == 0) return;
-        var reportStart = DateOnly.FromDateTime(ReportDate.Value);
-        var reportEnd = DateOnly.FromDateTime(ReportEndDate.Value);
-        if (reportEnd < reportStart)
-        {
-            Status = "Report end date must be on or after report start date.";
-            return;
-        }
-
+        if (_collection is null || IsBusy) return;
         IsBusy = true;
-        SummaryRows.Clear();
         try
         {
-            var progress = new Progress<string>(AddLog);
-            var queuedItems = Candidates.Select(x => x.Item).ToArray();
-            var results = new List<DlngReportResult>();
-            for (var date = reportStart; date <= reportEnd; date = date.AddDays(1))
-            {
-                try
-                {
-                    var result = await _reports.GenerateFromItemsAsync(queuedItems, date, progress, CancellationToken.None);
-                    results.Add(result);
-                    foreach (var row in result.Rows) SummaryRows.Add(row);
-                    AddLog($"DLNG report saved: {result.SummaryWorkbook}");
-                }
-                catch (InvalidOperationException exception)
-                {
-                    AddLog($"{date:yyyy-MM-dd}: {exception.Message}");
-                }
-            }
-
-            if (results.Count == 0)
-            {
-                throw new InvalidOperationException("Cannot generate DLNG report: no reviewed DLNG crop item(s) were found for the selected date range.");
-            }
-
-            CommandManager.InvalidateRequerySuggested();
-            Status = results.Count == 1
-                ? $"DLNG report saved: {results[0].SummaryWorkbook}"
-                : $"DLNG reports saved: {results.Count:N0} day(s).";
+            var records = Candidates.Select(c => _reviewRecords.GetValueOrDefault(c.Item.Key))
+                .OfType<DlngReviewRecord>().ToArray();
+            Status = await Task.Run(() => _collection.AddToCurrentBatchAsync(records));
             AddLog(Status);
         }
-        catch (Exception exception)
-        {
-            Status = exception.Message;
-            AddLog($"DLNG REPORT BLOCKED: {exception.Message}");
-        }
-        finally
-        {
-            IsBusy = false;
-        }
+        catch (Exception e) { Status = e.Message; AddLog(Status); }
+        finally { IsBusy = false; }
     }
 
     private void ConfigureFinalClasses(DlngCandidateItem? item)
@@ -702,7 +666,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
                 {
                     Status = "Judgment saved. " + await _collection.ApplyAsync(record);
                     var collected = (await _collection.LoadAsync()).SelectMany(b => b.Samples)
-                        .FirstOrDefault(s => s.Id == ReviewSemantics.SampleId(record) && s.State == "Ready");
+                        .FirstOrDefault(s => s.SourceIdentity == ReviewSemantics.SampleId(record) && s.State == "Ready");
                     if (collected is not null)
                     {
                         record = record with { CollectedAt = collected.CollectedAt };

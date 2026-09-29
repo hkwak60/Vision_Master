@@ -215,7 +215,7 @@ public sealed class DlngReportGenerator : IDlngReportService
     {
         var id = ReviewSemantics.SampleId(decision);
         var sample = (await _collection.LoadAsync(token)).SelectMany(b => b.Samples)
-            .FirstOrDefault(s => s.Id == id && s.State == "Ready" && !s.Superseded && s.Review.FinalClass == decision.FinalClass);
+            .FirstOrDefault(s => s.SourceIdentity == id && s.State == "Ready" && !s.Superseded && s.Review.FinalClass == decision.FinalClass);
         if (sample is not null && sample.Files.Count == (TrainingCollectionService.Segmentation(decision) ? 2 : 1) && sample.Files.All(File.Exists))
             return decision with { ImagePaths = sample.Files };
         // Export is not an implicit collection operation.

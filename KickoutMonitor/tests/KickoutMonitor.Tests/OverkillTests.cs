@@ -26,6 +26,60 @@ public sealed class OverkillTests : IDisposable
             TrainingPolarity:polarity);
     }
     [Fact]
+    public async Task EmptyOwnedImageCanRetryFromOriginalAndDoesNotCountAsCollected()
+    {
+        var review = Review("EMPTY");
+        await Collection.ApplyAsync(review);
+        var sample = (await Collection.LoadAsync()).Single().Samples.Single();
+        File.WriteAllBytes(sample.Files[0],[]);
+        Assert.Equal("Collected",await Collection.ApplyAsync(review));
+        Assert.All((await Collection.LoadAsync()).Single().Samples.Single().Files,p=>Assert.True(new FileInfo(p).Length>0));
+    }
+    [Theory]
+    [InlineData("SEPA", "Overkill", "Real")]
+    [InlineData("Crop_B", "01_OK", "04_NG")]
+    public async Task ExplicitSameReviewsCreateIndependentBatchAfterDownload(string crop, string originalClass, string newClass)
+    {
+        var review = Review("REVIEWAGAIN", crop:crop, label:originalClass);
+        await Collection.AddToCurrentBatchAsync(new[] { review });
+        var first = Assert.Single(await Collection.LoadAsync());
+        var path1 = await Collection.GenerateDatasetAsync(first.Id);
+        var original = Directory.GetFiles(path1, "*.jpg", SearchOption.AllDirectories).Single();
+        var bytes = File.ReadAllBytes(original);
+        await Collection.AddToCurrentBatchAsync(new[] { review with { FinalClass=newClass } });
+        await Collection.AddToCurrentBatchAsync(new[] { review with { FinalClass=newClass } });
+        var all = await Collection.LoadAsync();
+        Assert.Equal(2,all.Count);
+        var second = all.Single(b=>b.TrainedAt is null);
+        Assert.Single(second.Samples);
+        Assert.NotEqual(first.Samples[0].Id,second.Samples[0].Id);
+        var path2 = await Collection.GenerateDatasetAsync(second.Id);
+        Assert.NotEqual(path1,path2);
+        Assert.Equal(bytes,File.ReadAllBytes(original));
+        Assert.True(Directory.Exists(Path.Combine(path1,originalClass)));
+        Assert.True(Directory.Exists(Path.Combine(path2,newClass)));
+    }
+    [Fact]
+    public async Task PartialExportFreezesOnlyReadySamplesAndKeepsFailuresRetryable()
+    {
+        var ready = Review("READY");
+        var missing = Review("MISSING");
+        File.Delete(missing.ImagePaths[1]);
+        await Collection.AddToCurrentBatchAsync(new[] { ready,missing });
+        var original = Assert.Single(await Collection.LoadAsync());
+        var output = await Collection.GenerateDatasetAsync(original.Id);
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(output,"Overkill")).Length);
+        var batches = await Collection.LoadAsync();
+        Assert.Single(batches.Single(b=>b.Id==original.Id).Samples);
+        var retry = batches.Single(b=>b.TrainedAt is null);
+        Assert.Equal(1,retry.Pending);
+        File.WriteAllBytes(missing.ImagePaths[1],[4,5,6]);
+        await Collection.RecoverAsync(new[] {missing});
+        Assert.Equal(1,(await Collection.LoadAsync()).Single(b=>b.Id==retry.Id).NewSamples);
+        Assert.Equal(output, await Collection.GenerateDatasetAsync(original.Id));
+    }
+
+    [Fact]
     public async Task SavedCathodeSelectionsAppearAsPendingWithoutSharesAndRetryOnce()
     {
         var reviews = Enumerable.Range(0, 43).Select(i => Review("CA"+i, "Crop_B",

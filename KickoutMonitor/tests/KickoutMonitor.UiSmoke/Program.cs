@@ -175,9 +175,18 @@ internal static class Program
             kr.Fail=false; kv.HandleHotkey(Key.Enter);
             kv.AutoAdvanceAfterReview=true; kv.HandleHotkey(Key.O);
             Require(kr.Saves==3,"Kickout auto advance saves once");
+            kv.Candidates[2].Decision=ReviewDecision.Pending;
+            kv.SelectedCandidate=kv.Candidates[0];
+            kv.AdvanceReviewed(); kv.AdvanceReviewed(); kv.AdvanceReviewed();
+            Require(ReferenceEquals(kv.SelectedCandidate,kv.Candidates[2]) && kr.Saves==3, "held Enter advances saved Kickout rows and stops pending without resaving");
+            vm.SelectedCandidate=displayed[0];
+            displayed[0].ReviewStatus="Saved"; displayed[1].ReviewStatus="Pending";
+            vm.AdvanceReviewed(); vm.AdvanceReviewed();
+            Require(ReferenceEquals(vm.SelectedCandidate,displayed[1]),"held Enter stops on pending DLNG row in displayed order");
+
 
             Require(!ReviewKeyboard.ShouldDispatch(true,ModifierKeys.None) && ReviewKeyboard.ShouldDispatch(false,ModifierKeys.None),
-                "held Enter suppressed");
+                "repeated judgment shortcuts suppressed");
             vm.AutoAdvanceAfterReview=false;
             vm.SelectedCandidate=displayed[0];
             vm.HandleHotkey(Key.O);
@@ -320,7 +329,8 @@ internal static class Program
 
             Require(Descendants<Button>(dashboard).Any(b => b.Content as string == "Generate Dataset"), "dataset export relocated to collection");
             var dlngView = controls.OfType<KickoutMonitor.App.DlngReviewView>().Single();
-            Require(!Descendants<Button>(dlngView).Any(b => b.Content as string == "Generate Dataset"), "dataset action removed from review");
+            Require(!Descendants<Button>(dlngView).Any(b => b.Content as string == "Generate Summary"), "report action removed from review");
+            Require(Descendants<Button>(dlngView).Any(b => (b.Content as string)?.Contains("Add to current batch") == true), "explicit batch action available");
             var queueGrid = Descendants<DataGrid>(dlngView).Single(g => ReferenceEquals(g.ItemsSource, vm.Candidates));
             Require(queueGrid.Columns.Select(c => c.Header as string).SequenceEqual(new[] {"Date","Time","Line","Cell-ID","Rework","Judge","Defect","Side","Final Class","Review"}), "compact queue column order");
             vm.MachineOptions.Clear();

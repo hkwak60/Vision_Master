@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows.Controls;
@@ -111,7 +111,8 @@ public partial class KickoutMonitorView : UserControl
         if (DataContext is not MainViewModel viewModel) return;
         if (e.Key is Key.Enter or Key.R or Key.O or Key.M or Key.I or Key.Left or Key.Right or Key.Up or Key.Down)
         {
-            if (KickoutMonitor.App.Services.ReviewKeyboard.ShouldDispatch(e.IsRepeat, Keyboard.Modifiers)) viewModel.HandleHotkey(e.Key);
+            if (e.Key == Key.Enter && e.IsRepeat && Keyboard.Modifiers == ModifierKeys.None) viewModel.AdvanceReviewed();
+            else if (KickoutMonitor.App.Services.ReviewKeyboard.ShouldDispatch(e.IsRepeat, Keyboard.Modifiers)) viewModel.HandleHotkey(e.Key);
             e.Handled = true;
         }
     }

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
 
@@ -34,6 +34,13 @@ public sealed class ProductionInspectionResolver(IDailyCsvLocator csvs, ISharePa
             }
             return Result(known, candidate.CameraLocation);
         }
+        var irs = System.Text.RegularExpressions.Regex.Match(candidate.RawImageFileName ?? "",
+            @"^WELDING-(?<polarity>PLUS|MINUS)_(?<time>\d{14})\d{3}_[^_]+_(?<lot>[^_]+)_(?<cell>[^_]+)_(?<side>TOP|BTM)_", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (irs.Success && (irs.Groups["cell"].Value != candidate.CellId || irs.Groups["lot"].Value != candidate.LotId
+            || irs.Groups["polarity"].Value != (machine.Polarity == Polarity.Cathode ? "PLUS" : "MINUS")
+            || irs.Groups["side"].Value != candidate.CameraLocation
+            || irs.Groups["time"].Value != candidate.ProducedAt.ToString("yyyyMMddHHmmss")))
+            return new([], "Conflicting IRS filename and workbook context.");
         var date = DateOnly.FromDateTime(candidate.ProducedAt);
         var key = $"{machine.Id}|{date}";
         Task<IReadOnlyList<InspectionContext>> task;
@@ -45,23 +52,54 @@ public sealed class ProductionInspectionResolver(IDailyCsvLocator csvs, ISharePa
         IReadOnlyList<InspectionContext> rows;
         try { rows = await task; }
         catch (OperationCanceledException) { lock (_cache) _cache.Remove(key); throw; }
-        catch (IOException ex) { lock (_cache) _cache.Remove(key); return new([], $"Missing: {ex.Message}"); }
-        catch (UnauthorizedAccessException ex) { lock (_cache) _cache.Remove(key); return new([], $"Unavailable: {ex.Message}"); }
+        catch (IOException ex) { lock (_cache) _cache.Remove(key); return irs.Success ? ExactFolder(machine, candidate, cancellationToken) : new([], $"Missing: {ex.Message}"); }
+        catch (UnauthorizedAccessException ex) { lock (_cache) _cache.Remove(key); return irs.Success ? ExactFolder(machine, candidate, cancellationToken) : new([], $"Unavailable: {ex.Message}"); }
         var matches = rows.Where(x => x.CellId.Equals(candidate.CellId, StringComparison.OrdinalIgnoreCase)
             && (string.IsNullOrWhiteSpace(candidate.LotId) || x.LotId.Equals(candidate.LotId, StringComparison.OrdinalIgnoreCase))).ToArray();
         var names = (candidate.RawImagePaths ?? []).Select(InspectionIdentity.FileName).ToList();
-        if (!string.IsNullOrWhiteSpace(candidate.RawImageFileName)) names.Add(InspectionIdentity.FileName(candidate.RawImageFileName));
+        if (!irs.Success && !string.IsNullOrWhiteSpace(candidate.RawImageFileName)) names.Add(InspectionIdentity.FileName(candidate.RawImageFileName));
         if (names.Count > 0)
             matches = matches.Where(x => names.All(name => x.ImagePaths.Any(path =>
                 InspectionIdentity.FileName(path).Equals(name, StringComparison.OrdinalIgnoreCase)))).ToArray();
         else
             matches = matches.Where(x => x.JudgedAt == candidate.ProducedAt || x.ImageAt == candidate.ProducedAt).ToArray();
         matches = matches.DistinctBy(x => x.Identity + "|" + string.Join("|", x.ImagePaths), StringComparer.OrdinalIgnoreCase).ToArray();
+        if (matches.Length == 0 && irs.Success) return ExactFolder(machine, candidate, cancellationToken);
         if (matches.Length != 1)
             return new([], matches.Length == 0 ? "Missing: no exact inspection match." : "Ambiguous: multiple inspections match.");
         if (matches[0].ImageAt is null)
             return new([], "Conflicting or missing image timestamps in the matching CSV row.");
         return Result(matches[0], candidate.CameraLocation);
+    }
+
+    private IrsImageLookupResult ExactFolder(WeldingMachine machine, IrsReviewCandidate candidate, CancellationToken token)
+    {
+        var at = candidate.ProducedAt;
+        var name = $"{at:yyyyMMdd_HHmmss}_{candidate.LotId}_{candidate.CellId}";
+        var found = new List<string>();
+        try
+        {
+            foreach (var drive in machine.ImageDrives)
+            {
+                token.ThrowIfCancellationRequested();
+                var hour = Path.Combine(shares.GetRoot(machine, drive), "Files", "Image", machine.Model,
+                    at.ToString("yyyy"), at.ToString("MM"), at.ToString("dd"), at.ToString("HH"));
+                if (!Directory.Exists(hour)) continue;
+                foreach (var folder in Directory.EnumerateDirectories(hour, name, SearchOption.AllDirectories))
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (Path.GetFileName(folder).Equals(name, StringComparison.OrdinalIgnoreCase)) found.Add(folder);
+                }
+            }
+            if (found.Count != 1) return new([], found.Count == 0
+                ? "Missing: no exact IRS inspection folder." : "Ambiguous: multiple exact IRS inspection folders.");
+            var paths = Directory.GetFiles(found[0]).Where(p => Path.GetFileName(p).StartsWith(name + "_", StringComparison.OrdinalIgnoreCase))
+                .Where(p => InspectionIdentity.ImageTime(new[] { p }) == at).ToArray();
+            var result = Result(new(machine.Id, machine.Model, candidate.LotId, candidate.CellId, at, at, paths, "", 0), candidate.CameraLocation);
+            return result with { Message = result.NetworkPaths.Count > 0 ? "Resolved exact IRS timestamp/lot/cell folder." : result.Message };
+        }
+        catch (IOException e) { return new([], "Unavailable: " + e.Message); }
+        catch (UnauthorizedAccessException e) { return new([], "Unavailable: " + e.Message); }
     }
 
     private static IrsImageLookupResult Result(InspectionContext context, string camera)

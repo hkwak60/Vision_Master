@@ -17,10 +17,24 @@ public sealed partial class TrainingCollectionService
         {
             var batches = Read();
             var batch = batches.Single(b => b.Id == id);
-            if (batch.Pending != 0)
+            if (batch.TrainedAt is not null && batch.Pending != 0)
                 throw new InvalidOperationException("Retry or exclude pending/failed samples before generating a dataset.");
+            IOException? validationError = null;
+            if (batch.TrainedAt is null)
+            {
+                foreach (var sample in batch.Samples.Where(s => s.State == "Ready" && !s.Superseded))
+                {
+                    try { RecoverFiles(sample); ValidateTrainingFiles(sample.Review, TrainingFiles(sample.Review, sample.Files).ToArray()); }
+                    catch (IOException e) { sample.State = "Failed"; sample.Error = e.Message; validationError = e; }
+                }
+                if (validationError is not null) Write(batches);
+            }
             var samples = batch.Samples.Where(s => s.State == "Ready" && (batch.TrainedAt is not null || !s.Superseded)).OrderBy(s => s.Id).ToArray();
-            if (samples.Length == 0) throw new InvalidOperationException("This batch has no collected samples.");
+            if (samples.Length == 0)
+            {
+                if (validationError is not null) throw new IOException("No complete samples are available for export; retry pending copies.", validationError);
+                throw new InvalidOperationException("This batch has no collected samples. Use Retry pending copies or add reviewed selections to a new batch.");
+            }
             BatchExportManifest? previous = null;
             if (batch.DatasetFolder is not null && File.Exists(Path.Combine(ExportOwned(batch.DatasetFolder), ".batch-export.json")))
                 previous = ReadExport(batch.DatasetFolder);
@@ -96,6 +110,14 @@ public sealed partial class TrainingCollectionService
                 }
             }
             token.ThrowIfCancellationRequested();
+            if (batch.TrainedAt is null && batch.Pending > 0)
+            {
+                var deferred = batch.Samples.Where(s => s.State is "Pending" or "Failed").ToList();
+                var next = new TrainingBatch { CreatedAt = _now(), Group = batch.Group, Product = batch.Product,
+                    Crop = batch.Crop, Polarity = batch.Polarity, Samples = deferred };
+                batches.Add(next);
+                batch.Samples = batch.Samples.Except(deferred).ToList();
+            }
             batch.DatasetFolder = folder;
             batch.ExportSnapshot = manifest;
             batch.TrainedAt ??= _now();

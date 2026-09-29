@@ -1,4 +1,4 @@
-using System.Collections.Specialized;
+﻿using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -117,7 +117,8 @@ public partial class DlngReviewView : UserControl
             or Key.D1 or Key.D2 or Key.D3 or Key.D4 or Key.D5 or Key.D6 or Key.D7 or Key.D8 or Key.D9
             or Key.NumPad1 or Key.NumPad2 or Key.NumPad3 or Key.NumPad4 or Key.NumPad5 or Key.NumPad6 or Key.NumPad7 or Key.NumPad8 or Key.NumPad9)
         {
-            if (KickoutMonitor.App.Services.ReviewKeyboard.ShouldDispatch(e.IsRepeat, Keyboard.Modifiers)) viewModel.HandleHotkey(e.Key);
+            if (e.Key == Key.Enter && e.IsRepeat && Keyboard.Modifiers == ModifierKeys.None) viewModel.AdvanceReviewed();
+            else if (KickoutMonitor.App.Services.ReviewKeyboard.ShouldDispatch(e.IsRepeat, Keyboard.Modifiers)) viewModel.HandleHotkey(e.Key);
             e.Handled = true;
         }
     }

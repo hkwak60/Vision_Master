@@ -56,8 +56,6 @@
                     <TextBlock Grid.Column="1" Text="Models" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
                     <TextBlock Grid.Column="2" Text="Start date / time" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
                     <TextBlock Grid.Column="3" Text="End date / time" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
-                    <TextBlock Grid.Column="5" Text="Report start" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
-                    <TextBlock Grid.Column="6" Text="Report end" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,3"/>
                     <StackPanel Grid.Column="0" Grid.Row="1" Margin="0,0,6,0">
 
                         <ListBox ItemsSource="{Binding MachineOptions}" Height="56" Padding="0"
@@ -119,13 +117,9 @@
                     </Grid>
                     <Button Grid.Column="4" Grid.Row="1" Content="Load Queue" Command="{Binding LoadCommand}"
                             ToolTip="Load DLNG Queue" FontSize="12" Padding="3,2" MinHeight="34" Height="34" VerticalAlignment="Top" Margin="0,0,6,0"/>
-                    <DatePicker Grid.Column="5" Grid.Row="1" SelectedDate="{Binding ReportDate}" Height="34" FontSize="12"
-                                VerticalAlignment="Top" Margin="0,0,6,0"/>
-                    <DatePicker Grid.Column="6" Grid.Row="1" SelectedDate="{Binding ReportEndDate}" Height="34" FontSize="12"
-                                VerticalAlignment="Top" Margin="0,0,6,0"/>
-                    <Button x:Name="GenerateReportButton" Grid.Column="7" Grid.Row="1" Content="Generate Summary"
-                            Command="{Binding GenerateReportCommand}" ToolTip="Generate DLNG Report" FontSize="12" Padding="3,2" MinHeight="34"
-                            Height="34" VerticalAlignment="Top" Margin="0,0,6,0"/>
+                    <Button Grid.Column="5" Grid.ColumnSpan="3" Grid.Row="1" Content="Generate / Add to current batch"
+                            Command="{Binding AddToBatchCommand}" ToolTip="Add saved training selections from the loaded queue. A trained batch is preserved; a new active batch is created."
+                            FontSize="12" Padding="6,2" MinHeight="34" Height="34" VerticalAlignment="Top" Margin="0,0,6,0"/>
 
                 </Grid>
             </Border>
@@ -137,7 +131,7 @@
                         <ColumnDefinition Width="3*"/>
                         <ColumnDefinition Width="2*"/>
                     </Grid.ColumnDefinitions>
-                    <DockPanel>
+                    <DockPanel Grid.ColumnSpan="2">
                         <TextBlock DockPanel.Dock="Top" Text="Activity Log"
                                    Foreground="White" FontWeight="SemiBold" Margin="0,0,0,4"/>
                         <ListBox x:Name="ActivityLogList" ItemsSource="{Binding ActivityLog}" Background="#18212A"
@@ -145,26 +139,7 @@
                                  FontFamily="Consolas" FontSize="12"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto"/>
                     </DockPanel>
-                    <DockPanel Grid.Column="1" Margin="12,0,0,0">
-                        <TextBlock DockPanel.Dock="Top" Text="DLNG Report Summary"
-                                   Foreground="White" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                        <DataGrid ItemsSource="{Binding SummaryRows}"
-                                  AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
-                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                                  Background="#F8FAFC" BorderThickness="0"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Section" Binding="{Binding DatasetSection}" Width="145"/>
-                                <DataGridTextColumn Header="Line" Binding="{Binding LinePolarity}" Width="70"/>
-                                <DataGridTextColumn Header="Folder" Binding="{Binding CropFolder}" Width="105"/>
-                                <DataGridTextColumn Header="Source" Binding="{Binding SourceClass}" Width="115"/>
-                                <DataGridTextColumn Header="Final" Binding="{Binding FinalClass}" Width="130"/>
-                                <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="60"/>
-                                <DataGridTextColumn Header="Switch" Binding="{Binding SwitchedCount}" Width="65"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
-                    </DockPanel>
+
                 </Grid>
             </Border>
 

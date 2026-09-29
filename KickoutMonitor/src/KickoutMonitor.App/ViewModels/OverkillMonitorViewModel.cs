@@ -191,7 +191,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         var decisions = (await _reviews.LoadAsync(default)).Values.ToArray();
         await _collection.RecoverAsync(decisions);
         var ready = (await _collection.LoadAsync()).SelectMany(b => b.Samples)
-            .Where(s => s.State == "Ready").GroupBy(s => s.Id).ToDictionary(g => g.Key, g => g.First());
+            .Where(s => s.State == "Ready").GroupBy(s => s.SourceIdentity).ToDictionary(g => g.Key, g => g.OrderByDescending(s => s.CollectedAt).First());
         foreach (var review in decisions.Where(r => r.IncludeInTraining))
             if (ready.TryGetValue(ReviewSemantics.SampleId(review), out var sample) && sample.CollectedAt is { } collected
                 && review.CollectedAt != collected)
@@ -211,7 +211,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         await Operate(async()=>
         {
             var decisions=await _reviews.LoadAsync(default);
-            var current=decisions.Values.Where(r=>ReviewSemantics.SampleId(r)==sample.Id).OrderByDescending(r=>r.UpdatedAt).FirstOrDefault()??sample.Review;
+            var current=decisions.Values.Where(r=>ReviewSemantics.SampleId(r)==sample.SourceIdentity).OrderByDescending(r=>r.UpdatedAt).FirstOrDefault()??sample.Review;
             var excluded=current with { IncludeInTraining=false,TrainingSelectedAt=null,UpdatedAt=DateTimeOffset.Now };
             await _reviews.SaveAsync(excluded,default);
             await _collection.ApplyAsync(excluded);

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -355,6 +355,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public void AdvanceReviewed()
+    {
+        if (!IsBusy && _draftDecision is null && SelectedCandidate is { Decision: not ReviewDecision.Pending } item
+            && item.CopyState is CopyState.Copied or CopyState.NotRequested && CanNext()) Next();
+    }
+
     public void HandleHotkey(Key key)
     {
         if (IsBusy) return;
@@ -362,6 +368,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             case Key.Enter when CommitCommand.CanExecute(null):
                 CommitCommand.Execute(null);
+                break;
+            case Key.Enter:
+                AdvanceReviewed();
                 break;
             case Key.R when CanReview():
                 RealNgCommand.Execute(null);

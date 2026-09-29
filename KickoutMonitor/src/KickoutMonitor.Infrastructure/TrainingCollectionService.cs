@@ -31,6 +31,8 @@ public sealed class TrainingSample
 {
     public string Id { get; set; } = "";
     public DlngReviewRecord Review { get; set; } = null!;
+    public string? SourceId { get; set; }
+    public string SourceIdentity => SourceId ?? Id;
     public string State { get; set; } = "Pending";
     public string Error { get; set; } = "";
     public DateTimeOffset? CollectedAt { get; set; }
@@ -137,15 +139,18 @@ public sealed partial class TrainingCollectionService
         {
             var batches = Read();
             var id = ReviewSemantics.SampleId(review);
+            var batch = batches.Where(x => x.TrainedAt is null).OrderByDescending(x => x.CreatedAt)
+                .FirstOrDefault(x => x.Samples.Any(s => s.SourceIdentity == id));
+            var sample = batch?.Samples.First(x => x.SourceIdentity == id);
+            if (sample is null)
             foreach (var frozen in batches.Where(x => x.TrainedAt is not null))
-            foreach (var old in frozen.Samples.Where(x => x.Id == id))
+            foreach (var old in frozen.Samples.Where(x => x.SourceIdentity == id))
             {
                 if (old.Review.FinalClass != review.FinalClass || !review.IncludeInTraining) old.Superseded = true;
                 Write(batches);
                 return old.Superseded ? "Trained sample superseded; frozen files retained" : "Already trained";
             }
-            var batch = batches.FirstOrDefault(x => x.TrainedAt is null && x.Samples.Any(s => s.Id == id));
-            var sample = batch?.Samples.First(x => x.Id == id);
+            if (sample is not null) id = sample.Id;
             if (!review.IncludeInTraining || review.IsFallbackRaw || !ReviewSemantics.CanTrain(review.FinalClass))
             {
                 if (sample is not null)
@@ -164,7 +169,7 @@ public sealed partial class TrainingCollectionService
             if (sample is { State: "Ready" } && sample.ObsoleteFiles.Count > 0)
             { RecoverFiles(sample); Write(batches); }
             if (sample is not null && sample.State == "Ready" && sample.Review.FinalClass == review.FinalClass &&
-                sample.Files.Count == (Segmentation(review) ? 2 : 1) && sample.Files.All(File.Exists)) { sample.Review = review; Write(batches); return "Collected"; }
+                sample.Files.Count == (Segmentation(review) ? 2 : 1) && sample.Files.All(p => File.Exists(p) && new FileInfo(p).Length > 0)) { sample.Review = review; Write(batches); return "Collected"; }
             if (batch is null)
             {
                 batch = batches.FirstOrDefault(x => x.TrainedAt is null && x.Group == Group(review));
@@ -184,7 +189,7 @@ public sealed partial class TrainingCollectionService
             Write(batches); // Intent is durable before copying or moving anything.
             try
             {
-                var ownedSources = sample.ObsoleteFiles.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase)
+                var ownedSources = sample.ObsoleteFiles.Where(p => File.Exists(p) && new FileInfo(p).Length > 0).Distinct(StringComparer.OrdinalIgnoreCase)
                     .GroupBy(Path.GetFileName).Select(g => g.First()).ToArray();
                 var sources = ownedSources.Length == (Segmentation(review) ? 2 : 1) ? ownedSources : TrainingFiles(review, review.ImagePaths).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                 var staged = Path.Combine(_root, ".staging", id);
@@ -334,13 +339,44 @@ public sealed partial class TrainingCollectionService
         }
         finally { _gate.Release(); }
     }
+    public async Task<string> AddToCurrentBatchAsync(IEnumerable<DlngReviewRecord> decisions, CancellationToken token = default)
+    {
+        var selected = decisions.Where(r => r.IncludeInTraining && !r.IsFallbackRaw && ReviewSemantics.CanTrain(r.FinalClass))
+            .GroupBy(ReviewSemantics.SampleId).Select(g => g.OrderByDescending(r => r.UpdatedAt).First()).ToArray();
+        if (selected.Length == 0) return "No reviewed training selections in the loaded queue.";
+        await _gate.WaitAsync(token);
+        try
+        {
+            var batches = Read();
+            foreach (var review in selected)
+            {
+                var sourceId = ReviewSemantics.SampleId(review);
+                var batch = batches.Where(b => b.TrainedAt is null && b.Group == Group(review)).OrderByDescending(b => b.CreatedAt).FirstOrDefault();
+                if (batch is null)
+                {
+                    batch = new() { CreatedAt = _now(), Group = Group(review), Product = Product(review),
+                        Crop = review.CropFolder, Polarity = Segmentation(review) ? "shared" : Polarity(review) };
+                    batches.Add(batch);
+                }
+                if (batch.Samples.Any(s => s.SourceIdentity == sourceId)) continue;
+                batch.Samples.Add(new() { Id = InspectionIdentity.Hash(batch.Id + "|" + sourceId), SourceId = sourceId, Review = review });
+            }
+            Write(batches);
+        }
+        finally { _gate.Release(); }
+        var failures = 0;
+        foreach (var review in selected)
+            if ((await ApplyAsync(review, token)).StartsWith("Collection failed:", StringComparison.Ordinal)) failures++;
+        return $"Current batch: {selected.Length - failures} collected, {failures} pending/failed.";
+    }
+
     public async Task QueueSelectedAsync(IEnumerable<DlngReviewRecord> decisions, CancellationToken token = default)
     {
         await _gate.WaitAsync(token);
         try
         {
             var batches = Read();
-            var known = batches.SelectMany(b => b.Samples).Select(s => s.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var known = batches.SelectMany(b => b.Samples).Select(s => s.SourceIdentity).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var changed = false;
             foreach (var review in decisions.GroupBy(ReviewSemantics.SampleId).Select(g => g.OrderByDescending(r => r.UpdatedAt).First()))
             {
@@ -365,7 +401,7 @@ public sealed partial class TrainingCollectionService
     public async Task RecoverAsync(IEnumerable<DlngReviewRecord> decisions, CancellationToken token = default)
     {
         // Snapshot ownership once; do not reload/validate every batch for each historical decision.
-        var known = (await LoadAsync(token)).SelectMany(b => b.Samples).Select(s => s.Id).ToHashSet();
+        var known = (await LoadAsync(token)).SelectMany(b => b.Samples).Select(s => s.SourceIdentity).ToHashSet();
         foreach (var review in decisions.GroupBy(ReviewSemantics.SampleId).Select(g => g.OrderByDescending(r => r.UpdatedAt).First()))
             if (review.IncludeInTraining || known.Contains(ReviewSemantics.SampleId(review)))
                 await ApplyAsync(review, token);

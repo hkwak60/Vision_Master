@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
 using KickoutMonitor.Infrastructure;
@@ -380,6 +380,43 @@ public sealed class ReworkTests : IDisposable
 
     private IrsReviewCandidate Irs(DateTime? at = null, string name = "") => new("irs", "PACKAGE #1-1", "Welding Minus",
         "1-1(-)", at ?? new DateTime(2026, 9, 16, 11, 36, 26), "3A4FI161I1", Cell, "TOP", name, "NG", "SEPA", 1);
+    [Fact]
+    public async Task IrsPortalNameMatchesCsvInspectionWithoutRequiringSameRawFilename()
+    {
+        var candidate = Irs(name: $"WELDING-MINUS_20260916113626072_K1APKG011_3A4FI161I1_{Cell}_TOP_1_3_OK_OK.JPG");
+        var lookup = await new IrsRawImageLocator(new Shares(_root),new Locator(Csv)).FindAsync(_machine,candidate,default);
+        Assert.Equal(3,lookup.NetworkPaths.Count);
+        Assert.All(lookup.NetworkPaths,p=>Assert.Contains("113627",p));
+    }
+    [Theory]
+    [InlineData("20260918155229", "140", "3A4FI181IB", "F69IX06C0O")]
+    [InlineData("20260918162654", "677", "3A4FI181IB", "F69IX07AMZ")]
+    [InlineData("20260919143510", "628", "3A4FI191IA", "F69JX0723Y")]
+    public async Task IrsPortalNamesResolveExactProductionFolders(string stamp, string millis, string lot, string cell)
+    {
+        var at = DateTime.ParseExact(stamp, "yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        var machine = new WeldingMachine("1-2-ca", "1-2", Polarity.Cathode, "unused", ['F']);
+        var name = $"{at:yyyyMMdd_HHmmss}_{lot}_{cell}";
+        var folder = Path.Combine(_root, "Files", "Image", "E81C", at.ToString("yyyy"), at.ToString("MM"), at.ToString("dd"), at.ToString("HH"), "OK", name);
+        Directory.CreateDirectory(folder);
+        foreach (var side in new[] { 0, 1 })
+        foreach (var index in new[] { 0, 1, 2 })
+        foreach (var suffix in new[] { "", "_overlay" })
+            File.WriteAllText(Path.Combine(folder, $"{name}_{side}_{index}{suffix}.jpg"), "fixture");
+        var record = Irs() with { Eqpt="PACKAGE #1-2", VisionType="Welding Plus", CameraLocation="BTM",
+            ProducedAt=at, LotId=lot, CellId=cell,
+            RawImageFileName=$"WELDING-PLUS_{stamp}{millis}_K1APKG012_{lot}_{cell}_BTM_1_3_OK_OK.JPG" };
+        var locator = new IrsRawImageLocator(new Shares(_root), new DatedLocator(new Dictionary<DateOnly,string>()));
+        var result = await locator.FindAsync(machine,record,default);
+        Assert.Equal(3,result.NetworkPaths.Count);
+        Assert.All(result.NetworkPaths,p=>Assert.Contains("_1_",Path.GetFileName(p)));
+        var conflict = await locator.FindAsync(machine,record with { ProducedAt=at.AddSeconds(1) },default);
+        Assert.Empty(conflict.NetworkPaths);
+        var duplicate = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(folder))!, "NG", name);
+        Directory.CreateDirectory(duplicate);
+        Assert.Empty((await locator.FindAsync(machine,record,default)).NetworkPaths);
+    }
+
     [Fact]
     public async Task Irs_ExactJudgmentResolvesSecondAttempt_AndAmbiguityStaysUnresolved()
     {
