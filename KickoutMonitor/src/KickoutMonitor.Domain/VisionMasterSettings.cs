@@ -6,6 +6,7 @@ namespace KickoutMonitor.Domain;
 public sealed class VisionMasterSettings
 {
     public string StorageRoot { get; set; } = @"E:\KWAK\VisionMaster";
+    public string WeeklyReportPath { get; set; } = @"C:\KWAK\4. ESHG\CS_Weekly_Report.xlsx";
     public ProductionPathSettings ProductionPaths { get; set; } = new();
     public KickoutRuleSettings KickoutRules { get; set; } = new();
     public List<MachineSetting> Machines { get; set; } = [];

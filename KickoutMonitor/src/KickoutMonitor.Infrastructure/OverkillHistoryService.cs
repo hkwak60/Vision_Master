@@ -17,7 +17,10 @@ public sealed record OverkillMetric(string Kind, string Product, string Line, st
     public double Heat => Reviewed == 0 ? 0 : (double)Overkill / Reviewed;
 }
 public sealed record HistoryContribution(DateOnly Day, string Kind, string Product, string Line, string Field,
-    string Identity, string SourceClass, string FinalClass, string Source, int Inspected, int Reviewed, int Overkill);
+    string Identity, string SourceClass, string FinalClass, string Source, int Inspected, int Reviewed, int Overkill)
+{
+    public string? LocalFolder { get; init; }
+}
 public sealed record DailyOverkill(DateOnly Day, int? Overkill, int? Reviewed, int? Inspected)
 {
     public string Rate => Reviewed is > 0 ? $"{(double)Overkill!.Value / Reviewed.Value:P1}" : "—";

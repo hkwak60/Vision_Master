@@ -13,6 +13,11 @@
      <TextBlock Text="항목" VerticalAlignment="Center"/><ComboBox ItemsSource="{Binding Fields}" SelectedItem="{Binding Field}" Width="160" Margin="6,0,12,0"/>
     </StackPanel>
     <Button Content="새로고침" Command="{Binding RefreshCommand}" Padding="14,4"/>
+    <StackPanel Orientation="Horizontal" Visibility="{Binding IsKickoutTab, Converter={StaticResource BoolVisibility}}" Margin="12,0,0,0">
+     <Button Content="주간 보고 업데이트" Command="{Binding UpdateWeeklyReportCommand}"/>
+     <Button Content="보고 파일 선택" Command="{Binding SelectWeeklyReportCommand}" Margin="6,0"/>
+     <Button Content="대표 사례 관리" Command="{Binding EditCasesCommand}"/>
+    </StackPanel>
    </WrapPanel>
   </StackPanel>
   <TextBlock DockPanel.Dock="Bottom" Text="{Binding Status}" TextWrapping="Wrap" Foreground="#B45309"/>
@@ -31,7 +36,7 @@
        <DataGridTextColumn Header="Collection dates" Binding="{Binding Range}"/><DataGridTextColumn Header="Samples" Binding="{Binding TotalSamples}"/><DataGridTextColumn Header="Image files" Binding="{Binding TotalFiles}"/><DataGridTextColumn Header="Status" Binding="{Binding Status}"/><DataGridTextColumn Header="Pending/failed" Binding="{Binding Pending}"/><DataGridTextColumn Header="Trained" Binding="{Binding TrainedAt}"/><DataGridTextColumn Header="Dataset folder" Binding="{Binding DatasetFolder}" Width="220"/><DataGridTextColumn Header="Batch ID" Binding="{Binding Id}"/></DataGrid.Columns>
      </DataGrid>
      <DataGrid Grid.Row="2" ItemsSource="{Binding Samples}" SelectedItem="{Binding SelectedSample}" IsReadOnly="True" AutoGenerateColumns="False" Margin="0,8">
-      <DataGrid.Columns><DataGridTextColumn Header="Cell" Binding="{Binding Review.CellId}"/><DataGridTextColumn Header="Line" Binding="{Binding Review.LinePolarity}"/><DataGridTextColumn Header="Final class" Binding="{Binding Review.FinalClass}"/><DataGridTextColumn Header="Copy state" Binding="{Binding State}"/><DataGridTextColumn Header="Collected" Binding="{Binding CollectedAt}"/><DataGridCheckBoxColumn Header="Superseded" Binding="{Binding Superseded}"/><DataGridTextColumn Header="Details" Binding="{Binding Error}" Width="*"/></DataGrid.Columns>
+      <DataGrid.Columns><DataGridTextColumn Header="출처" Binding="{Binding OriginDisplay}" /> <DataGridTextColumn Header="Cell" Binding="{Binding Review.CellId}"/><DataGridTextColumn Header="Line" Binding="{Binding Review.LinePolarity}"/><DataGridTextColumn Header="Final class" Binding="{Binding Review.FinalClass}"/><DataGridTextColumn Header="Copy state" Binding="{Binding State}"/><DataGridTextColumn Header="Collected" Binding="{Binding CollectedAt}"/><DataGridCheckBoxColumn Header="Superseded" Binding="{Binding Superseded}"/><DataGridTextColumn Header="Details" Binding="{Binding Error}" Width="*"/></DataGrid.Columns>
      </DataGrid>
      <DataGrid Grid.Row="3" ItemsSource="{Binding CollectionCounts}" IsReadOnly="True" AutoGenerateColumns="False"><DataGrid.Columns>
        <DataGridTextColumn Header="Crop" Binding="{Binding Crop}"/><DataGridTextColumn Header="Line" Binding="{Binding Line}"/>
@@ -44,10 +49,11 @@
    <Border Grid.Row="1" Visibility="{Binding DetailsOpen, Converter={StaticResource BoolVisibility}}" BorderBrush="#CBD5E1" BorderThickness="1" Background="White" Margin="0,6,0,0">
     <DockPanel Margin="8">
      <DockPanel DockPanel.Dock="Top" Margin="0,0,0,5">
+      <Button Content="대표 사례 추가" Command="{Binding AddCaseCommand}" DockPanel.Dock="Right" Margin="8,0"/>
       <Button Content="닫기 ×" Command="{Binding CloseDetailsCommand}" DockPanel.Dock="Right" Padding="10,3"/>
       <TextBlock Text="{Binding DetailTitle}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
      </DockPanel>
-     <DataGrid ItemsSource="{Binding Contributions}" Height="130" AutoGenerateColumns="False" IsReadOnly="True" HorizontalScrollBarVisibility="Auto">
+     <DataGrid SelectedItem="{Binding SelectedContribution}" ItemsSource="{Binding Contributions}" Height="130" AutoGenerateColumns="False" IsReadOnly="True" HorizontalScrollBarVisibility="Auto">
       <DataGrid.Columns>
        <DataGridTextColumn Header="생산일" Binding="{Binding Day}"/><DataGridTextColumn Header="기계" Binding="{Binding Line}"/>
        <DataGridTextColumn Header="항목" Binding="{Binding Field}"/><DataGridTextColumn Header="과검" Binding="{Binding Overkill}"/>

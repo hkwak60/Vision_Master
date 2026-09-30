@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using KickoutMonitor.Domain;
 
@@ -32,6 +32,9 @@ public sealed class TrainingSample
     public string Id { get; set; } = "";
     public DlngReviewRecord Review { get; set; } = null!;
     public string? SourceId { get; set; }
+    public List<string> Origins { get; set; } = [];
+    public string OriginDisplay => Origins.Count == 0 ? "DLNG (legacy)" : string.Join(", ", Origins);
+    public List<string> ReviewLinks { get; set; } = [];
     public string SourceIdentity => SourceId ?? Id;
     public string State { get; set; } = "Pending";
     public string Error { get; set; } = "";
@@ -140,8 +143,8 @@ public sealed partial class TrainingCollectionService
             var batches = Read();
             var id = ReviewSemantics.SampleId(review);
             var batch = batches.Where(x => x.TrainedAt is null).OrderByDescending(x => x.CreatedAt)
-                .FirstOrDefault(x => x.Samples.Any(s => s.SourceIdentity == id));
-            var sample = batch?.Samples.First(x => x.SourceIdentity == id);
+                .FirstOrDefault(x => x.Samples.Any(s => s.SourceIdentity == id || TrainingInput.Identity(s.Review) == TrainingInput.Identity(review)));
+            var sample = batch?.Samples.First(x => x.SourceIdentity == id || TrainingInput.Identity(x.Review) == TrainingInput.Identity(review));
             if (sample is null)
             foreach (var frozen in batches.Where(x => x.TrainedAt is not null))
             foreach (var old in frozen.Samples.Where(x => x.SourceIdentity == id))
@@ -150,6 +153,9 @@ public sealed partial class TrainingCollectionService
                 Write(batches);
                 return old.Superseded ? "Trained sample superseded; frozen files retained" : "Already trained";
             }
+            if (sample is not null && sample.Origins.Contains("IRS") && sample.Review.ItemKey != review.ItemKey &&
+                !sample.Review.FinalClass.Equals(review.FinalClass, StringComparison.OrdinalIgnoreCase))
+                return "Collection failed: IRS/DLNG class conflict. Confirm both source reviews before retrying.";
             if (sample is not null) id = sample.Id;
             if (!review.IncludeInTraining || review.IsFallbackRaw || !ReviewSemantics.CanTrain(review.FinalClass))
             {
@@ -339,35 +345,64 @@ public sealed partial class TrainingCollectionService
         }
         finally { _gate.Release(); }
     }
-    public async Task<string> AddToCurrentBatchAsync(IEnumerable<DlngReviewRecord> decisions, CancellationToken token = default)
+    public Task<string> AddToCurrentBatchAsync(IEnumerable<DlngReviewRecord> decisions, CancellationToken token = default) =>
+        AddSamplesAsync(decisions.Select(r => new TrainingInput(r, "DLNG", r.ItemKey)), token);
+
+    public async Task<string> AddSamplesAsync(IEnumerable<TrainingInput> inputs, CancellationToken token = default)
     {
-        var selected = decisions.Where(r => r.IncludeInTraining && !r.IsFallbackRaw && ReviewSemantics.CanTrain(r.FinalClass))
-            .GroupBy(ReviewSemantics.SampleId).Select(g => g.OrderByDescending(r => r.UpdatedAt).First()).ToArray();
-        if (selected.Length == 0) return "No reviewed training selections in the loaded queue.";
+        var selected = inputs.Where(x => x.Review.IncludeInTraining && !x.Review.IsFallbackRaw
+            && ReviewSemantics.CanTrain(x.Review.FinalClass))
+            .OrderByDescending(x => x.Review.UpdatedAt).DistinctBy(x => x.Origin + "|" + x.Review.ItemKey).ToArray();
+        if (selected.Length == 0) return "No reviewed training samples in the loaded queue.";
+        var accepted = new List<DlngReviewRecord>();
+        var conflicts = new List<string>();
         await _gate.WaitAsync(token);
         try
         {
             var batches = Read();
-            foreach (var review in selected)
+            foreach (var input in selected)
             {
+                var review = input.Review;
                 var sourceId = ReviewSemantics.SampleId(review);
-                var batch = batches.Where(b => b.TrainedAt is null && b.Group == Group(review)).OrderByDescending(b => b.CreatedAt).FirstOrDefault();
+                var batch = batches.Where(b => b.TrainedAt is null && b.Group == Group(review))
+                    .OrderByDescending(b => b.CreatedAt).FirstOrDefault();
                 if (batch is null)
                 {
                     batch = new() { CreatedAt = _now(), Group = Group(review), Product = Product(review),
                         Crop = review.CropFolder, Polarity = Segmentation(review) ? "shared" : Polarity(review) };
                     batches.Add(batch);
                 }
-                if (batch.Samples.Any(s => s.SourceIdentity == sourceId)) continue;
-                batch.Samples.Add(new() { Id = InspectionIdentity.Hash(batch.Id + "|" + sourceId), SourceId = sourceId, Review = review });
+                var existing = batch.Samples.FirstOrDefault(s => s.SourceIdentity == sourceId ||
+                    TrainingInput.Identity(s.Review) == TrainingInput.Identity(review));
+                if (existing is not null)
+                {
+                    if (!existing.Review.FinalClass.Equals(review.FinalClass, StringComparison.OrdinalIgnoreCase)
+                        && existing.State != "Excluded" && (existing.Review.ItemKey != review.ItemKey || existing.Origins.Count > 1))
+                    {
+                        conflicts.Add($"{review.LinePolarity} {review.CellId} {review.CropFolder}: " +
+                            $"{existing.Review.FinalClass} / {review.FinalClass}");
+                        continue; // Never overwrite another review's class silently.
+                    }
+                    if (existing.Origins.Count == 0) existing.Origins.Add(existing.Review.Judge == "IRS" ? "IRS" : "DLNG");
+                    if (!existing.Origins.Contains(input.Origin)) existing.Origins.Add(input.Origin);
+                    if (!existing.ReviewLinks.Contains(input.ReviewKey)) existing.ReviewLinks.Add(input.ReviewKey);
+                    // Keep the stable owner identity; use newly available exact paths to retry.
+                    accepted.Add(existing.Review with { ImagePaths = review.ImagePaths, FinalClass = review.FinalClass, IncludeInTraining = true });
+                    continue;
+                }
+                batch.Samples.Add(new() { Id = InspectionIdentity.Hash(batch.Id + "|" + sourceId),
+                    SourceId = sourceId, Review = review, Origins = [input.Origin], ReviewLinks = [input.ReviewKey] });
+                accepted.Add(review);
             }
             Write(batches);
         }
         finally { _gate.Release(); }
         var failures = 0;
-        foreach (var review in selected)
+        foreach (var review in accepted.GroupBy(ReviewSemantics.SampleId).Select(g => g.Last()))
             if ((await ApplyAsync(review, token)).StartsWith("Collection failed:", StringComparison.Ordinal)) failures++;
-        return $"Current batch: {selected.Length - failures} collected, {failures} pending/failed.";
+        return $"Current batch: {accepted.GroupBy(ReviewSemantics.SampleId).Select(g => g.Last()).Count() - failures} collected, {failures} pending/failed; " +
+            $"{conflicts.Count} class conflicts (confirm the class, exclude the conflicting active sample in Training collection, then re-add)." +
+            (conflicts.Count == 0 ? "" : Environment.NewLine + string.Join(Environment.NewLine, conflicts));
     }
 
     public async Task QueueSelectedAsync(IEnumerable<DlngReviewRecord> decisions, CancellationToken token = default)
@@ -377,12 +412,13 @@ public sealed partial class TrainingCollectionService
         {
             var batches = Read();
             var known = batches.SelectMany(b => b.Samples).Select(s => s.SourceIdentity).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var identities = batches.SelectMany(b => b.Samples).Select(s => TrainingInput.Identity(s.Review)).ToHashSet();
             var changed = false;
             foreach (var review in decisions.GroupBy(ReviewSemantics.SampleId).Select(g => g.OrderByDescending(r => r.UpdatedAt).First()))
             {
                 if (!review.IncludeInTraining || review.IsFallbackRaw || !ReviewSemantics.CanTrain(review.FinalClass)) continue;
                 var id = ReviewSemantics.SampleId(review);
-                if (!known.Add(id)) continue;
+                if (!known.Add(id) || !identities.Add(TrainingInput.Identity(review))) continue;
                 var batch = batches.FirstOrDefault(b => b.TrainedAt is null && b.Group == Group(review));
                 if (batch is null)
                 {
@@ -401,7 +437,11 @@ public sealed partial class TrainingCollectionService
     public async Task RecoverAsync(IEnumerable<DlngReviewRecord> decisions, CancellationToken token = default)
     {
         // Snapshot ownership once; do not reload/validate every batch for each historical decision.
-        var known = (await LoadAsync(token)).SelectMany(b => b.Samples).Select(s => s.SourceIdentity).ToHashSet();
+        var loaded = await LoadAsync(token);
+        var known = loaded.SelectMany(b => b.Samples).Select(s => s.SourceIdentity).ToHashSet();
+        foreach (var sample in loaded.Where(b => b.TrainedAt is null).SelectMany(b => b.Samples)
+            .Where(s => s.Origins.Contains("IRS") && s.State is "Failed" or "Pending"))
+            await ApplyAsync(sample.Review, token);
         foreach (var review in decisions.GroupBy(ReviewSemantics.SampleId).Select(g => g.OrderByDescending(r => r.UpdatedAt).First()))
             if (review.IncludeInTraining || known.Contains(ReviewSemantics.SampleId(review)))
                 await ApplyAsync(review, token);

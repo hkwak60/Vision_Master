@@ -26,6 +26,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
     private readonly string _decisionFile;
     private readonly string _summaryRoot;
     private readonly string _summaryPrefix;
+    private readonly SemaphoreSlim _decisionGate = new(1, 1);
     private List<IrsDatasetDecision>? _decisionCache;
     private DateTime _decisionCacheWriteTimeUtc;
 
@@ -139,6 +140,9 @@ public sealed class IrsDatasetService : IIrsDatasetService
         bool noNeedToRetrain,
         CancellationToken cancellationToken)
     {
+        await _decisionGate.WaitAsync(cancellationToken);
+        try
+        {
         var records = await LoadDecisionListAsync(cancellationToken);
         ReviewCompatibility.Backup(_decisionFile);
         records.RemoveAll(x => x.ItemKey.Equals(item.Key, StringComparison.OrdinalIgnoreCase));
@@ -154,6 +158,8 @@ public sealed class IrsDatasetService : IIrsDatasetService
             noNeedToRetrain,
             DateTimeOffset.Now));
         await SaveDecisionListAsync(records.OrderBy(x => x.ProducedAt).ToArray(), cancellationToken);
+        }
+        finally { _decisionGate.Release(); }
     }
 
     public async Task<IrsSummaryResult> WriteSummaryAsync(
@@ -166,7 +172,7 @@ public sealed class IrsDatasetService : IIrsDatasetService
         foreach (var candidate in candidates)
         {
             var record = reviewRecords.FirstOrDefault(x => x.Key == candidate.Key);
-            if (record is null || !ReviewCompatibility.SavedImagesMatch(candidate, record))
+            if (record is not null && !ReviewCompatibility.SavedImagesMatch(candidate, record))
                 throw new InvalidOperationException($"Re-review required for {candidate.CellId}: unresolved inspection or saved images.");
         }
         progress?.Report("Loading IRS dataset decisions.");
@@ -187,13 +193,15 @@ public sealed class IrsDatasetService : IIrsDatasetService
             ? $"{_summaryPrefix}_{first:yyyyMMdd}_{last:yyyyMMdd}"
             : $"{_summaryPrefix}_{DateTime.Now:yyyyMMdd_HHmmss}";
         var folder = Path.Combine(root, folderName);
-        if (Directory.Exists(folder))
+        if (Directory.Exists(folder) && !_summaryPrefix.Equals("IRS_Summary", StringComparison.OrdinalIgnoreCase))
         {
             progress?.Report($"Removing existing IRS summary folder: {folderName}.");
             Directory.Delete(folder, true);
         }
         progress?.Report($"Creating IRS summary folder: {folderName}.");
         Directory.CreateDirectory(folder);
+        if (!_summaryPrefix.Equals("IRS_Summary", StringComparison.OrdinalIgnoreCase))
+        {
         var datasetRoot = Path.Combine(folder, "Dataset");
         Directory.CreateDirectory(datasetRoot);
         Directory.CreateDirectory(Path.Combine(datasetRoot, ClassificationFolder, MissingOrMisclassifiedFolder));
@@ -236,6 +244,10 @@ public sealed class IrsDatasetService : IIrsDatasetService
             }
         }
 
+        }
+        if (_summaryPrefix.Equals("IRS_Summary", StringComparison.OrdinalIgnoreCase))
+            foreach (var row in relevant.Where(x => x.Item.IsNeedToSimulate))
+                CopyNeedToSimulateDataset(row.Item, Path.Combine(folder, "Dataset"), cancellationToken);
         progress?.Report("Copying IRS rulebase folders.");
         CopyRulebaseFolders(folder, candidates, reviewRecords, cancellationToken, progress);
 
@@ -659,6 +671,16 @@ public sealed class IrsDatasetService : IIrsDatasetService
     }
 
     private static void WriteSimpleWorkbook(string path, string sheetName, IReadOnlyList<string> headers, IReadOnlyList<IReadOnlyList<string>> rows)
+    {
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            WriteSimpleWorkbookCore(temporary, sheetName, headers, rows);
+            File.Move(temporary, path, true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+    private static void WriteSimpleWorkbookCore(string path, string sheetName, IReadOnlyList<string> headers, IReadOnlyList<IReadOnlyList<string>> rows)
     {
         using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
         WriteEntry(archive, "[Content_Types].xml", """

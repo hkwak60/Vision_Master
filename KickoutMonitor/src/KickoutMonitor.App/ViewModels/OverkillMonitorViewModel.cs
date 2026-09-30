@@ -13,6 +13,15 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     private readonly OverkillHistoryService _history;
     private readonly TrainingCollectionService _collection;
     private readonly IDlngReviewStore _reviews;
+    private readonly WeeklyReportCaseStore? _caseStore;
+    private readonly JsonSettingsStore? _settingsStore;
+    public HistoryContribution? SelectedContribution { get; set; }
+    public AsyncRelayCommand UpdateWeeklyReportCommand { get; }
+    public AsyncRelayCommand SelectWeeklyReportCommand { get; }
+    public RelayCommand EditCasesCommand { get; }
+    public RelayCommand AddCaseCommand { get; }
+    public bool IsKickoutTab => ActiveTab == 0;
+
     private IReadOnlyList<KickoutHistorySnapshot> _kickout = [];
     private IReadOnlyList<DlngReviewRecord> _dlng = [];
     private IReadOnlyList<TrainingBatch> _batches = [];
@@ -24,8 +33,15 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     private string _detailTitle = "";
     private TrainingBatch? _selectedBatch;
     private TrainingSample? _selectedSample;
-    public OverkillMonitorViewModel(OverkillHistoryService history, TrainingCollectionService collection, IDlngReviewStore reviews)
+    public OverkillMonitorViewModel(OverkillHistoryService history, TrainingCollectionService collection, IDlngReviewStore reviews, AppStorage? storage = null, JsonSettingsStore? settingsStore = null)
     {
+        _caseStore = storage is null ? null : new WeeklyReportCaseStore(storage);
+        _settingsStore = settingsStore;
+        UpdateWeeklyReportCommand = new(UpdateWeeklyReportAsync, () => !_busy && ValidRange && _settingsStore is not null && ActiveTab == 0);
+        SelectWeeklyReportCommand = new(SelectWeeklyReportAsync, () => !_busy && _settingsStore is not null && ActiveTab == 0);
+        EditCasesCommand = new(() => EditCases(false), () => !_busy && ValidRange && _caseStore is not null && ActiveTab == 0);
+        AddCaseCommand = new(() => EditCases(true), () => !_busy && ValidRange && _caseStore is not null &&
+            SelectedContribution is { Kind: "Kickout", Overkill: > 0, LocalFolder: not null });
         _history = history; _collection = collection; _reviews = reviews;
         RefreshCommand = new(RefreshAsync, () => !_busy);
         RecentSevenCommand = new(() =>
@@ -59,7 +75,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         set
         {
             Set(ref _activeTab, value); DetailsOpen = false;
-            foreach (var name in new[] { nameof(ActivePanel), nameof(Fields), nameof(Field), nameof(IsTrendTab) })
+            foreach (var name in new[] { nameof(ActivePanel), nameof(Fields), nameof(Field), nameof(IsTrendTab), nameof(IsKickoutTab) })
                 PropertyChanged?.Invoke(this, new(name));
         }
     }
@@ -176,7 +192,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
             foreach (var d in details)
                 Contributions.Add(new(snapshot.Day, "Kickout", "", d.LinePolarity, d.Defect,
                     string.Join(" | ", d.Headers.Zip(d.Values).Select(x => $"{x.First}={x.Second}")), "NG", d.Decision.ToString(),
-                    snapshot.Source, 0, 1, d.Decision == ReviewDecision.Overkill ? 1 : 0));
+                    snapshot.Source, 0, 1, d.Decision == ReviewDecision.Overkill ? 1 : 0) { LocalFolder = d.LocalFolder });
             if (rows.Length == 0 && request.Field != OverkillTrendService.All)
             {
                 var all = snapshot.Rows.FirstOrDefault(r => r.LinePolarity == request.Line && r.Defect == "ALL");
@@ -185,6 +201,49 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
             }
         }
         DetailsOpen = true;
+    }
+    private async Task SelectWeeklyReportAsync()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "Excel workbook|*.xlsx" };
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            var settings = await _settingsStore!.LoadOrCreateAsync(default);
+            settings.WeeklyReportPath = dialog.FileName;
+            await _settingsStore.SaveAsync(settings, default);
+            Status = "주간 보고 대상: " + dialog.FileName;
+        }
+        catch (Exception e) { ReportError(e.ToString()); }
+    }
+    private async Task UpdateWeeklyReportAsync()
+    {
+        if (!ValidRange || _busy) return;
+        var start = DateOnly.FromDateTime(StartDate!.Value); var end = DateOnly.FromDateTime(EndDate!.Value);
+        _busy = true;
+        try
+        {
+            var settings = await _settingsStore!.LoadOrCreateAsync(default);
+            var history = await Task.Run(() => _history.LoadKickoutAsync());
+            var cases = _caseStore!.Load();
+            await Task.Run(() => new WeeklyReportWorkbook().Update(settings.WeeklyReportPath, history, start, end, cases));
+            Status = $"주간 보고 업데이트 완료: {start:yyyy-MM-dd} ~ {end:yyyy-MM-dd} · {settings.WeeklyReportPath}";
+        }
+        catch (Exception e) { ReportError("Excel 파일이 열려 있으면 닫은 뒤 다시 시도하세요. " + e); }
+        finally { _busy = false; System.Windows.Input.CommandManager.InvalidateRequerySuggested(); }
+    }
+    private void EditCases(bool add)
+    {
+        if (_caseStore is null || !ValidRange) return;
+        try
+        {
+            var start = DateOnly.FromDateTime(StartDate!.Value); var end = DateOnly.FromDateTime(EndDate!.Value);
+            WeeklyReportCase? item = null;
+            if (add && SelectedContribution is { } detail)
+                item = new() { Start = start, End = end, Day = detail.Day, Line = detail.Line, Field = detail.Field,
+                    Inspection = detail.Identity, SourceFolder = detail.LocalFolder ?? "", Order = 100 };
+            new WeeklyCasesWindow(_caseStore, start, end, item) { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
+        }
+        catch (Exception e) { ReportError(e.ToString()); }
     }
     private async Task RetryAsync() => await Operate(async () =>
     {
@@ -211,9 +270,9 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         await Operate(async()=>
         {
             var decisions=await _reviews.LoadAsync(default);
-            var current=decisions.Values.Where(r=>ReviewSemantics.SampleId(r)==sample.SourceIdentity).OrderByDescending(r=>r.UpdatedAt).FirstOrDefault()??sample.Review;
-            var excluded=current with { IncludeInTraining=false,TrainingSelectedAt=null,UpdatedAt=DateTimeOffset.Now };
-            await _reviews.SaveAsync(excluded,default);
+            var current=decisions.Values.Where(r=>ReviewSemantics.SampleId(r)==sample.SourceIdentity || TrainingInput.Identity(r)==TrainingInput.Identity(sample.Review)).OrderByDescending(r=>r.UpdatedAt).FirstOrDefault();
+            var excluded=(current ?? sample.Review) with { IncludeInTraining=false,TrainingSelectedAt=null,UpdatedAt=DateTimeOffset.Now };
+            if (current is not null) await _reviews.SaveAsync(excluded,default);
             await _collection.ApplyAsync(excluded);
         });
     }

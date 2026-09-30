@@ -147,6 +147,9 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     private readonly IMachineRegistry _machines;
     private readonly IIrsReviewCommitService _commits;
     private readonly IIrsDatasetService _dataset;
+    private readonly TrainingCollectionService? _collection;
+    private readonly List<Task> _pendingDatasetCommits = [];
+    private readonly HashSet<string> _failedDatasetCommits = [];
     private readonly VisionMasterSettings _settings;
     private readonly IFlaggedItemStore? _flags;
     private readonly Dictionary<string, IReadOnlyList<string>> _committedSelections = new(StringComparer.OrdinalIgnoreCase);
@@ -172,13 +175,15 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         IIrsReviewCommitService commits,
         IIrsDatasetService dataset,
         VisionMasterSettings? settings = null,
-        IFlaggedItemStore? flags = null)
+        IFlaggedItemStore? flags = null, TrainingCollectionService? collection = null)
     {
         _queue = queue;
         _images = images;
         _machines = machines;
         _commits = commits;
         _dataset = dataset;
+        _collection = collection;
+        AddToBatchCommand = new(AddToBatchAsync, () => !IsBusy && _datasetMode && _collection is not null);
         _settings = settings ?? VisionMasterSettings.CreateDefault();
         _flags = flags;
         BrowseCommand = new(BrowseAsync, () => !IsBusy);
@@ -221,6 +226,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public AsyncRelayCommand FlagCommand { get; }
     public AsyncRelayCommand GenerateDatasetCommand { get; }
     public AsyncRelayCommand SummaryReportCommand { get; }
+    public AsyncRelayCommand AddToBatchCommand { get; }
     public ObservableCollection<IrsSelectionOption> FinalClassOptions { get; } = [];
     public IReadOnlyList<IrsSelectionOption> SelectionOptions { get; }
     public IReadOnlyList<IrsSelectionOption> TopClassifications => SelectionOptions.Take(2).ToArray();
@@ -838,6 +844,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(SelectionPanelTitle));
         OnPropertyChanged(nameof(FirstStageSelectionVisibility));
         OnPropertyChanged(nameof(FinalClassVisibility));
+        CommandManager.InvalidateRequerySuggested();
     }
 
     private void TrackFirstStageCommit(Task task)
@@ -875,16 +882,6 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             await WaitForFirstStageCommitsAsync();
             var records = await _commits.LoadRecordsAsync(CancellationToken.None);
             _loadedReviewRecords = records;
-            var reviewed = records.Select(x => x.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var missing = _loadedCandidates.Where(x => !reviewed.Contains(x.Key)).ToArray();
-            if (missing.Length > 0)
-            {
-                Status = $"Cannot generate dataset: {missing.Length:N0} IRS row(s) are not reviewed.";
-                AddLog(Status);
-                LogMissingFirstStageRows(missing);
-                return;
-            }
-
             var items = await _dataset.BuildQueueAsync(_loadedCandidates, records, CancellationToken.None);
             var decisions = await _dataset.LoadDecisionsAsync(CancellationToken.None);
             _datasetDecisions.Clear();
@@ -947,22 +944,32 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task AddToBatchAsync()
+    {
+        if (_collection is null) return;
+        IsBusy = true;
+        try
+        {
+            await Task.WhenAll(_pendingDatasetCommits.ToArray());
+            var decisions = await _dataset.LoadDecisionsAsync(default);
+            var inputs = _datasetItems.Where(x => decisions.ContainsKey(x.Key) && !_failedDatasetCommits.Contains(x.Key))
+                .Select(x => TrainingInput.FromIrs(x, decisions[x.Key], _settings)).OfType<TrainingInput>().ToArray();
+            Status = await Task.Run(() => _collection.AddSamplesAsync(inputs));
+            AddLog(Status);
+        }
+        catch (Exception e) { Status = e.Message; AddLog(e.ToString()); }
+        finally { IsBusy = false; }
+    }
+
     private async Task SummaryReportAsync()
     {
         if (!_datasetMode || _datasetItems.Count == 0) return;
         IsBusy = true;
         try
         {
+            await Task.WhenAll(_pendingDatasetCommits.ToArray());
             AddLog($"Checking IRS dataset decisions for {_datasetItems.Count:N0} item(s).");
             var decisions = await _dataset.LoadDecisionsAsync(CancellationToken.None);
-            var missing = _datasetItems.Count(x => !x.IsNeedToSimulate && !decisions.ContainsKey(x.Key));
-            if (missing > 0)
-            {
-                Status = $"Cannot generate summary: {missing:N0} dataset item(s) are not classified.";
-                AddLog(Status);
-                return;
-            }
-
             AddLog("Starting IRS summary generation.");
             var progress = new Progress<string>(AddLog);
             var result = await Task.Run(
@@ -1072,21 +1079,26 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             noNeed,
             DateTimeOffset.Now);
         AddLog($"{item.LinePolarity} {item.CellId}: dataset classified as {string.Join(", ", selected)}.");
-        _ = Task.Run(async () =>
+        _pendingDatasetCommits.RemoveAll(t => t.IsCompleted);
+        var precedingCommit = _pendingDatasetCommits.LastOrDefault() ?? Task.CompletedTask;
+        _pendingDatasetCommits.Add(Task.Run(async () =>
         {
             try
             {
+                await precedingCommit;
                 await _dataset.SaveDecisionAsync(item.DatasetItem, finalClasses, noNeed, CancellationToken.None);
+                RunOnUi(() => _failedDatasetCommits.Remove(item.DatasetItem.Key));
             }
             catch (Exception exception)
             {
                 RunOnUi(() =>
                 {
-                    item.ReviewStatus = "Copy failed";
+                    _failedDatasetCommits.Add(item.DatasetItem.Key);
+                    item.ReviewStatus = "Save failed";
                     AddLog($"{item.LinePolarity} {item.CellId}: dataset decision failed - {exception.Message}");
                 });
             }
-        });
+        }));
         ClearFinalSelections();
         Next();
         RequestKeyboardFocus?.Invoke(this, EventArgs.Empty);

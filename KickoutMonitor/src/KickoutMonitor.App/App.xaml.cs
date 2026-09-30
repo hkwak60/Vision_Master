@@ -55,7 +55,7 @@ public partial class App : System.Windows.Application
         var ngBypassReviews = new JsonNgBypassReviewStore(storage);
         var dlngReviews = new JsonDlngReviewStore(storage);
         var collection = new TrainingCollectionService(storage);
-        var overkill = new OverkillMonitorViewModel(new OverkillHistoryService(storage, dlngReviews, collection), collection, dlngReviews);
+        var overkill = new OverkillMonitorViewModel(new OverkillHistoryService(storage, dlngReviews, collection), collection, dlngReviews, storage, settingsStore);
         var flaggedItems = new JsonFlaggedItemStore(storage);
         var shares = new SharePathResolver();
         var locator = new DailyCsvLocator(shares, settings);
@@ -100,7 +100,7 @@ public partial class App : System.Windows.Application
             new IrsReviewCommitService(storage, locator, shares, settings),
             new IrsDatasetService(storage, settings),
             settings,
-            flaggedItems);
+            flaggedItems, collection);
         var flaggedCommits = new IrsReviewCommitService(
             storage,
             locator,

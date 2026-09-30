@@ -48,10 +48,9 @@
                     </StackPanel>
                     <Button Grid.Column="1" Content="Browse"
                             Command="{Binding BrowseCommand}" VerticalAlignment="Bottom"/>
-                    <Button Grid.Column="2" Content="Generate Dataset"
+                    <Button Grid.Column="2" Content="Review crops"
                             Command="{Binding GenerateDatasetCommand}" VerticalAlignment="Bottom"/>
-                    <Button Grid.Column="3" Content="Summary Report"
-                            Command="{Binding SummaryReportCommand}" VerticalAlignment="Bottom"/>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Bottom"><Button Content="Generate / Add to current batch" Command="{Binding AddToBatchCommand}"/><Button Content="Summary Report" Command="{Binding SummaryReportCommand}"/></StackPanel>
                 </Grid>
             </Border>
 

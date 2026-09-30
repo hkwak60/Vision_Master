@@ -62,3 +62,56 @@ copies still go to the correct output folder.
 Daily CSV discovery accepts the base result file and numbered continuations:
 `..._YYYYMMDD.csv`, `..._YYYYMMDD_1.csv`, `..._YYYYMMDD_2.csv`, and so on.
 Files with suffixes such as `- Copy`, `_Copy`, or `_defect` are ignored.
+
+
+## Weekly Kickout workbook and representative cases
+
+In **Overkill Monitor > Kickout**, select the report dates and click **주간 보고 업데이트**.
+**보고 파일 선택** saves a fixed existing .xlsx path in WeeklyReportPath (initially
+C:\\KWAK\\4. ESHG\\CS_Weekly_Report.xlsx). The app adds or refreshes only its managed
+●Kickout 과검 sheet. The user's ●Overkill 리포트, hidden sheets, images and other
+workbook content are preserved. Close Excel before updating; failures retain the
+original and are written to the existing Overkill Monitor diagnostic log.
+A successful replacement retains one adjacent workbook.bak.
+
+The sheet includes all eight lines/polarities, period counts, daily graphs,
+positive-only defect lists, and eight Sunday–Saturday weeks ending in the selected
+end date's week. A partial final week is marked *. Missing reports remain gaps,
+zero remains zero, and covered-day counts explain incomplete weeks. Totals use
+ALL rows, not summed defects. Real NG counts only reviewed real defects; remaining
+NG is shown separately as pending. Native Excel charts remain editable.
+
+Open a Kickout detail record, select an actual overkill row, and choose
+**대표 사례 추가**. Select an image from that inspection's folder and enter the reason
+and action. **대표 사례 관리** restores, reorders or removes up to three cases per
+period and line. Save retries a missing image. Decisions, descriptions and copied
+images are stored below the existing NG_Summary/.weekly root; no production files
+are modified. A locally saved image remains usable offline. Automatic sheet edits
+are replaced next time; edit representative-case content in the app.
+
+## IRS shared training batches
+
+IRS **Review crops** opens the crop-classification stage using completed source
+reviews, even when other loaded source rows remain pending. After final classes
+are saved, **Generate / Add to current batch** adds the classified items from the
+loaded queue. Pending, No Need, unknown folders and NEED_TO_SIMULATE/raw items do
+not enter training. IRS summary reports remain available; they no longer produce
+duplicate classified crop datasets; existing legacy exported images are preserved on regeneration. Rulebase and simulation-support files remain
+part of the existing summary workflow.
+
+IRS and DLNG pool by product + crop + polarity for classification, or product +
+crop for segmentation. Older/newer inspection dates use the latest matching active
+batch. Same inspection/crop inputs deduplicate across origins; manifests retain
+IRS/DLNG provenance. An active IRS-only sample can be reclassified and re-added.
+Conflicting classes from separate sources never silently overwrite each other:
+confirm the intended label, explicitly exclude the conflicting active sample in
+Training collection, then re-add the reviewed sample.
+
+Missing/empty/incomplete files retain failed status and do not count as collected.
+Use **Retry pending copies** in Training collection, or the IRS add button again.
+Review decisions persist independently. Generate Dataset exports to
+DLNG_REPORT/DATASET, directly into class folders, without classification ActiveMap
+images. Export freezes the batch while retaining counts and allowing repeat exports;
+a later explicit add starts a new batch when needed. No historical IRS reviews are
+automatically collected and no IRS collection records are inserted into DLNG review
+statistics. Existing review/collection stores are backed up before modification.

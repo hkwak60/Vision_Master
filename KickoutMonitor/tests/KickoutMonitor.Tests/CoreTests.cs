@@ -2697,7 +2697,7 @@ public sealed class CoreTests
     }
 
     [Fact]
-    public async Task IrsDatasetService_SummaryPreservesOriginalCropFileNames()
+    public async Task IrsDatasetService_SummaryDoesNotDuplicateTrainingCrops()
     {
         var storageRoot = Path.Combine(Path.GetTempPath(), "IrsDatasetNames", Guid.NewGuid().ToString("N"));
         var folder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "Crop_A");
@@ -2719,15 +2719,14 @@ public sealed class CoreTests
             var item = Assert.Single(items);
             await service.SaveDecisionAsync(item, ["01_OK_TOP_CATHODE"], false, CancellationToken.None);
             var result = await service.WriteSummaryAsync([candidate], [record], items, CancellationToken.None);
-            var destination = Path.Combine(result.OutputFolder, "Dataset", "Classification", "정상검출", "Crop_A", "1-1(+)", "01_OK_TOP_CATHODE");
-
-            foreach (var file in files)
-            {
-                Assert.True(ExportExists(Path.Combine(destination, Path.GetFileName(file))));
-                Assert.False(File.Exists(Path.Combine(destination, $"CELL-NAME_{Path.GetFileName(file)}")));
-            }
-            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "01_OK_TOP_CATHODE")));
-            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset", "Crop_A", "1-1(+)", "01_OK_TOP_CATHODE")));
+            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset")));
+            Assert.True(File.Exists(result.SummaryWorkbook));
+            var legacyFolder = Path.Combine(result.OutputFolder, "Dataset", "legacy");
+            Directory.CreateDirectory(legacyFolder);
+            var legacyImage = Path.Combine(legacyFolder, "keep.jpg");
+            await File.WriteAllTextAsync(legacyImage, "old export");
+            await service.WriteSummaryAsync([candidate], [record], items, CancellationToken.None);
+            Assert.Equal("old export", await File.ReadAllTextAsync(legacyImage));
         }
         finally
         {
@@ -2736,7 +2735,7 @@ public sealed class CoreTests
     }
 
     [Fact]
-    public async Task IrsDatasetService_SummaryCopiesClassificationCategoriesAndRulebaseBySecondReason()
+    public async Task IrsDatasetService_SummaryKeepsRulebaseButNotClassificationCopies()
     {
         var storageRoot = Path.Combine(Path.GetTempPath(), "IrsSummarySections", Guid.NewGuid().ToString("N"));
         var cropFolder = Path.Combine(storageRoot, "1-1(+)", "IRS_LEAK", "Crop_B");
@@ -2777,12 +2776,8 @@ public sealed class CoreTests
                 items,
                 CancellationToken.None);
 
-            var classification = Path.Combine(result.OutputFolder, "Dataset", "Classification", "미검_오검", "Crop_B", "1-1(+)", "02_NG_TORN");
-            Assert.True(Directory.Exists(classification));
-            foreach (var file in cropFiles)
-            {
-                Assert.True(ExportExists(Path.Combine(classification, Path.GetFileName(file))));
-            }
+            Assert.False(Directory.Exists(Path.Combine(result.OutputFolder, "Dataset")));
+            Assert.True(File.Exists(result.SummaryWorkbook));
 
             var rulebase = Path.Combine(result.OutputFolder, "Rulebase", "1-1(+)", "Tab Folded", InspectionIdentity.Hash(rulebaseCandidate.Key), "CELL-RULE-FOLDER");
             Assert.True(ExportExists(Path.Combine(rulebase, Path.GetFileName(rulebaseImage))));
