@@ -9,7 +9,7 @@ public sealed class MachineLegend : INotifyPropertyChanged
     public string Color { get; }
     private bool _visible = true;
     public bool Visible { get => _visible; set { if (_visible == value) return; _visible = value; PropertyChanged?.Invoke(this, new(nameof(Visible))); } }
-    public MachineLegend(string line, string color) { Line = line; Color = color; }
+    public MachineLegend(string line, string color) { Line = line; Color = color; _visible = line.StartsWith("1-", StringComparison.Ordinal); }
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 public sealed record OverkillSeries(string Line, string Color, IReadOnlyList<MachineDayCount> Points);

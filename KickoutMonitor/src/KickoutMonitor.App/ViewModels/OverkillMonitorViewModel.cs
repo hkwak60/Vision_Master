@@ -13,13 +13,10 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     private readonly OverkillHistoryService _history;
     private readonly TrainingCollectionService _collection;
     private readonly IDlngReviewStore _reviews;
-    private readonly WeeklyReportCaseStore? _caseStore;
     private readonly JsonSettingsStore? _settingsStore;
     public HistoryContribution? SelectedContribution { get; set; }
     public AsyncRelayCommand UpdateWeeklyReportCommand { get; }
     public AsyncRelayCommand SelectWeeklyReportCommand { get; }
-    public RelayCommand EditCasesCommand { get; }
-    public RelayCommand AddCaseCommand { get; }
     public bool IsKickoutTab => ActiveTab == 0;
 
     private IReadOnlyList<KickoutHistorySnapshot> _kickout = [];
@@ -35,13 +32,10 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     private TrainingSample? _selectedSample;
     public OverkillMonitorViewModel(OverkillHistoryService history, TrainingCollectionService collection, IDlngReviewStore reviews, AppStorage? storage = null, JsonSettingsStore? settingsStore = null)
     {
-        _caseStore = storage is null ? null : new WeeklyReportCaseStore(storage);
         _settingsStore = settingsStore;
-        UpdateWeeklyReportCommand = new(UpdateWeeklyReportAsync, () => !_busy && ValidRange && _settingsStore is not null && ActiveTab == 0);
+        UpdateWeeklyReportCommand = new(UpdateWeeklyReportAsync, () => !_busy && ValidRange && _settingsStore is not null
+            && ActiveTab == 0 && Kickout.Machines.Any(m => m.Visible));
         SelectWeeklyReportCommand = new(SelectWeeklyReportAsync, () => !_busy && _settingsStore is not null && ActiveTab == 0);
-        EditCasesCommand = new(() => EditCases(false), () => !_busy && ValidRange && _caseStore is not null && ActiveTab == 0);
-        AddCaseCommand = new(() => EditCases(true), () => !_busy && ValidRange && _caseStore is not null &&
-            SelectedContribution is { Kind: "Kickout", Overkill: > 0, LocalFolder: not null });
         _history = history; _collection = collection; _reviews = reviews;
         RefreshCommand = new(RefreshAsync, () => !_busy);
         RecentSevenCommand = new(() =>
@@ -181,7 +175,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
                     r.LinePolarity, r.CropFolder, $"{r.InspectedAt:yyyy-MM-dd HH:mm:ss} · {r.CellId} · {r.ItemKey}", r.SourceClass,
                     r.FinalClass, string.Join("; ", r.ImagePaths), 0, ReviewSemantics.IsApplicableOutcome(ReviewSemantics.Outcome(r)) ? 1 : 0, ReviewSemantics.Outcome(r) == "Overkill" ? 1 : 0));
         }
-        else foreach (var snapshot in _kickout.Where(h => h.Day >= start && h.Day <= end).OrderBy(h => h.Day))
+        else foreach (var snapshot in KickoutOverkillHistory.Normalize(_kickout).Where(h => h.Day >= start && h.Day <= end).OrderBy(h => h.Day))
         {
             var rows = snapshot.Rows.Where(r => r.LinePolarity == request.Line && r.Defect == (request.Field == OverkillTrendService.All ? "ALL" : request.Field)).ToArray();
             foreach (var row in rows)
@@ -219,31 +213,22 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     {
         if (!ValidRange || _busy) return;
         var start = DateOnly.FromDateTime(StartDate!.Value); var end = DateOnly.FromDateTime(EndDate!.Value);
+        var selectedLines = Kickout.Machines.Where(m => m.Visible).Select(m => m.Line).ToArray();
+        if (selectedLines.Length == 0) { Status = "호기를 하나 이상 선택하세요."; return; }
         _busy = true;
         try
         {
             var settings = await _settingsStore!.LoadOrCreateAsync(default);
             var history = await Task.Run(() => _history.LoadKickoutAsync());
-            var cases = _caseStore!.Load();
-            await Task.Run(() => new WeeklyReportWorkbook().Update(settings.WeeklyReportPath, history, start, end, cases));
-            Status = $"주간 보고 업데이트 완료: {start:yyyy-MM-dd} ~ {end:yyyy-MM-dd} · {settings.WeeklyReportPath}";
+            await Task.Run(() => new WeeklyReportWorkbook().Update(settings.WeeklyReportPath, history, start, end, selectedLines));
+            var copied = await Task.Run(() => WeeklyOverkillImages.Export(settings.WeeklyReportPath, history, start, end, selectedLines));
+            Status = $"주간 보고 업데이트 완료: {start:yyyy-MM-dd} ~ {end:yyyy-MM-dd} · {settings.WeeklyReportPath}" +
+                $"\n과검 이미지 {copied.Files}개: {copied.Folder}";
+            if (copied.Failures.Count > 0) Status += $"\n이미지 {copied.Failures.Count}건 미완료. 다시 업데이트하면 재시도합니다. " +
+                _history.SaveDiagnostic(string.Join(Environment.NewLine, copied.Failures));
         }
         catch (Exception e) { ReportError("Excel 파일이 열려 있으면 닫은 뒤 다시 시도하세요. " + e); }
         finally { _busy = false; System.Windows.Input.CommandManager.InvalidateRequerySuggested(); }
-    }
-    private void EditCases(bool add)
-    {
-        if (_caseStore is null || !ValidRange) return;
-        try
-        {
-            var start = DateOnly.FromDateTime(StartDate!.Value); var end = DateOnly.FromDateTime(EndDate!.Value);
-            WeeklyReportCase? item = null;
-            if (add && SelectedContribution is { } detail)
-                item = new() { Start = start, End = end, Day = detail.Day, Line = detail.Line, Field = detail.Field,
-                    Inspection = detail.Identity, SourceFolder = detail.LocalFolder ?? "", Order = 100 };
-            new WeeklyCasesWindow(_caseStore, start, end, item) { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
-        }
-        catch (Exception e) { ReportError(e.ToString()); }
     }
     private async Task RetryAsync() => await Operate(async () =>
     {

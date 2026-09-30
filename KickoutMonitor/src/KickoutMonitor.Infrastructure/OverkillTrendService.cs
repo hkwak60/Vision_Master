@@ -21,7 +21,7 @@ public static class OverkillTrendService
 
     public static OverkillTrendData Kickout(IEnumerable<KickoutHistorySnapshot> history, DateOnly start, DateOnly end)
     {
-        var snapshots = history.ToArray();
+        var snapshots = KickoutOverkillHistory.Normalize(history).ToArray();
         var fields = snapshots.SelectMany(h => h.Rows).Where(r => r.Defect != "ALL").Select(r => r.Defect).Distinct().Order().ToArray();
         var rows = snapshots.Where(h => h.Day >= start && h.Day <= end)
             .SelectMany(h => h.Rows.Select(r => (h.Day, Row: r))).ToLookup(x => (x.Day, x.Row.LinePolarity));

@@ -203,6 +203,10 @@ internal static class Program
             var localStorage = new AppStorage(Root);
             var collection = new TrainingCollectionService(localStorage);
             var overkill = new OverkillMonitorViewModel(new OverkillHistoryService(localStorage,reviewStore,collection),collection,reviewStore,localStorage,new JsonSettingsStore(System.IO.Path.Combine(Root,"settings.json")));
+            Require(overkill.Kickout.Machines.Where(m => m.Visible).Count() == 4 &&
+                overkill.Dlng.Machines.Where(m => m.Visible).All(m => m.Line.StartsWith("1-")), "only 1-1 and 1-2 default checked");
+            foreach (var panel in new[] { overkill.Kickout, overkill.Dlng })
+                foreach (var machineLegend in panel.Machines) machineLegend.Visible = true; // Existing eight-series interaction coverage.
             var dashboard = new KickoutMonitor.App.OverkillMonitorView {DataContext=overkill};
             var controls = new UserControl[] {
                 new KickoutMonitor.App.KickoutMonitorView { DataContext = kickout },
@@ -233,7 +237,7 @@ internal static class Program
             }
             // Exercise actual workbook package and new screen without touching the user's original.
             var fixtureHistory = Task.Run(() => new OverkillHistoryService(localStorage, reviewStore, collection).LoadKickoutAsync()).GetAwaiter().GetResult();
-            var reportPath = System.IO.Path.Combine(Environment.CurrentDirectory, ".codex-work", "weekly-report-smoke.xlsx");
+            var reportPath = Environment.GetEnvironmentVariable("VISIONMASTER_WEEKLY_OUTPUT") ?? System.IO.Path.Combine(Environment.CurrentDirectory, ".codex-work", "weekly-report-smoke.xlsx");
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(reportPath)!);
             var template = Environment.GetEnvironmentVariable("VISIONMASTER_WEEKLY_TEMPLATE");
             if (!string.IsNullOrEmpty(template)) System.IO.File.Copy(template, reportPath, true);
@@ -243,26 +247,10 @@ internal static class Program
                 var generated = Task.Run(() => new SummaryReportWriter(localStorage).WriteAsync(firstSnapshot.Day, firstSnapshot.Start, firstSnapshot.End, firstSnapshot.Rows, [], default)).GetAwaiter().GetResult();
                 System.IO.File.Copy(generated, reportPath, true);
             }
-            var caseStore = new WeeklyReportCaseStore(localStorage);
-            var caseFolder = System.IO.Path.Combine(Root, "case-source"); System.IO.Directory.CreateDirectory(caseFolder);
-            var caseImage = System.IO.Path.Combine(caseFolder, "exact-inspection.png");
-            var bitmap = new RenderTargetBitmap(480, 240, 96, 96, PixelFormats.Pbgra32);
-            var drawing = new DrawingVisual();
-            using (var dc = drawing.RenderOpen())
-            {
-                dc.DrawRectangle(Brushes.SlateGray, null, new Rect(0, 0, 480, 240));
-                dc.DrawRectangle(Brushes.Gold, null, new Rect(30, 70, 420, 100));
-                dc.DrawEllipse(null, new Pen(Brushes.Red, 5), new Point(320, 120), 40, 40);
-            }
-            bitmap.Render(drawing); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            using (var output = System.IO.File.Create(caseImage)) encoder.Save(output);
-            var example = new WeeklyReportCase { Start = today.AddDays(-6), End = today, Day = today, Line = "1-1(-)",
-                Field = "SEPA", Inspection = "fixture-exact-inspection", SourceFolder = caseFolder, SourceImage = caseImage,
-                Reason = "분리막 주름 Rulebase 과검", Action = "검출 ROI 및 Threshold 검토 (예시)" };
-            caseStore.Save(example);
             var weeklyWriter = new WeeklyReportWorkbook();
-            weeklyWriter.Update(reportPath, fixtureHistory, today.AddDays(-6), today, caseStore.Load());
-            weeklyWriter.Update(reportPath, fixtureHistory, today.AddDays(-6), today, caseStore.Load());
+            var reportLines = OverkillTrendService.Lines.Take(4).ToArray();
+            weeklyWriter.Update(reportPath, fixtureHistory, today.AddDays(-6), today, reportLines);
+            weeklyWriter.Update(reportPath, fixtureHistory, today.AddDays(-6), today, reportLines);
             using (var document = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(reportPath, false))
             {
                 var managed = document.WorkbookPart!.WorksheetParts.Single(p => p.Uri.ToString().Contains("vmWeekly/sheet"));
@@ -270,14 +258,8 @@ internal static class Program
                 var errors = validator.Validate(managed).Concat(validator.Validate(managed.DrawingsPart!))
                     .Concat(managed.DrawingsPart!.ChartParts.SelectMany(p => validator.Validate(p))).ToArray();
                 Require(errors.Length == 0, "weekly OOXML validation: " + string.Join("; ", errors.Select(e => e.Description)));
-                Require(managed.DrawingsPart.ChartParts.Count() == 16, "eight daily and eight weekly editable charts");
+                Require(managed.DrawingsPart.ChartParts.Count() == 8, "four selected lines: daily and weekly charts");
             }
-            var caseWindow = new KickoutMonitor.App.WeeklyCasesWindow(caseStore, today.AddDays(-6), today);
-            var casesContent = (FrameworkElement)caseWindow.Content;
-            casesContent.Measure(new Size(1020, 640)); casesContent.Arrange(new Rect(0, 0, 1020, 640));
-            Require(Descendants<Button>(casesContent).Any(b => (string?)b.Content == "저장 / 이미지 다시 시도"), "representative case controls");
-            Render(casesContent, "weekly-cases-smoke.png", 1020, 640);
-            caseWindow.Close();
             var sampleReview = reviewStore.Records.Values.First();
             reviewStore.Records["trend-fixture"] = sampleReview with { ItemKey="trend-fixture", CellId="TREND",
                 InspectedAt=DateTime.Today.AddHours(6), CropFolder="SEPA", FinalClass="Overkill", Inspection=null,

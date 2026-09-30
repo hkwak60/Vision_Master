@@ -64,30 +64,44 @@ Daily CSV discovery accepts the base result file and numbered continuations:
 Files with suffixes such as `- Copy`, `_Copy`, or `_defect` are ignored.
 
 
-## Weekly Kickout workbook and representative cases
+## Weekly Kickout workbook
 
-In **Overkill Monitor > Kickout**, select the report dates and click **주간 보고 업데이트**.
-**보고 파일 선택** saves a fixed existing .xlsx path in WeeklyReportPath (initially
-C:\\KWAK\\4. ESHG\\CS_Weekly_Report.xlsx). The app adds or refreshes only its managed
-●Kickout 과검 sheet. The user's ●Overkill 리포트, hidden sheets, images and other
-workbook content are preserved. Close Excel before updating; failures retain the
-original and are written to the existing Overkill Monitor diagnostic log.
-A successful replacement retains one adjacent workbook.bak.
+In **Overkill Monitor > Kickout**, select dates and machine legend checkboxes, then
+click **주간 보고 업데이트**. Only 1-1(-/+), 1-2(-/+) are checked by default;
+2-1 and 2-2 can be enabled explicitly. The report includes only checked machines.
+**보고 파일 선택** persists the selected existing .xlsx path.
 
-The sheet includes all eight lines/polarities, period counts, daily graphs,
-positive-only defect lists, and eight Sunday–Saturday weeks ending in the selected
-end date's week. A partial final week is marked *. Missing reports remain gaps,
-zero remains zero, and covered-day counts explain incomplete weeks. Totals use
-ALL rows, not summed defects. Real NG counts only reviewed real defects; remaining
-NG is shown separately as pending. Native Excel charts remain editable.
+The editable native-chart sheet **●Overkill 추이** follows the supplied report:
+period totals, daily graphs, positive-only measure counts and the latest eight
+Sunday–Saturday weeks. Partial weeks are marked; missing reports remain gaps.
+ALL rows supply totals without adding overlapping measure counts.
 
-Open a Kickout detail record, select an actual overkill row, and choose
-**대표 사례 추가**. Select an image from that inspection's folder and enter the reason
-and action. **대표 사례 관리** restores, reorders or removes up to three cases per
-period and line. Save retries a missing image. Decisions, descriptions and copied
-images are stored below the existing NG_Summary/.weekly root; no production files
-are modified. A locally saved image remains usable offline. Automatic sheet edits
-are replaced next time; edit representative-case content in the app.
+The existing **●Overkill 리포트** receives inspected/NG/real/overkill counts and
+the top three positive measures with counts per selected machine. Existing photos
+and the manual reason/action column remain unchanged. Unselected machine rows
+are hidden. Representative-case management has been removed; historical local
+case files remain untouched.
+
+Repeated overkill attempts count once per machine/polarity + Lot ID + Cell ID;
+each measure also counts that cell once. Known lots span midnight. Missing lots
+never cause cell-only merges. Historical counts are recalculated only when detail
+identities adequately support them; aggregate-only history requires regenerating
+its daily Summary. All attempt images remain available for comparison.
+
+Updating also copies overkill images beside the workbook into
+Overkill/MMdd-MMdd/line/measure/identity/inspection. Only selected dates and machines
+are exported. A period marker distinguishes identical ranges in different years.
+Images come from exact local review folders or their summary copies. Missing/empty
+images are reported in export-status.txt and the diagnostic log; updating again
+retries. Existing images are not deleted, including earlier exports for other
+selections.
+
+Close Excel before updating. The app validates the prepared workbook, verifies
+the source has not changed, copies and verifies an adjacent .bak, then installs
+the prepared workbook. A failed replacement restores a missing original from the
+backup and retains the prepared file for recovery. Existing unrelated sheets,
+hidden state, drawings and images are preserved. Validation uses a copy of the
+user workbook; production originals are never changed during testing.
 
 ## IRS shared training batches
 

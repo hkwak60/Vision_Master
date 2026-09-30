@@ -91,7 +91,20 @@ public sealed class OverkillHistoryService(AppStorage storage, IDlngReviewStore 
         var result = new List<KickoutHistorySnapshot>();
         foreach (var path in Directory.EnumerateFiles(HistoryRoot(storage), "*.json"))
         {
-            try { var row = JsonSerializer.Deserialize<KickoutHistorySnapshot>(await File.ReadAllTextAsync(path, token)); if (row is not null) result.Add(row); }
+            try
+            {
+                var row = JsonSerializer.Deserialize<KickoutHistorySnapshot>(await File.ReadAllTextAsync(path, token));
+                if (row is null) continue;
+                if (row.Details.Count == 0 && File.Exists(row.Source))
+                {
+                    var lines = row.Rows.Select(r => r.LinePolarity).ToHashSet();
+                    row = row with { Details = KickoutOverkillHistory.ImportImageDetails(Path.GetDirectoryName(row.Source)!)
+                        .Where(d => lines.Contains(d.LinePolarity)).ToArray() };
+                }
+                if (row.Details.Count == 0 && row.Rows.Any(r => r.Overkill > 0))
+                    Warnings.Add($"{row.Day}: {Path.GetFileName(path)} — 검사 식별 자료가 없어 과거 과검 중복은 재계산할 수 없습니다. 해당 일자 Summary를 다시 생성해 주세요.");
+                result.Add(row);
+            }
             catch (JsonException e) { Warnings.Add($"{Path.GetFileName(path)}: {e.Message}"); }
         }
         return result;
@@ -129,7 +142,7 @@ public sealed class OverkillHistoryService(AppStorage storage, IDlngReviewStore 
             if (line.Length == 0 || field.Length == 0) continue;
             output.Add(new(line, field, total, Number(row,"D"), Number(row,"E"), Number(row,"F"), 0,0,0));
         }
-        return new(day, start, end, output, [], path);
+        return new(day, start, end, output, KickoutOverkillHistory.ImportImageDetails(Path.GetDirectoryName(path)!), path);
     }
     public async Task<IReadOnlyList<DlngReviewRecord>> LoadDlngAsync(CancellationToken token = default) =>
         (await reviews.LoadAsync(token)).Values.GroupBy(ReviewSemantics.SampleId)
@@ -143,7 +156,7 @@ public sealed class OverkillHistoryService(AppStorage storage, IDlngReviewStore 
 
     public static IReadOnlyList<OverkillMetric> KickoutMetrics(IEnumerable<KickoutHistorySnapshot> history, string field = "")
     {
-        var snapshots = history.ToArray();
+        var snapshots = KickoutOverkillHistory.Normalize(history).ToArray();
         var fields = string.IsNullOrWhiteSpace(field) ? snapshots.SelectMany(h => h.Rows).Where(r => r.Defect != "ALL").Select(r => r.Defect).Distinct().ToArray() : [field];
         var rows = new List<SummaryReportRow>();
         foreach (var snapshot in snapshots)
@@ -168,7 +181,7 @@ public sealed class OverkillHistoryService(AppStorage storage, IDlngReviewStore 
     }
     public static IReadOnlyList<DailyOverkill> Daily(IEnumerable<KickoutHistorySnapshot> history, DateOnly start, DateOnly end, string field = "")
     {
-        var snapshots = history.ToArray(); var result = new List<DailyOverkill>();
+        var snapshots = KickoutOverkillHistory.Normalize(history).ToArray(); var result = new List<DailyOverkill>();
         for (var day = start; day <= end; day = day.AddDays(1))
         {
             var rows = snapshots.Where(h => h.Day == day).SelectMany(h => h.Rows)

@@ -151,7 +151,13 @@ public sealed record SummaryDetailRow(
     ReviewDecision Decision,
     string? LocalFolder,
     IReadOnlyList<string> Headers,
-    IReadOnlyList<string> Values);
+    IReadOnlyList<string> Values)
+{
+    public string InspectionKey { get; init; } = "";
+    public string LotId { get; init; } = "";
+    public string CellId { get; init; } = "";
+    public DateTime? InspectedAt { get; init; }
+}
 
 public sealed record IrsReviewCandidate(
     string Key,

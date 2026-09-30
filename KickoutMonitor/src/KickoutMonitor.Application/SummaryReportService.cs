@@ -156,12 +156,12 @@ public sealed class SummaryReportService
     {
         var initialNg = ngRecords.Count;
         var realNg = 0;
-        var overkill = 0;
+        var overkill = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (_, record) in ngRecords)
         {
             var decision = reviews[record.CandidateKey].Decision;
             if (decision is ReviewDecision.RealNg or ReviewDecision.MultiDefectNg) realNg++;
-            else if (decision == ReviewDecision.Overkill) overkill++;
+            else if (decision == ReviewDecision.Overkill) overkill.Add(InspectionIdentity.Group(record.MachineId, record.LotId, record.CellId, record.CandidateKey));
         }
 
         return new(
@@ -170,10 +170,10 @@ public sealed class SummaryReportService
             totalInspected,
             initialNg,
             realNg,
-            overkill,
+            overkill.Count,
             Rate(initialNg, totalInspected),
             Rate(realNg, totalInspected),
-            Rate(overkill, totalInspected));
+            Rate(overkill.Count, totalInspected));
     }
 
     private static bool IsFinal(ReviewDecision decision) =>
@@ -198,7 +198,8 @@ public sealed class SummaryReportService
                     review.Decision,
                     review.LocalFolder,
                     x.Record.Headers,
-                    x.Record.Values);
+                    x.Record.Values) { InspectionKey = x.Record.CandidateKey, LotId = x.Record.LotId,
+                        CellId = x.Record.CellId, InspectedAt = x.Record.InspectedAt };
             })
             .ToArray();
     }

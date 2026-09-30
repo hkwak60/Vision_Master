@@ -16,7 +16,6 @@
     <StackPanel Orientation="Horizontal" Visibility="{Binding IsKickoutTab, Converter={StaticResource BoolVisibility}}" Margin="12,0,0,0">
      <Button Content="주간 보고 업데이트" Command="{Binding UpdateWeeklyReportCommand}"/>
      <Button Content="보고 파일 선택" Command="{Binding SelectWeeklyReportCommand}" Margin="6,0"/>
-     <Button Content="대표 사례 관리" Command="{Binding EditCasesCommand}"/>
     </StackPanel>
    </WrapPanel>
   </StackPanel>
@@ -49,7 +48,6 @@
    <Border Grid.Row="1" Visibility="{Binding DetailsOpen, Converter={StaticResource BoolVisibility}}" BorderBrush="#CBD5E1" BorderThickness="1" Background="White" Margin="0,6,0,0">
     <DockPanel Margin="8">
      <DockPanel DockPanel.Dock="Top" Margin="0,0,0,5">
-      <Button Content="대표 사례 추가" Command="{Binding AddCaseCommand}" DockPanel.Dock="Right" Margin="8,0"/>
       <Button Content="닫기 ×" Command="{Binding CloseDetailsCommand}" DockPanel.Dock="Right" Padding="10,3"/>
       <TextBlock Text="{Binding DetailTitle}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
      </DockPanel>
