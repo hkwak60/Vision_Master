@@ -129,3 +129,20 @@ images. Export freezes the batch while retaining counts and allowing repeat expo
 a later explicit add starts a new batch when needed. No historical IRS reviews are
 automatically collected and no IRS collection records are inserted into DLNG review
 statistics. Existing review/collection stores are backed up before modification.
+
+
+### IRS fetch completion and recovery
+
+Review crops waits for every queued first-stage copy to succeed or report failure.
+Review input and reload are blocked during the transition; pending unreviewed rows
+do not require classification. Retry fetch retries saved failed/incomplete choices
+without reloading the workbook, and refreshes the crop queue when already there.
+Failures remain in the activity log; unverified saved images never enter crop review.
+
+First-stage choices are persisted before network copying. Commits serialize their
+read/update/write operation and replace the JSON via a temporary file, preventing
+concurrent copies from overwriting other decisions. Reload restores choices
+independently of image availability and marks incomplete copies for retry.
+Reclassification removes obsolete owned outputs only after a successful copy.
+CSV file parsing is shared across adjacent-day searches within one queue load;
+copying reuses the exact inspection resolved by that load. Reload resets indexes.

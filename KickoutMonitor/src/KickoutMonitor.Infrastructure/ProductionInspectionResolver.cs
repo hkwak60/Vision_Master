@@ -8,7 +8,21 @@ namespace KickoutMonitor.Infrastructure;
 public sealed class ProductionInspectionResolver(IDailyCsvLocator csvs, ISharePathResolver shares)
 {
     private readonly Dictionary<string, Task<IReadOnlyList<InspectionContext>>> _cache = new(StringComparer.OrdinalIgnoreCase);
-    public void Reset() { lock (_cache) _cache.Clear(); }
+    private readonly Dictionary<string, Task<IReadOnlyList<InspectionContext>>> _fileCache = new(StringComparer.OrdinalIgnoreCase);
+    public void Reset() { lock (_cache) _cache.Clear(); lock (_fileCache) _fileCache.Clear(); }
+
+    private async Task<IReadOnlyList<InspectionContext>> ReadFileAsync(WeldingMachine machine, string csv, CancellationToken token)
+    {
+        var key = machine.Id + "|" + csv;
+        Task<IReadOnlyList<InspectionContext>> task;
+        lock (_fileCache)
+        {
+            if (!_fileCache.TryGetValue(key, out task!))
+                _fileCache[key] = task = InspectionPaths.ReadAsync(machine, csv, csv, shares, token);
+        }
+        try { return await task; }
+        catch { lock (_fileCache) _fileCache.Remove(key); throw; }
+    }
 
     public async Task<IrsImageLookupResult> ResolveAsync(WeldingMachine machine, IrsReviewCandidate candidate,
         CancellationToken cancellationToken)
@@ -119,7 +133,7 @@ public sealed class ProductionInspectionResolver(IDailyCsvLocator csvs, ISharePa
         foreach (var day in new[] { date.AddDays(-1), date, date.AddDays(1) })
             foreach (var csv in await csvs.FindAsync(machine, day, token))
                 if (files.Add(csv))
-                    result.AddRange(await InspectionPaths.ReadAsync(machine, csv, csv, shares, token));
+                    result.AddRange(await ReadFileAsync(machine, csv, token));
         return InspectionIdentity.WithCropConflicts(result);
     }
 }

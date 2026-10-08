@@ -159,6 +159,27 @@ public sealed class ReworkTests : IDisposable
     }
 
     [Fact]
+    public async Task ConcurrentIrsCommitsPreserveEveryDecisionIncludingFailedFetch()
+    {
+        PrepareBFixture();
+        var machine = _machine with { Id = "1-1-ca", Polarity = Polarity.Cathode };
+        var candidate = Irs() with { CellId = "B69JX0A2W6", LotId = "3A4FI191I1",
+            ProducedAt = new(2026, 9, 20, 0, 2, 57), LinePolarity = "1-1(+)", CameraLocation = "LOWER" };
+        var service = new IrsReviewCommitService(Storage, new Locator(Csv), new Shares(_root));
+        var selection = new IrsReviewSelection("B_R", "B R", "Crop_B", IrsSelectionKind.Crop, "Crop_B", "B_R");
+        await Task.WhenAll(Enumerable.Range(0, 4).Select(i => service.CommitAsync(
+            new(machine, candidate with { Key = "concurrent-" + i }, [selection]), default)));
+        var failed = candidate with { Key = "failed-fetch", CellId = "MISSING" };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CommitAsync(new(machine, failed, [selection]), default));
+        var restarted = new IrsReviewCommitService(Storage, new Locator(Csv), new Shares(_root));
+        var records = await restarted.LoadRecordsAsync(default);
+        Assert.Equal(5, records.Count);
+        Assert.All(records, r => Assert.Contains("B_R", r.Selections));
+        Assert.True(records.Single(r => r.Key == "failed-fetch").MissingFiles > 0);
+        Assert.False(File.Exists(Path.Combine(Storage.Root, "irs-reviews.json.tmp")));
+    }
+
+    [Fact]
     public async Task IrsBCommit_UsesIntervalAndSavedValidationAcceptsTheSamePair()
     {
         PrepareBFixture();

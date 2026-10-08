@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -186,6 +186,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
         AddToBatchCommand = new(AddToBatchAsync, () => !IsBusy && _datasetMode && _collection is not null);
         _settings = settings ?? VisionMasterSettings.CreateDefault();
         _flags = flags;
+        RetryFetchCommand = new(RetryFetchAsync, () => !IsBusy && _loadedCandidates.Count > 0);
         BrowseCommand = new(BrowseAsync, () => !IsBusy);
         LoadCommand = new(LoadAsync, () => !IsBusy && File.Exists(WorkbookPath));
         PreviousCommand = new(Previous, CanPrevious);
@@ -216,6 +217,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     public ObservableCollection<IrsCandidateItem> Candidates { get; } = [];
     public ObservableCollection<IrsPreviewItem> PreviewImages { get; } = [];
     public ObservableCollection<string> ActivityLog { get; } = [];
+    public AsyncRelayCommand RetryFetchCommand { get; }
     public AsyncRelayCommand BrowseCommand { get; }
     public AsyncRelayCommand LoadCommand { get; }
     public RelayCommand PreviousCommand { get; }
@@ -424,7 +426,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
 
     private async Task LoadAsync()
     {
-        if (!File.Exists(WorkbookPath)) return;
+        if (IsBusy || !File.Exists(WorkbookPath)) return;
         IsBusy = true;
         Candidates.Clear();
         ClearPreviews();
@@ -435,12 +437,13 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             var progress = new Progress<string>(AddLog);
             _datasetMode = false;
             NotifyModeVisualsChanged();
-            var records = await _queue.LoadAsync(WorkbookPath, progress, CancellationToken.None);
+            await WaitForFirstStageCommitsAsync();
+            var records = await Task.Run(() => _queue.LoadAsync(WorkbookPath, progress, CancellationToken.None));
             _loadedCandidates = records;
             var committed = await _commits.LoadRecordsAsync(CancellationToken.None);
             _loadedReviewRecords = committed;
             _committedSelections.Clear();
-            foreach (var record in committed.Where(saved => records.Any(candidate => candidate.Key == saved.Key && ReviewCompatibility.SavedImagesMatch(candidate, saved))))
+            foreach (var record in committed.Where(saved => records.Any(candidate => candidate.Key == saved.Key && (saved.Inspection is null || candidate.Inspection is null || candidate.Inspection.Identity == saved.Inspection.Identity))))
             {
                 _committedSelections[record.Key] = record.Selections;
             }
@@ -450,7 +453,8 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
                 var item = new IrsCandidateItem(record);
                 if (_committedSelections.ContainsKey(record.Key))
                 {
-                    item.ReviewStatus = "Saved";
+                    var saved = committed.First(x => x.Key == record.Key);
+                    item.ReviewStatus = saved.MissingFiles > 0 || !ReviewCompatibility.SavedImagesMatch(record, saved) ? "Saved with missing" : "Saved";
                 }
                 return item;
             });
@@ -578,7 +582,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     private void CommitSelection()
     {
         var item = SelectedCandidate;
-        if (item is null) return;
+        if (IsBusy || item is null || item.ReviewStatus == "Copying") return;
         if (!TryGetMachine(item.Candidate, out var machine))
         {
             AddLog($"Commit skipped: machine not found for {item.LinePolarity}.");
@@ -715,7 +719,7 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
     }
 
     private bool CanCommitSelection() =>
-        SelectedCandidate is not null && (_datasetMode ? FinalClassOptions.Any(x => x.IsSelected) : SelectionOptions.Any(x => x.IsSelected));
+        !IsBusy && SelectedCandidate is not null && SelectedCandidate.ReviewStatus != "Copying" && (_datasetMode ? FinalClassOptions.Any(x => x.IsSelected) : SelectionOptions.Any(x => x.IsSelected));
 
     private void SelectionOption_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -873,16 +877,60 @@ public sealed class IrsReviewViewModel : INotifyPropertyChanged
             _pendingFirstStageCommits.RemoveAll(x => x.IsCompleted);
         }
     }
-    private async Task GenerateDatasetAsync()
+    private async Task RetryFetchAsync()
     {
-        if (_loadedCandidates.Count == 0) return;
+        if (IsBusy) return;
         IsBusy = true;
+        var cropMode = _datasetMode;
         try
         {
             await WaitForFirstStageCommitsAsync();
+            var records = await _commits.LoadRecordsAsync(default);
+            var retried = 0;
+            foreach (var candidate in _loadedCandidates)
+            {
+                var saved = records.FirstOrDefault(r => r.Key == candidate.Key);
+                if (saved is null || saved.MissingFiles == 0 && ReviewCompatibility.SavedImagesMatch(candidate, saved)) continue;
+                if (!TryGetMachine(candidate, out var machine)) continue;
+                var selections = SelectionOptions.Where(o => saved.Selections.Contains(o.Id)).Select(o => o.Selection).ToArray();
+                if (selections.Length == 0) continue;
+                var item = Candidates.FirstOrDefault(c => c.Candidate.Key == candidate.Key);
+                if (item is not null) item.ReviewStatus = "Copying";
+                try
+                {
+                    var result = await Task.Run(() => _commits.CommitAsync(new(machine, candidate, selections), default));
+                    if (item is not null) item.ReviewStatus = result.MissingFiles == 0 ? "Saved" : "Saved with missing";
+                    AddLog($"{candidate.CellId}: {result.Message}");
+                }
+                catch (Exception e)
+                {
+                    if (item is not null) item.ReviewStatus = "Copy failed";
+                    AddLog($"{candidate.CellId}: retry failed — {e.Message}");
+                }
+                retried++;
+            }
+            Status = $"Retried {retried} failed/incomplete image fetch(es).";
+        }
+        catch (Exception e) { Status = e.Message; AddLog(e.ToString()); }
+        finally { IsBusy = false; }
+        if (cropMode) await GenerateDatasetAsync();
+    }
+
+    private async Task GenerateDatasetAsync()
+    {
+        if (IsBusy || _loadedCandidates.Count == 0) return;
+        IsBusy = true;
+        try
+        {
+            Status = "Waiting for all queued image copies to finish or fail…";
+            await WaitForFirstStageCommitsAsync();
             var records = await _commits.LoadRecordsAsync(CancellationToken.None);
             _loadedReviewRecords = records;
-            var items = await _dataset.BuildQueueAsync(_loadedCandidates, records, CancellationToken.None);
+            var failed = Candidates.Where(x => x.ReviewStatus is "Copy failed" or "Saved with missing").ToArray();
+            if (failed.Length > 0)
+                AddLog($"{failed.Length} image fetch(es) failed/incomplete. Return to the IRS list and save their selections again to retry.");
+            var usable = records.Where(r => _loadedCandidates.Any(c => c.Key == r.Key && ReviewCompatibility.SavedImagesMatch(c, r))).ToArray();
+            var items = await Task.Run(() => _dataset.BuildQueueAsync(_loadedCandidates, usable, CancellationToken.None));
             var decisions = await _dataset.LoadDecisionsAsync(CancellationToken.None);
             _datasetDecisions.Clear();
             foreach (var decision in decisions.Values)

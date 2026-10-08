@@ -26,6 +26,22 @@ internal static class Program
             var flags = new Flags();
             var reviewStore = new DlngReviews();
             var vm = new DlngReviewViewModel(new Machines(machine), null!, reviewStore, null!, new Preview(), flags: flags);
+            // A pending first-stage copy must form a barrier before any crop queue/store access.
+            var irs = new IrsReviewViewModel(null!, new Preview(), new Machines(machine), null!, null!);
+            var irsRow = new IrsReviewCandidate("barrier", "PACKAGE #1-1", "Welding Minus", "1-1(-)",
+                DateTime.Today, "LOT", "CELL", "TOP", "", "NG", "SEPA", 1);
+            var privateFields = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            typeof(IrsReviewViewModel).GetField("_loadedCandidates", privateFields)!.SetValue(irs, new[] { irsRow });
+            var fetch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var pending = (List<Task>)typeof(IrsReviewViewModel).GetField("_pendingFirstStageCommits", privateFields)!.GetValue(irs)!;
+            pending.Add(fetch.Task);
+            var transition = (Task)typeof(IrsReviewViewModel).GetMethod("GenerateDatasetAsync", privateFields)!.Invoke(irs, null)!;
+            Require(irs.IsBusy && !transition.IsCompleted, "IRS crop review waits for queued fetch");
+            Require(!irs.CommitCommand.CanExecute(null) && !irs.BrowseCommand.CanExecute(null)
+                && !irs.GenerateDatasetCommand.CanExecute(null), "IRS transition blocks new work");
+            fetch.SetResult();
+            Complete(transition); // Null store models a terminal load failure; busy must recover.
+            Require(!irs.IsBusy, "IRS transition releases busy after failure");
             var defaults = new MachineRegistry();
             var kickout = new MainViewModel(defaults, null!, null!, null!, null!, null!, new Preview(), null!, new AppStorage(Root));
             var defaultDlng = new DlngReviewViewModel(defaults, null!, null!, null!, new Preview());

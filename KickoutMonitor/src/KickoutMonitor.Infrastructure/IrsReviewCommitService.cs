@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
 
@@ -12,6 +12,7 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
     private readonly VisionMasterSettings _settings;
     private readonly string _workflowFolder;
     private readonly string _reviewFile;
+    private readonly SemaphoreSlim _commitGate = new(1, 1);
     private List<IrsReviewRecord>? _recordCache;
     private DateTime _recordCacheWriteTimeUtc;
 
@@ -35,22 +36,30 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
         IrsReviewCommitRequest request,
         CancellationToken cancellationToken)
     {
+        await _commitGate.WaitAsync(cancellationToken);
+        try { return await CommitCoreAsync(request, cancellationToken); }
+        finally { _commitGate.Release(); }
+    }
+
+    private async Task<IrsReviewCommitResult> CommitCoreAsync(IrsReviewCommitRequest request, CancellationToken cancellationToken)
+    {
+        var records = await LoadRecordListAsync(cancellationToken);
+        var destinationRoot = Path.Combine(_storage.MachineRoot(request.Machine), _workflowFolder, InspectionIdentity.Hash(request.Candidate.Key));
+        var previous = records.FirstOrDefault(x => x.Key.Equals(request.Candidate.Key, StringComparison.OrdinalIgnoreCase));
+        // Persist the choice before any network work. An interrupted copy is retryable, not unreviewed.
+        await SaveRecordAsync(records, request, new(0, 0, 1, destinationRoot, "Copy pending or failed"),
+            previous?.SavedPaths ?? [], cancellationToken);
         var resolver = new ProductionInspectionResolver(_csvs, _shares);
-        var resolved = await resolver.ResolveAsync(request.Machine, request.Candidate, cancellationToken);
+        var lookupCandidate = request.Candidate.Inspection is { } known
+            ? request.Candidate with { Inspection = known with { SourceCsv = "" } } : request.Candidate;
+        var resolved = await resolver.ResolveAsync(request.Machine, lookupCandidate, cancellationToken);
+        if (request.Candidate.Inspection is { } originalContext && resolved.Inspection is { } matched)
+            resolved = resolved with { Inspection = matched with { SourceCsv = originalContext.SourceCsv } };
         if (resolved.Inspection is null || resolved.NetworkPaths.Count == 0)
             throw new InvalidOperationException(resolved.Message);
         request = request with { Candidate = request.Candidate with {
             Inspection = resolved.Inspection, RawImagePaths = resolved.NetworkPaths, ResolutionMessage = resolved.Message } };
-        var machineRoot = _storage.MachineRoot(request.Machine);
-        var destinationRoot = Path.Combine(machineRoot, _workflowFolder, InspectionIdentity.Hash(request.Candidate.Key));
         Directory.CreateDirectory(destinationRoot);
-
-        var records = await LoadRecordListAsync(cancellationToken);
-        var previous = records.FirstOrDefault(x =>
-            x.Key.Equals(request.Candidate.Key, StringComparison.OrdinalIgnoreCase));
-        DeleteSavedPaths(previous?.SavedPaths?.Where(path =>
-            Path.GetFullPath(path).StartsWith(Path.GetFullPath(destinationRoot) + Path.DirectorySeparatorChar,
-                StringComparison.OrdinalIgnoreCase)).ToArray());
 
         var crop = await CopyCropFilesAsync(request, destinationRoot, cancellationToken);
         var original = await CopyOriginalFolderAsync(
@@ -72,6 +81,12 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
                 $"Saved originals: {original.Copied}, crops: {crop.Copied}, missing: {missing}."),
             savedPaths,
             cancellationToken);
+
+        if (missing == 0)
+            DeleteSavedPaths(previous?.SavedPaths?.Where(path =>
+                Path.GetFullPath(path).StartsWith(Path.GetFullPath(destinationRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                && !savedPaths.Any(saved => saved.Equals(path, StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFullPath(saved).StartsWith(Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))).ToArray());
 
         return new(
             original.Copied,
@@ -122,9 +137,9 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
         IrsReviewCommitRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await new ProductionInspectionResolver(_csvs, _shares)
-            .ResolveAsync(request.Machine, request.Candidate, cancellationToken);
-        return result.Inspection?.ImagePaths ?? [];
+        cancellationToken.ThrowIfCancellationRequested();
+        // CommitCore already resolved the exact inspection; do not parse the same day's CSV again.
+        return await Task.FromResult<IReadOnlyList<string>>(request.Candidate.Inspection?.ImagePaths ?? []);
     }
 
     private void AddOriginalPaths(
@@ -447,7 +462,7 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
         ReviewCompatibility.Backup(path);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await using (var write = new FileStream(
-            path,
+            path + ".tmp",
             FileMode.Create,
             FileAccess.Write,
             FileShare.None,
@@ -462,12 +477,17 @@ public sealed class IrsReviewCommitService : IIrsReviewCommitService
             await write.FlushAsync(cancellationToken);
         }
 
+        File.Move(path + ".tmp", path, true);
         _recordCache = orderedRecords.ToList();
         _recordCacheWriteTimeUtc = File.GetLastWriteTimeUtc(path);
     }
 
-    public async Task<IReadOnlyList<IrsReviewRecord>> LoadRecordsAsync(CancellationToken cancellationToken) =>
-        await LoadRecordListAsync(cancellationToken);
+    public async Task<IReadOnlyList<IrsReviewRecord>> LoadRecordsAsync(CancellationToken cancellationToken)
+    {
+        await _commitGate.WaitAsync(cancellationToken);
+        try { return await LoadRecordListAsync(cancellationToken); }
+        finally { _commitGate.Release(); }
+    }
 
     private async Task<List<IrsReviewRecord>> LoadRecordListAsync(CancellationToken cancellationToken)
     {
