@@ -25,6 +25,39 @@ public sealed class OverkillTests : IDisposable
             IncludeInTraining:selected,ProductModel:model,ModelKind:segmentation?DlngModelKind.Segmentation:DlngModelKind.Classification,
             TrainingPolarity:polarity);
     }
+    [Theory]
+    [InlineData("05_NG_A", "06_NG_B", true)]
+    [InlineData("05_NG_A", "5_NG_A", false)]
+    [InlineData("05_NG_A", "05_NG_A", false)]
+    [InlineData("01_OK", "06_NG_B", true)]
+    [InlineData("Unknown", "06_NG_B", false)]
+    [InlineData("05_NG_A", "Not DLNG", false)]
+    public void ClassCorrectionsDefaultToTraining(string source, string final, bool expected) =>
+        Assert.Equal(expected, ReviewSemantics.ShouldCollectCorrection(DlngModelKind.Classification, source, final));
+
+    [Fact]
+    public async Task CollectionPresentationUsesCropDatesClassCountsAndDurableEditTime()
+    {
+        var first = Review("FIRST") with { InspectedAt = new(2026, 8, 28, 6, 0, 0) };
+        var second = Review("SECOND", label: "Real") with { InspectedAt = new(2026, 9, 29, 6, 0, 0) };
+        await Collection.ApplyAsync(first);
+        _now = _now.AddHours(1);
+        await Collection.ApplyAsync(second);
+        var batch = Assert.Single(await Collection.LoadAsync());
+        Assert.Equal("2026-08-28 ~ 2026-09-29", batch.CropDates);
+        Assert.Contains("Overkill: 1", batch.ClassCounts);
+        Assert.Contains("Real: 1", batch.ClassCounts);
+        Assert.Equal(2, batch.TotalSamples);
+        Assert.Equal(_now, batch.LastEditedAt);
+        _now = _now.AddHours(1);
+        Assert.Equal(batch.LastEditedAt, (await Collection.LoadAsync()).Single().LastEditedAt);
+        await Collection.ApplyAsync(second with { FinalClass = "Overkill", UpdatedAt = _now });
+        var edited = Assert.Single(await Collection.LoadAsync());
+        Assert.Equal(_now, edited.LastEditedAt);
+        Assert.Contains("Overkill: 2", edited.ClassCounts);
+        Assert.Contains("Real: 0", edited.ClassCounts);
+    }
+
     [Fact]
     public async Task EmptyOwnedImageCanRetryFromOriginalAndDoesNotCountAsCollected()
     {

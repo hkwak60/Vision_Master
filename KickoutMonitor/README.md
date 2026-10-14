@@ -146,3 +146,23 @@ independently of image availability and marks incomplete copies for retry.
 Reclassification removes obsolete owned outputs only after a successful copy.
 CSV file parsing is shared across adjacent-day searches within one queue load;
 copying reuses the exact inspection resolved by that load. Reload resets indexes.
+
+
+### Correction collection defaults and collection overview
+
+DLNG classification changes automatically select Include in training before an
+auto-advance save, just like segmentation Overkill. Numbered class IDs are compared
+numerically (05 and 5 identify the same class). Unknown source classes do not infer
+a correction. Explicit manual training selection takes precedence for the current
+item; the next item resets its default. Saved inclusion is restored on revisit.
+
+Training collection initially shows active batches. Each row shows the product/crop
+and applicable polarity, successfully collected sample count, final-class counts,
+oldest/latest crop image dates (inspection dates when image timestamps are absent),
+and last modification time. One source/overlay or source/mask pair counts once.
+Pending/failed and superseded active samples are excluded. Trained batch counts use
+the frozen export manifest. Enable the trained-data checkbox to download old batches
+again; sample details and retry/exclusion controls remain available.
+LastEditedAt is persisted on batch changes; read-only refresh does not move it.
+Legacy batches display the latest known collection/review/training timestamp until
+their next actual change. Existing manifests are backed up before writes.

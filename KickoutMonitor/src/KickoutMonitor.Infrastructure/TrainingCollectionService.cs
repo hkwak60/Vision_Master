@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using KickoutMonitor.Domain;
 
@@ -15,6 +15,34 @@ public sealed class TrainingBatch
     public DateTimeOffset? FirstCollected { get; set; }
     public DateTimeOffset? LastCollected { get; set; }
     public DateTimeOffset? TrainedAt { get; set; }
+    public DateTimeOffset? LastEditedAt { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DateTimeOffset DisplayEditedAt => LastEditedAt ?? Samples.Select(s => s.CollectedAt ?? s.Review.UpdatedAt)
+        .Append(CreatedAt).Append(TrainedAt ?? CreatedAt).Max();
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ModelDisplay => $"{Product} · {Crop}" + (Polarity == "shared" || string.IsNullOrWhiteSpace(Polarity) ? "" : $" · {Polarity}");
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<TrainingSample> DisplaySamples => Samples.Where(s => ExportSnapshot is { } snapshot
+        ? snapshot.Files.Any(f => f.SampleId == s.Id) : s.State == "Ready" && (TrainedAt is not null || !s.Superseded)).ToArray();
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string CropDates => DisplaySamples.Count == 0 ? "—" :
+        $"{DisplaySamples.Min(s => s.Review.Inspection?.ImageAt ?? s.Review.InspectedAt):yyyy-MM-dd} ~ {DisplaySamples.Max(s => s.Review.Inspection?.ImageAt ?? s.Review.InspectedAt):yyyy-MM-dd}";
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ClassCounts
+    {
+        get
+        {
+            var labels = ExportSnapshot is { } snapshot
+                ? snapshot.Files.DistinctBy(f => f.SampleId).Select(f => f.FinalClass)
+                : DisplaySamples.Select(s => s.Review.FinalClass);
+            var counts = labels.GroupBy(x => x, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+            if (Samples.Any(s => TrainingCollectionService.Segmentation(s.Review)))
+            { counts.TryAdd("Overkill", 0); counts.TryAdd("Real", 0); }
+            return counts.Count == 0 ? "—" : string.Join("   ·   ", counts.OrderBy(x => x.Key).Select(x => $"{x.Key}: {x.Value:N0}"));
+        }
+    }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string CollectionState => TrainedAt is null ? "수집 중" : "학습 완료";
     public string? DatasetFolder { get; set; }
     public BatchExportManifest? ExportSnapshot { get; set; }
     public int TotalSamples => ExportSnapshot?.Files.Select(f => f.SampleId).Distinct().Count()
@@ -88,6 +116,12 @@ public sealed partial class TrainingCollectionService
     private void Write(List<TrainingBatch> batches)
     {
         Directory.CreateDirectory(_root);
+        var previous = File.Exists(_manifest)
+            ? (JsonSerializer.Deserialize<List<TrainingBatch>>(File.ReadAllText(_manifest)) ?? []).ToDictionary(b => b.Id)
+            : new Dictionary<string, TrainingBatch>();
+        foreach (var batch in batches)
+            if (!previous.TryGetValue(batch.Id, out var old) || JsonSerializer.Serialize(old) != JsonSerializer.Serialize(batch))
+                batch.LastEditedAt = _now();
         ReviewCompatibility.Backup(_manifest);
         File.WriteAllText(_manifest + ".tmp", JsonSerializer.Serialize(batches, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(_manifest + ".tmp", _manifest, true);

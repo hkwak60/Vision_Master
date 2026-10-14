@@ -168,7 +168,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             if (CanCollect && !_trainingTouched)
             {
                 _applyingTrainingDefault = true;
-                try { IncludeInTraining = value || FinalClassOptions.Any(o => o.IsSelected && o.DisplayName == "Overkill"); }
+                try { IncludeInTraining = value || FinalClassOptions.Any(o => o.IsSelected && AutomaticallyCollect(o.DisplayName)); }
                 finally { _applyingTrainingDefault = false; }
             }
         }
@@ -597,6 +597,9 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         }
     }
 
+    private bool AutomaticallyCollect(string final) => SelectedCandidate is { } item
+        && ReviewSemantics.ShouldCollectCorrection(item.Item.ModelKind, item.Item.SourceClass, final);
+
     private void FinalClassOption_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_restoringSelections || e.PropertyName != nameof(DlngClassOption.IsSelected)) return;
@@ -613,7 +616,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             {
                 if (ReviewSemantics.IsNotDlng(option.DisplayName)) IncludeInTraining = false;
                 else if (!_trainingTouched)
-                    IncludeInTraining = AlwaysSave || (SelectedCandidate?.Item.ModelKind == DlngModelKind.Segmentation && option.DisplayName.Equals("Overkill", StringComparison.OrdinalIgnoreCase));
+                    IncludeInTraining = AlwaysSave || AutomaticallyCollect(option.DisplayName);
             }
             finally { _applyingTrainingDefault = false; }
             OnPropertyChanged(nameof(CanCollect));

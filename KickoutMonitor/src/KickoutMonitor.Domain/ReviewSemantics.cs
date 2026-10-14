@@ -1,8 +1,21 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 namespace KickoutMonitor.Domain;
 
 public static class ReviewSemantics
 {
+    public static bool ShouldCollectCorrection(DlngModelKind kind, string? source, string? final)
+    {
+        if (!CanTrain(final)) return false;
+        if (kind == DlngModelKind.Segmentation) return string.Equals(final, "Overkill", StringComparison.OrdinalIgnoreCase);
+        if (kind != DlngModelKind.Classification || !CanTrain(source)) return false;
+        string ClassKey(string label)
+        {
+            var match = Regex.Match(label.Trim(), @"^(\d+)(?:[_\s-]|$)");
+            return match.Success && int.TryParse(match.Groups[1].Value, out var number)
+                ? number.ToString() : label.Trim().ToUpperInvariant();
+        }
+        return ClassKey(source!) != ClassKey(final!);
+    }
     public static string Tone(string? label)
     {
         var value = Regex.Replace((label ?? "").Trim(), @"^\d+[_ \-]*", "").ToUpperInvariant();

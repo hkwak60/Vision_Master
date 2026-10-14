@@ -1,4 +1,4 @@
-<UserControl Background="#F3F5F7" Foreground="#172B4D" FontFamily="Segoe UI" x:Class="KickoutMonitor.App.OverkillMonitorView"
+﻿<UserControl Background="#F3F5F7" Foreground="#172B4D" FontFamily="Segoe UI" x:Class="KickoutMonitor.App.OverkillMonitorView"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="clr-namespace:KickoutMonitor.App">
  <UserControl.Resources><BooleanToVisibilityConverter x:Key="BoolVisibility"/></UserControl.Resources>
@@ -6,9 +6,11 @@
   <StackPanel DockPanel.Dock="Top">
    <DockPanel><Button Content="Back" Click="Back_Click" DockPanel.Dock="Left" Margin="0,0,14,0"/><TextBlock Text="Overkill Monitor" FontSize="24" FontWeight="SemiBold"/></DockPanel>
    <WrapPanel Margin="0,10">
+    <StackPanel Orientation="Horizontal" Visibility="{Binding IsTrendTab, Converter={StaticResource BoolVisibility}}">
     <TextBlock Text="시작일" VerticalAlignment="Center"/><DatePicker SelectedDate="{Binding StartDate}" Width="130" Margin="6,0,12,0"/>
     <TextBlock Text="종료일" VerticalAlignment="Center"/><DatePicker SelectedDate="{Binding EndDate}" Width="130" Margin="6,0,12,0"/>
     <Button Content="최근 7일" Command="{Binding RecentSevenCommand}" Padding="10,4" Margin="0,0,16,0"/>
+    </StackPanel>
     <StackPanel Orientation="Horizontal" Visibility="{Binding IsTrendTab, Converter={StaticResource BoolVisibility}}">
      <TextBlock Text="항목" VerticalAlignment="Center"/><ComboBox ItemsSource="{Binding Fields}" SelectedItem="{Binding Field}" Width="160" Margin="6,0,12,0"/>
     </StackPanel>
@@ -26,21 +28,47 @@
     <TabItem Header="Kickout"><local:OverkillTrendView DataContext="{Binding Kickout}"/></TabItem>
     <TabItem Header="DLNG"><local:OverkillTrendView DataContext="{Binding Dlng}"/></TabItem>
    <TabItem Header="Training collection">
-    <Grid Margin="10"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="*"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-     <StackPanel><TextBlock Text="One pair = one sample. Trained batches retain their counts and can be exported again. Select a batch to see its class counts." TextWrapping="Wrap"/>
-      <WrapPanel Margin="0,8"><Button Content="Retry pending copies" Command="{Binding RetryCommand}"/><Button Content="Generate Dataset" Command="{Binding GenerateDatasetCommand}" Margin="10,0"/><Button Content="Exclude selected sample" Command="{Binding ExcludeCommand}"/></WrapPanel>
+    <Grid Margin="12">
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+     <StackPanel Margin="0,0,0,12">
+      <TextBlock Text="모델별 학습 데이터" FontSize="20" FontWeight="SemiBold"/>
+      <TextBlock Text="수집 완료된 샘플만 집계합니다. 원본·오버레이 또는 원본·마스크 한 쌍 = 1개." Foreground="#64748B" Margin="0,4,0,8"/>
+      <WrapPanel>
+       <Button Content="Generate Dataset" Command="{Binding GenerateDatasetCommand}" Padding="16,6"/>
+       <Button Content="수집 실패 재시도" Command="{Binding RetryCommand}" Margin="8,0" Padding="12,6"/>
+       <CheckBox Content="학습 완료 데이터도 보기" IsChecked="{Binding ShowTrainedBatches}" VerticalAlignment="Center" Margin="12,0"/>
+      </WrapPanel>
      </StackPanel>
-     <DataGrid Grid.Row="1" ItemsSource="{Binding Batches}" SelectedItem="{Binding SelectedBatch}" IsReadOnly="True" AutoGenerateColumns="False">
-      <DataGrid.Columns><DataGridTextColumn Header="Crop" Binding="{Binding Crop}"/><DataGridTextColumn Header="Polarity" Binding="{Binding Polarity}"/>
-       <DataGridTextColumn Header="Collection dates" Binding="{Binding Range}"/><DataGridTextColumn Header="Samples" Binding="{Binding TotalSamples}"/><DataGridTextColumn Header="Image files" Binding="{Binding TotalFiles}"/><DataGridTextColumn Header="Status" Binding="{Binding Status}"/><DataGridTextColumn Header="Pending/failed" Binding="{Binding Pending}"/><DataGridTextColumn Header="Trained" Binding="{Binding TrainedAt}"/><DataGridTextColumn Header="Dataset folder" Binding="{Binding DatasetFolder}" Width="220"/><DataGridTextColumn Header="Batch ID" Binding="{Binding Id}"/></DataGrid.Columns>
+     <DataGrid Grid.Row="1" ItemsSource="{Binding Batches}" SelectedItem="{Binding SelectedBatch}" IsReadOnly="True" AutoGenerateColumns="False" CanUserAddRows="False"
+               HeadersVisibility="Column" GridLinesVisibility="Horizontal" RowHeaderWidth="0" MinRowHeight="60" BorderBrush="#DDE3EA">
+      <DataGrid.Columns>
+       <DataGridTextColumn Header="모델" Binding="{Binding ModelDisplay}" Width="190"/>
+       <DataGridTextColumn Header="수집 개수" Binding="{Binding TotalSamples}" Width="80"/>
+       <DataGridTemplateColumn Header="클래스별 개수" Width="*" MinWidth="180"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+        <TextBlock Text="{Binding ClassCounts}" TextWrapping="Wrap" Margin="8" VerticalAlignment="Center"/>
+       </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+       <DataGridTextColumn Header="크롭 날짜 (최초 ~ 최신)" Binding="{Binding CropDates}" Width="190"/>
+       <DataGridTextColumn Header="마지막 수정" Binding="{Binding DisplayEditedAt, StringFormat={}{0:yyyy-MM-dd HH:mm}}" Width="145"/>
+       <DataGridTextColumn Header="상태" Binding="{Binding CollectionState}" Width="80"/>
+      </DataGrid.Columns>
      </DataGrid>
-     <DataGrid Grid.Row="2" ItemsSource="{Binding Samples}" SelectedItem="{Binding SelectedSample}" IsReadOnly="True" AutoGenerateColumns="False" Margin="0,8">
-      <DataGrid.Columns><DataGridTextColumn Header="출처" Binding="{Binding OriginDisplay}" /> <DataGridTextColumn Header="Cell" Binding="{Binding Review.CellId}"/><DataGridTextColumn Header="Line" Binding="{Binding Review.LinePolarity}"/><DataGridTextColumn Header="Final class" Binding="{Binding Review.FinalClass}"/><DataGridTextColumn Header="Copy state" Binding="{Binding State}"/><DataGridTextColumn Header="Collected" Binding="{Binding CollectedAt}"/><DataGridCheckBoxColumn Header="Superseded" Binding="{Binding Superseded}"/><DataGridTextColumn Header="Details" Binding="{Binding Error}" Width="*"/></DataGrid.Columns>
-     </DataGrid>
-     <DataGrid Grid.Row="3" ItemsSource="{Binding CollectionCounts}" IsReadOnly="True" AutoGenerateColumns="False"><DataGrid.Columns>
-       <DataGridTextColumn Header="Crop" Binding="{Binding Crop}"/><DataGridTextColumn Header="Line" Binding="{Binding Line}"/>
-       <DataGridTextColumn Header="Final class" Binding="{Binding FinalClass}"/><DataGridTextColumn Header="Samples" Binding="{Binding Samples}"/><DataGridTextColumn Header="Files" Binding="{Binding Files}"/>
-      </DataGrid.Columns></DataGrid>
+     <Expander Grid.Row="2" Header="선택한 데이터 상세 / 수집 오류" Margin="0,10,0,0">
+      <DockPanel MaxHeight="210">
+       <WrapPanel DockPanel.Dock="Top" Margin="0,4">
+        <TextBlock Text="{Binding SelectedBatch.Pending, StringFormat=수집 대기·실패: {0}개}" VerticalAlignment="Center" Margin="0,0,16,0"/>
+        <Button Content="선택 샘플 제외" Command="{Binding ExcludeCommand}"/>
+       </WrapPanel>
+       <DataGrid ItemsSource="{Binding Samples}" SelectedItem="{Binding SelectedSample}" IsReadOnly="True" AutoGenerateColumns="False" HeadersVisibility="Column">
+        <DataGrid.Columns>
+         <DataGridTextColumn Header="Cell" Binding="{Binding Review.CellId}"/>
+         <DataGridTextColumn Header="Line" Binding="{Binding Review.LinePolarity}"/>
+         <DataGridTextColumn Header="최종 클래스" Binding="{Binding Review.FinalClass}"/>
+         <DataGridTextColumn Header="수집 상태" Binding="{Binding State}"/>
+         <DataGridTextColumn Header="오류 내용" Binding="{Binding Error}" Width="*"/>
+        </DataGrid.Columns>
+       </DataGrid>
+      </DockPanel>
+     </Expander>
     </Grid>
    </TabItem>
 

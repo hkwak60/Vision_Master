@@ -172,6 +172,20 @@ internal static class Program
             vm.HandleHotkey(Key.N);
             Require(reviewStore.Saves == beforeNotDlng + 2, "N auto advance commits once");
 
+            var correctionStore = new DlngReviews();
+            var correctionVm = new DlngReviewViewModel(new Machines(machine), null!, correctionStore, null!, new Preview());
+            var correction = new DlngCandidateItem(Row(machine, "CORRECTION", 1).Item with
+                { ModelKind = DlngModelKind.Classification, CropFolder = "Crop_B", SourceClass = "05_NG_INITIAL" }, null);
+            var following = new DlngCandidateItem(correction.Item with { Key = "FOLLOWING", CellId = "FOLLOWING" }, null);
+            correctionVm.Candidates.Add(correction); correctionVm.Candidates.Add(following);
+            correctionVm.SelectedCandidate = correction;
+            correctionVm.AutoAdvanceAfterReview = true;
+            correctionVm.FinalClassOptions.First(o => ReviewSemantics.ShouldCollectCorrection(DlngModelKind.Classification,
+                correction.Item.SourceClass, o.DisplayName)).IsSelected = true;
+            Require(correctionStore.Saves == 1 && correctionStore.Last!.IncludeInTraining, "classification correction collected before auto advance");
+            Require(ReferenceEquals(correctionVm.SelectedCandidate, following) && !correctionVm.IncludeInTraining, "classification auto advance once and reset inclusion");
+            correctionVm.SelectedCandidate = correction;
+            Require(correctionVm.IncludeInTraining, "classification correction restores training selection");
             var kr = new KickoutReviews();
             var kv = new MainViewModel(new Machines(machine),null!,kr,new Folders(),new Cache(),null!,new Preview(),null!,new AppStorage(Root));
             foreach(var row in new[]{first,unrelated,repeat})
@@ -333,7 +347,7 @@ internal static class Program
             foreach (var option in overkill.Kickout.Machines) option.Visible = true;
             overkill.ActiveTab = 2;
             Layout(dashboard);
-            Require(Descendants<Button>(dashboard).Any(b => b.Content as string == "Retry pending copies"), "training controls retained");
+            Require(Descendants<Button>(dashboard).Any(b => b.Content as string == "수집 실패 재시도"), "training controls retained");
             Require(Descendants<DataGrid>(dashboard).SelectMany(g => g.Columns).All(c => c.Header as string != "Product"), "product hidden");
             Require(overkill.Batches.Any(b => b.Pending > 0), "saved selected reviews without collection appear as pending");
             foreach (var pendingBatch in overkill.Batches.ToArray())
@@ -348,6 +362,7 @@ internal static class Program
             Complete(overkill.RefreshAsync());
             overkill.SelectedBatch = overkill.Batches.Single();
             Complete(collection.GenerateDatasetAsync(overkill.SelectedBatch.Id));
+            overkill.ShowTrainedBatches = true;
             Complete(overkill.RefreshAsync());
             Require(overkill.SelectedBatch is { TotalSamples: 1, TotalFiles: 2, Status: "Trained" }, "trained batch retains pair and file counts");
             Require(overkill.CollectionCounts.Sum(c => c.Samples) == 1 && overkill.GenerateDatasetCommand.CanExecute(null), "trained class counts and repeat export remain available");
@@ -387,6 +402,13 @@ internal static class Program
             overkill.ActiveTab = 0;
             Layout(dashboard);
             Render(dashboard, "overkill-wide-smoke.png", 1920, 900);
+            overkill.ActiveTab = 2;
+            Layout(dashboard);
+            Render(dashboard, "training-collection-smoke.png");
+            overkill.ShowTrainedBatches = false;
+            Require(!overkill.ShowTrainedBatches && overkill.Batches.All(b => b.TrainedAt is null), "collection defaults to active batches");
+            overkill.ShowTrainedBatches = true;
+            Layout(dashboard);
             Console.WriteLine("PASS: six WPF views construct/layout at 1100x700; trend gap/zero rendering, field selection, legend, detail, tab state and date refresh/reset; explicit drafts, auto advance, failure retention, saved-class colors, training selection restore, editor guard; grouping, crop sibling counts, column sorting, keyboard navigation, previews, flag context, queue time validation and default selections.");
             app.Shutdown();
             return 0;

@@ -83,6 +83,8 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
     public AsyncRelayCommand GenerateDatasetCommand { get; }
     public AsyncRelayCommand ExcludeCommand { get; }
     public ObservableCollection<HistoryContribution> Contributions { get; } = [];
+    private bool _showTrainedBatches;
+    public bool ShowTrainedBatches { get => _showTrainedBatches; set { if (_showTrainedBatches == value) return; Set(ref _showTrainedBatches, value); Filter(); } }
     public ObservableCollection<TrainingBatch> Batches { get; } = [];
     public ObservableCollection<TrainingSample> Samples { get; } = [];
     public ObservableCollection<CollectionCount> CollectionCounts { get; } = [];
@@ -143,8 +145,8 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         Kickout.SetData(OverkillTrendService.Kickout(_kickout, start, end));
         Dlng.SetData(OverkillTrendService.Dlng(_dlng, start, end));
         var batchId = SelectedBatch?.Id; var sampleId = SelectedSample?.Id;
-        Replace(Batches, _batches);
-        SelectedBatch = Batches.FirstOrDefault(b => b.Id == batchId);
+        Replace(Batches, _batches.Where(b => ShowTrainedBatches || b.TrainedAt is null).OrderBy(b => b.TrainedAt is not null).ThenBy(b => b.ModelDisplay).ThenByDescending(b => b.DisplayEditedAt));
+        SelectedBatch = Batches.FirstOrDefault(b => b.Id == batchId) ?? Batches.FirstOrDefault();
         SelectedSample = Samples.FirstOrDefault(s => s.Id == sampleId);
         UpdateCollectionCounts();
     }
