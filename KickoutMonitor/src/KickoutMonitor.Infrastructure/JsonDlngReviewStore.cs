@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using KickoutMonitor.Application;
 using KickoutMonitor.Domain;
 
@@ -31,7 +31,10 @@ public sealed class JsonDlngReviewStore : IDlngReviewStore
         }
     }
 
-    public async Task SaveAsync(DlngReviewRecord record, CancellationToken cancellationToken)
+    public Task SaveAsync(DlngReviewRecord record, CancellationToken cancellationToken) =>
+        Task.Run(() => SaveCoreAsync(record, cancellationToken), cancellationToken);
+
+    private async Task SaveCoreAsync(DlngReviewRecord record, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try

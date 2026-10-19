@@ -186,6 +186,30 @@ internal static class Program
             Require(ReferenceEquals(correctionVm.SelectedCandidate, following) && !correctionVm.IncludeInTraining, "classification auto advance once and reset inclusion");
             correctionVm.SelectedCandidate = correction;
             Require(correctionVm.IncludeInTraining, "classification correction restores training selection");
+            var slowStorage = new AppStorage(System.IO.Path.Combine(Root, "slow-collection"));
+            var slowCollection = new TrainingCollectionService(slowStorage);
+            var collectionGate = (SemaphoreSlim)typeof(TrainingCollectionService).GetField("_gate", privateFields)!.GetValue(slowCollection)!;
+            collectionGate.Wait();
+            var fastReviews = new DlngReviews();
+            var fastVm = new DlngReviewViewModel(new Machines(machine), null!, fastReviews, null!, new Preview(), collection: slowCollection);
+            var slowRow = Row(machine, "SLOWCOPY", 1);
+            var afterSlow = Row(machine, "NEXTCOPY", 2);
+            fastVm.Candidates.Add(slowRow); fastVm.Candidates.Add(afterSlow); fastVm.SelectedCandidate = slowRow;
+            try
+            {
+                fastVm.HandleHotkey(Key.O);
+                Require(fastReviews.Saves == 1 && fastReviews.Last!.IncludeInTraining, "training intent durable before blocked copy");
+                Require(!fastVm.IsBusy && ReferenceEquals(fastVm.SelectedCandidate, afterSlow), "slow copy does not block save/navigation");
+                var work = (Task)typeof(DlngReviewViewModel).GetField("_collectionWork", privateFields)!.GetValue(fastVm)!;
+                Require(!work.IsCompleted, "copy is queued behind held collection gate");
+                fastVm.SelectedCandidate = slowRow;
+                fastVm.HandleHotkey(Key.R); // Exclude after Overkill; the later decision must win.
+                Require(fastReviews.Saves == 2 && !fastReviews.Last!.IncludeInTraining, "reclassification persists while copy blocked");
+            }
+            finally { collectionGate.Release(); }
+            Complete((Task)typeof(DlngReviewViewModel).GetField("_collectionWork", privateFields)!.GetValue(fastVm)!);
+            var recoveredBatches = Task.Run(() => slowCollection.LoadAsync()).GetAwaiter().GetResult();
+            Require(recoveredBatches.SelectMany(b => b.Samples).All(s => s.State == "Excluded"), "ordered background reclassification wins after copy failure");
             var kr = new KickoutReviews();
             var kv = new MainViewModel(new Machines(machine),null!,kr,new Folders(),new Cache(),null!,new Preview(),null!,new AppStorage(Root));
             foreach(var row in new[]{first,unrelated,repeat})

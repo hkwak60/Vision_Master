@@ -154,6 +154,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private readonly VisionMasterSettings _settings;
     private readonly IFlaggedItemStore? _flags;
     private readonly TrainingCollectionService? _collection;
+    private Task _collectionWork = Task.CompletedTask;
     private bool _draftEdited;
     private bool _includeInTraining;
     private bool _trainingTouched;
@@ -551,6 +552,8 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         IsBusy = true;
         try
         {
+            Status = "Waiting for queued training copies…";
+            await _collectionWork;
             var records = Candidates.Select(c => _reviewRecords.GetValueOrDefault(c.Item.Key))
                 .OfType<DlngReviewRecord>().ToArray();
             Status = await Task.Run(() => _collection.AddToCurrentBatchAsync(records));
@@ -657,6 +660,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             item.Item.Model, item.Item.ModelKind, item.Item.Polarity.ToString());
         try
         {
+            var saveTimer = System.Diagnostics.Stopwatch.StartNew();
             await _reviews.SaveAsync(record, CancellationToken.None);
             _reviewRecords[item.Item.Key] = record;
             item.ReviewStatus = "Saved";
@@ -665,20 +669,10 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             Status = "Judgment saved.";
             if (_collection is not null)
             {
-                try
-                {
-                    Status = "Judgment saved. " + await _collection.ApplyAsync(record);
-                    var collected = (await _collection.LoadAsync()).SelectMany(b => b.Samples)
-                        .FirstOrDefault(s => s.SourceIdentity == ReviewSemantics.SampleId(record) && s.State == "Ready");
-                    if (collected is not null)
-                    {
-                        record = record with { CollectedAt = collected.CollectedAt };
-                        await _reviews.SaveAsync(record, CancellationToken.None);
-                        _reviewRecords[item.Item.Key] = record;
-                    }
-                }
-                catch (Exception copyError) { Status = "Judgment saved; collection pending: " + copyError.Message; }
+                QueueCollection(record);
+                Status = "Judgment saved; training update queued. Review can continue.";
             }
+            AddLog($"Review record saved in {saveTimer.ElapsedMilliseconds:N0} ms.");
             AddLog($"{item.LinePolarity} {item.CellId} {item.Defect}: classified as {selected}.");
             if (ReferenceEquals(SelectedCandidate, item) && next is not null) SelectedCandidate = next;
             RequestKeyboardFocus?.Invoke(this, EventArgs.Empty);
@@ -689,6 +683,33 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             Status = exception.Message;
         }
         finally { IsBusy = false; }
+    }
+
+    private void QueueCollection(DlngReviewRecord record)
+    {
+        // Review intent is already durable. Do not block navigation on production-share I/O.
+        // Preserve commit order, including reclassification and deselection of the same sample.
+        var previous = _collectionWork;
+        var progress = new Progress<string>(message =>
+        {
+            AddLog($"{record.LinePolarity} {record.CellId}: {message}");
+            if (message.StartsWith("Collection failed:", StringComparison.Ordinal))
+                Status = $"Judgment saved; {record.CellId} collection pending. {message}";
+        });
+        _collectionWork = Task.Run(async () =>
+        {
+            await previous;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                var result = await _collection!.ApplyAsync(record);
+                ((IProgress<string>)progress).Report($"{result} ({timer.ElapsedMilliseconds:N0} ms)");
+            }
+            catch (Exception e)
+            {
+                ((IProgress<string>)progress).Report("Collection failed: " + e.Message);
+            }
+        });
     }
 
     private async Task LoadPreviewsAsync(DlngCandidateItem? item)
@@ -720,9 +741,9 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         }
 
         current.State = "Loading";
-        var image = File.Exists(current.Path)
-            ? await _images.LoadAsync(current.Path, 1600, cancellationToken)
-            : null;
+        // The loader handles missing files on its worker thread; a UI-thread File.Exists
+        // can itself block on an unavailable share before the next item is shown.
+        var image = await _images.LoadAsync(current.Path, 1600, cancellationToken);
         if (cancellationToken.IsCancellationRequested) return;
         current.Image = image;
         current.State = image is null ? "Unavailable or still writing" : string.Empty;

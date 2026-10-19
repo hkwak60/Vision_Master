@@ -166,3 +166,22 @@ again; sample details and retry/exclusion controls remain available.
 LastEditedAt is persisted on batch changes; read-only refresh does not move it.
 Legacy batches display the latest known collection/review/training timestamp until
 their next actual change. Existing manifests are backed up before writes.
+
+
+### DLNG review responsiveness
+
+A judgment is durably saved before advancing. Training copying then runs in an
+ordered background queue, including corrections and deselection. A slow or
+unavailable production share does not hold the review controls busy. Generate /
+Add to current batch waits for that queue before updating the batch.
+
+Per-save full collection loading/validation and the second review-store rewrite
+were removed. Collection timestamps remain authoritative in the batch manifest.
+Review JSON preparation runs off the UI thread; atomic replacement and save-failure
+draft retention remain unchanged. Preview file opening/missing checks run in the
+preview loader, avoiding a synchronous network existence check on navigation.
+
+The activity log records review-save and collection durations separately, plus
+copy failures. A saved judgment is independent of collection success. After an
+interruption, saved Include in training choices can be recovered through Training
+collection's retry flow; do not assume a queued copy has finished before closing.
