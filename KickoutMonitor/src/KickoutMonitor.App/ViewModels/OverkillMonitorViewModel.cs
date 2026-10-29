@@ -114,7 +114,7 @@ public sealed class OverkillMonitorViewModel : INotifyPropertyChanged
         catch (Exception e) { errors.Add("Kickout history: " + e); }
         try { _dlng = await _history.LoadDlngAsync(); }
         catch (Exception e) { errors.Add("DLNG reviews: " + e); }
-        try { await Task.Run(() => _collection.QueueSelectedAsync(_dlng)); _batches = await Task.Run(() => _history.LoadBatchesAsync()); }
+        try { _batches = await Task.Run(() => _history.LoadBatchesAsync()); }
         catch (Exception e) { errors.Add("Training collection: " + e); }
         Filter();
         var details = string.Join(Environment.NewLine + Environment.NewLine, errors.Concat(_history.Warnings));

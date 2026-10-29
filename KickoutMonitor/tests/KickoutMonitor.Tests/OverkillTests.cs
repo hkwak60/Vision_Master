@@ -26,6 +26,67 @@ public sealed class OverkillTests : IDisposable
             TrainingPolarity:polarity);
     }
     [Theory]
+    [InlineData("SEPA", "Overkill")]
+    [InlineData("Crop_B", "04_NG")]
+    public async Task ExplicitBatchReusesPreviewBytesOfflineAndRetryDoesNotEnrollNewReviews(string crop, string label)
+    {
+        var review = Review("CACHED", crop: crop, label: label);
+        var service = Collection;
+        foreach (var path in review.ImagePaths) await service.PreviewCache.GetAsync(path);
+        foreach (var path in review.ImagePaths) File.Delete(path);
+        await service.RecoverAsync([review]);
+        Assert.Empty(await service.LoadAsync());
+        await service.AddToCurrentBatchAsync([review]);
+        var first = Assert.Single(await service.LoadAsync());
+        Assert.Equal(1, first.TotalSamples);
+        Assert.All(first.Samples.Single().Files, path => Assert.True(new FileInfo(path).Length > 0));
+        await service.AddToCurrentBatchAsync([review]);
+        Assert.Equal(1, (await service.LoadAsync()).Single().TotalSamples);
+        await service.GenerateDatasetAsync(first.Id);
+        // A new explicit batch can reuse exact old ownership even without preview cache/source.
+        foreach (var path in review.ImagePaths) File.Delete(service.PreviewCache.Find(path)!);
+        await service.AddToCurrentBatchAsync([review]);
+        var batches = await service.LoadAsync();
+        Assert.Equal(2, batches.Count);
+        Assert.All(batches, b => Assert.Equal(1, b.TotalSamples));
+    }
+
+    [Fact]
+    public async Task ExplicitAddAppliesDeselectionWithoutCreatingOrChangingFrozenBatch()
+    {
+        var review = Review("DESELECT");
+        await Collection.AddToCurrentBatchAsync([review]);
+        await Collection.AddToCurrentBatchAsync([review with { IncludeInTraining = false }]);
+        Assert.Equal(0, (await Collection.LoadAsync()).Single().TotalSamples);
+        Assert.Equal("Excluded", (await Collection.LoadAsync()).Single().Samples.Single().State);
+        await Collection.AddToCurrentBatchAsync([review]);
+        var batch = (await Collection.LoadAsync()).Single();
+        await Collection.GenerateDatasetAsync(batch.Id);
+        await Collection.AddToCurrentBatchAsync([review with { IncludeInTraining = false }]);
+        Assert.Equal(1, (await Collection.LoadAsync()).Single().TotalSamples);
+    }
+
+    [Fact]
+    public async Task PreviewCacheRejectsPartialOrCorruptedFilesAndKeepsIdentitiesSeparate()
+    {
+        var review = Review("CACHECHECK");
+        var cache = new DlngImageCache(Storage);
+        var source = review.ImagePaths[0];
+        var local = await cache.GetAsync(source);
+        File.WriteAllBytes(local, [9, 9, 9]); // Same length corruption is not accepted.
+        Assert.Null(cache.Find(source));
+        Assert.Equal(local, await cache.GetAsync(source));
+        Assert.Equal(File.ReadAllBytes(source), File.ReadAllBytes(local));
+        var otherFolder = Path.Combine(_root, "other-machine");
+        Directory.CreateDirectory(otherFolder);
+        var other = Path.Combine(otherFolder, Path.GetFileName(source));
+        File.WriteAllBytes(other, [7, 8]);
+        Assert.NotEqual(local, await cache.GetAsync(other));
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cache.GetAsync(source, cancelled.Token));
+    }
+
+    [Theory]
     [InlineData("05_NG_A", "06_NG_B", true)]
     [InlineData("05_NG_A", "5_NG_A", false)]
     [InlineData("05_NG_A", "05_NG_A", false)]
@@ -184,7 +245,7 @@ public sealed class OverkillTests : IDisposable
         Assert.True(File.Exists(Path.Combine(Storage.Root, "DLNG_REPORT", ".collection", "batches.json")));
         Assert.False(File.Exists(Path.Combine(Storage.Root, "DLNG_REPORT", ".collection", "migration-complete.txt")));
         var cathode = Review("NEW", "CropB", polarity: "Cathode", line: "1-1(+)", label: "01_OK");
-        await Collection.RecoverAsync(new[] { cathode });
+        await Collection.AddToCurrentBatchAsync(new[] { cathode });
         var current = await Collection.LoadAsync();
         Assert.Equal(2, current.Count);
         var newBatch = current.Single(b => b.Crop == "CropB");

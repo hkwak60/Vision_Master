@@ -168,20 +168,29 @@ Legacy batches display the latest known collection/review/training timestamp unt
 their next actual change. Existing manifests are backed up before writes.
 
 
-### DLNG review responsiveness
+### DLNG explicit collection and image reuse
 
-A judgment is durably saved before advancing. Training copying then runs in an
-ordered background queue, including corrections and deselection. A slow or
-unavailable production share does not hold the review controls busy. Generate /
-Add to current batch waits for that queue before updating the batch.
+Classification saves only the review and Include in training selection. Automatic
+selection for Overkill/class corrections and Always save are selection defaults;
+none of them enroll or copy a dataset. Press Generate / Add to current batch to
+submit the selected saved decisions from the loaded queue, including reloaded old
+reviews. Dashboard refresh does not enroll historical decisions. Retry only retries
+already-submitted failed/pending samples using their submitted labels.
 
-Per-save full collection loading/validation and the second review-store rewrite
-were removed. Collection timestamps remain authoritative in the batch manifest.
-Review JSON preparation runs off the UI thread; atomic replacement and save-failure
-draft retention remain unchanged. Preview file opening/missing checks run in the
-preview loader, avoiding a synchronous network existence check on navigation.
+Generate/Add applies changed labels and deselections to active owned samples.
+Ready unchanged samples are reused without re-copying. Downloaded/trained batches
+remain frozen; explicitly adding again starts/uses a new active batch.
 
-The activity log records review-save and collection durations separately, plus
-copy failures. A saved judgment is independent of collection success. After an
-interruption, saved Include in training choices can be recovered through Training
-collection's retry flow; do not assume a queued copy has finished before closing.
+Queue discovery resolves paths, not all image bytes. On viewing a DLNG crop, its
+full original bytes are cached under the existing .temp/DLNG root, keyed by full
+source path (including machine and inspection). Preview resizing never changes
+the cached original. Length/hash validation rejects partial/corrupt local files.
+Batch collection reuses verified preview bytes or the same inspection/crop from
+an existing batch before reading the exact production path. Missing companion
+images still need downloading. Cached files retain their original names and review
+identities retain production paths, preventing cache paths from creating duplicates.
+Caches can be reused offline and after reopening; no cell-only image search occurs.
+
+A review save remains durable before advancement; save failure retains the draft.
+Activity logs report review-save time. Collection progress/results occur only after
+the explicit batch action. Dataset exports remain in DLNG_REPORT/DATASET.

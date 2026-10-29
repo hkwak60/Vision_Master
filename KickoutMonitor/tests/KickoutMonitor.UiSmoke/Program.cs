@@ -200,16 +200,13 @@ internal static class Program
                 fastVm.HandleHotkey(Key.O);
                 Require(fastReviews.Saves == 1 && fastReviews.Last!.IncludeInTraining, "training intent durable before blocked copy");
                 Require(!fastVm.IsBusy && ReferenceEquals(fastVm.SelectedCandidate, afterSlow), "slow copy does not block save/navigation");
-                var work = (Task)typeof(DlngReviewViewModel).GetField("_collectionWork", privateFields)!.GetValue(fastVm)!;
-                Require(!work.IsCompleted, "copy is queued behind held collection gate");
                 fastVm.SelectedCandidate = slowRow;
                 fastVm.HandleHotkey(Key.R); // Exclude after Overkill; the later decision must win.
                 Require(fastReviews.Saves == 2 && !fastReviews.Last!.IncludeInTraining, "reclassification persists while copy blocked");
             }
             finally { collectionGate.Release(); }
-            Complete((Task)typeof(DlngReviewViewModel).GetField("_collectionWork", privateFields)!.GetValue(fastVm)!);
             var recoveredBatches = Task.Run(() => slowCollection.LoadAsync()).GetAwaiter().GetResult();
-            Require(recoveredBatches.SelectMany(b => b.Samples).All(s => s.State == "Excluded"), "ordered background reclassification wins after copy failure");
+            Require(recoveredBatches.Count == 0, "classification alone must never create a batch");
             var kr = new KickoutReviews();
             var kv = new MainViewModel(new Machines(machine),null!,kr,new Folders(),new Cache(),null!,new Preview(),null!,new AppStorage(Root));
             foreach(var row in new[]{first,unrelated,repeat})
@@ -373,7 +370,7 @@ internal static class Program
             Layout(dashboard);
             Require(Descendants<Button>(dashboard).Any(b => b.Content as string == "수집 실패 재시도"), "training controls retained");
             Require(Descendants<DataGrid>(dashboard).SelectMany(g => g.Columns).All(c => c.Header as string != "Product"), "product hidden");
-            Require(overkill.Batches.Any(b => b.Pending > 0), "saved selected reviews without collection appear as pending");
+            Require(overkill.Batches.Count == 0, "dashboard refresh does not automatically enroll saved selections");
             foreach (var pendingBatch in overkill.Batches.ToArray())
                 foreach (var pendingSample in pendingBatch.Samples.Where(s => s.State == "Pending"))
                     Complete(collection.ExcludeAsync(pendingBatch.Id, pendingSample.Id));

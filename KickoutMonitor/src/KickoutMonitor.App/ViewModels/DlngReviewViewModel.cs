@@ -154,7 +154,6 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
     private readonly VisionMasterSettings _settings;
     private readonly IFlaggedItemStore? _flags;
     private readonly TrainingCollectionService? _collection;
-    private Task _collectionWork = Task.CompletedTask;
     private bool _draftEdited;
     private bool _includeInTraining;
     private bool _trainingTouched;
@@ -552,8 +551,7 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         IsBusy = true;
         try
         {
-            Status = "Waiting for queued training copies…";
-            await _collectionWork;
+            Status = "Adding selected reviews to the current batch…";
             var records = Candidates.Select(c => _reviewRecords.GetValueOrDefault(c.Item.Key))
                 .OfType<DlngReviewRecord>().ToArray();
             Status = await Task.Run(() => _collection.AddToCurrentBatchAsync(records));
@@ -667,11 +665,9 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             item.SavedClass = selected;
             _draftEdited = false;
             Status = "Judgment saved.";
-            if (_collection is not null)
-            {
-                QueueCollection(record);
-                Status = "Judgment saved; training update queued. Review can continue.";
-            }
+            Status = record.IncludeInTraining
+                ? "Judgment saved. Selected for training; press Generate / Add to current batch to collect."
+                : "Judgment saved.";
             AddLog($"Review record saved in {saveTimer.ElapsedMilliseconds:N0} ms.");
             AddLog($"{item.LinePolarity} {item.CellId} {item.Defect}: classified as {selected}.");
             if (ReferenceEquals(SelectedCandidate, item) && next is not null) SelectedCandidate = next;
@@ -683,33 +679,6 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
             Status = exception.Message;
         }
         finally { IsBusy = false; }
-    }
-
-    private void QueueCollection(DlngReviewRecord record)
-    {
-        // Review intent is already durable. Do not block navigation on production-share I/O.
-        // Preserve commit order, including reclassification and deselection of the same sample.
-        var previous = _collectionWork;
-        var progress = new Progress<string>(message =>
-        {
-            AddLog($"{record.LinePolarity} {record.CellId}: {message}");
-            if (message.StartsWith("Collection failed:", StringComparison.Ordinal))
-                Status = $"Judgment saved; {record.CellId} collection pending. {message}";
-        });
-        _collectionWork = Task.Run(async () =>
-        {
-            await previous;
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            try
-            {
-                var result = await _collection!.ApplyAsync(record);
-                ((IProgress<string>)progress).Report($"{result} ({timer.ElapsedMilliseconds:N0} ms)");
-            }
-            catch (Exception e)
-            {
-                ((IProgress<string>)progress).Report("Collection failed: " + e.Message);
-            }
-        });
     }
 
     private async Task LoadPreviewsAsync(DlngCandidateItem? item)
@@ -743,7 +712,16 @@ public sealed class DlngReviewViewModel : INotifyPropertyChanged
         current.State = "Loading";
         // The loader handles missing files on its worker thread; a UI-thread File.Exists
         // can itself block on an unavailable share before the next item is shown.
-        var image = await _images.LoadAsync(current.Path, 1600, cancellationToken);
+        BitmapSource? image;
+        try
+        {
+            var path = _collection is not null && SelectedCandidate?.Item.ModelKind != DlngModelKind.FallbackRaw
+                ? await _collection.PreviewCache.GetAsync(current.Path, cancellationToken) : current.Path;
+            image = await _images.LoadAsync(path, 1600, cancellationToken);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        { image = null; AddLog("Preview unavailable: " + e.Message); }
         if (cancellationToken.IsCancellationRequested) return;
         current.Image = image;
         current.State = image is null ? "Unavailable or still writing" : string.Empty;
